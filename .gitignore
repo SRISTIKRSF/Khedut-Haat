@@ -1,0 +1,17 @@
+# Admin file — keeps PIN private (only deployed via Firebase Hosting)
+sristi_haat_admin_v1.html
+
+# Local-only tools
+sristi_haat_photo_slicer.html
+sristi_haat_seed_week492.html
+
+# Firebase deploy machinery (lives at parent Sristi/ folder)
+.firebase/
+firebase.json
+.firebaserc
+
+# OS / editor cruft
+Thumbs.db
+.DS_Store
+*.bak
+*.tmp

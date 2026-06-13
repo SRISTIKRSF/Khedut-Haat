@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@700;900&family=Noto+Sans+Gujarati:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --green:#1b4332; --green2:#2d6a4f; --green3:#52b788; --green-pale:#d8f3dc;
+  --orange:#e36414; --orange-pale:#fff0e0; --red:#c1121f; --red-pale:#ffe0e0;
+  --bg:#fffbf4; --card:#fff; --text:#1a1a1a; --muted:#6b7280; --border:#e8e0d0;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:"Noto Sans Gujarati","DM Sans",sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.45;min-height:100vh}
+img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;display:inline-block}
+.wrap{max-width:560px;margin:0 auto;padding-bottom:110px}
+
+/* LOGIN */
+.login{padding:24px 22px;max-width:420px;margin:0 auto}
+.login-hero{text-align:center;padding:30px 10px 24px}
+.login-hero-emoji{font-size:62px;margin-bottom:10px}
+.login-title{font-family:"Fraunces","Noto Sans Gujarati",serif;font-size:28px;font-weight:900;color:var(--green);line-height:1.1;margin-bottom:6px}
+.login-sub{font-size:14px;color:var(--muted)}
+.login-card{background:#fff;border:1px solid var(--border);border-radius:16px;padding:22px 20px;box-shadow:0 6px 24px rgba(27,67,50,.08)}
+.frm{display:flex;flex-direction:column;gap:14px}
+.frm-row{display:flex;flex-direction:column;gap:5px}
+.frm-label{font-size:12.5px;font-weight:600;color:var(--muted)}
+.frm-in{border:1.5px solid var(--border);border-radius:10px;padding:13px 14px;font-size:16px;font-family:inherit;outline:none;background:#fff}
+.frm-in:focus{border-color:var(--green2)}
+.btn-primary{background:var(--green2);color:#fff;border:none;border-radius:10px;padding:14px;font-size:15.5px;font-weight:700;cursor:pointer;font-family:inherit;width:100%;box-shadow:0 4px 14px rgba(45,106,79,.3)}
+.btn-primary:active{transform:scale(.99)}
+.login-hint{margin-top:14px;font-size:12.5px;color:var(--muted);text-align:center;line-height:1.6}
+.login-hint b{color:var(--green2);font-weight:600}
+.login-err{background:var(--red-pale);color:var(--red);border-radius:8px;padding:10px 12px;font-size:13px;text-align:center;margin-top:10px;font-weight:500}
+
+/* HEADER */
+.hdr{background:linear-gradient(135deg,var(--green) 0%,var(--green2) 100%);color:#fff;padding:14px 18px 18px;position:relative;overflow:hidden}
+.hdr::before{content:"🌿";position:absolute;right:-12px;top:-22px;font-size:120px;opacity:.08;transform:rotate(-15deg)}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;position:relative;z-index:2}
+.hdr-week{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;opacity:.8}
+.hdr-logout{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:14px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit}
+.hdr-title{font-size:20px;font-weight:800;line-height:1.2;margin-bottom:9px}
+.farmer-card{background:rgba(255,255,255,.12);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.2);border-radius:12px;padding:10px 13px;display:flex;align-items:center;gap:11px}
+.farmer-avatar{width:38px;height:38px;border-radius:50%;background:var(--green3);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--green);flex-shrink:0;overflow:hidden}
+.farmer-avatar img{width:100%;height:100%;object-fit:cover}
+.farmer-info{flex:1;min-width:0}
+.farmer-name{font-size:14.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.farmer-meta{font-size:11px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* DEADLINE BAR */
+.deadline{background:var(--orange-pale);border-left:4px solid var(--orange);padding:10px 16px;font-size:12.5px;color:#7a3010;font-weight:500}
+.deadline b{font-weight:700}
+.admin-note{background:#fff8d6;border:2px solid #f7c800;border-radius:11px;padding:12px 14px;margin:11px 14px 4px;box-shadow:0 2px 10px rgba(247,200,0,.18)}
+
+/* SEARCH BAR (sticky) */
+.search-bar{background:#fff;padding:10px 14px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:90;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.search-wrap{display:flex;align-items:center;background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:0 12px}
+.search-wrap input{flex:1;border:none;background:none;outline:none;font-family:inherit;font-size:14.5px;padding:9px 0;color:var(--text)}
+.search-wrap input::placeholder{color:var(--muted)}
+.search-meta{font-size:11.5px;color:var(--muted);margin-top:7px;display:flex;align-items:center;justify-content:space-between}
+.search-meta b{color:var(--green2);font-weight:700}
+
+/* CATEGORY HEADER */
+.cat-h{display:flex;align-items:center;gap:8px;padding:14px 16px 8px;background:var(--bg);position:sticky;top:74px;z-index:50}
+.cat-h-emoji{font-size:18px}
+.cat-h-name{font-family:"Fraunces","Noto Sans Gujarati",serif;font-size:16px;font-weight:700;color:var(--green)}
+.cat-h-count{font-size:10.5px;color:var(--muted);font-weight:500;background:#fff;border-radius:20px;padding:2px 8px;margin-left:auto;border:1px solid var(--border)}
+
+/* ITEM ROW (the structured form) */
+.items{padding:0 12px}
+.item{background:#fff;border:1.5px solid var(--border);border-radius:11px;padding:9px 11px;margin-bottom:6px;display:flex;align-items:center;gap:9px;transition:.15s}
+.item.active{border-color:var(--green3);background:#f3fbf5}
+.item.search-hidden{display:none}
+.item-emo{width:34px;height:34px;border-radius:8px;background:var(--green-pale);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.item.active .item-emo{background:var(--green3)}
+.item-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.item-name{font-size:13.5px;font-weight:600;color:var(--text);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item-unit{font-size:10.5px;color:var(--muted);font-weight:400}
+.item-inputs{display:flex;gap:6px;flex-shrink:0;align-items:flex-start}
+.input-col{display:flex;flex-direction:column;gap:2px;align-items:center}
+.input-col-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.input-wrap{display:flex;align-items:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:0 6px;transition:.15s}
+.input-wrap.has-val{background:#fff;border-color:var(--green2)}
+.input-wrap .pfx{font-size:12px;color:var(--muted);font-weight:600;padding-right:2px}
+.input-wrap input{width:42px;border:none;background:none;outline:none;font-family:inherit;font-size:14px;font-weight:600;padding:7px 0;color:var(--text);text-align:center;-moz-appearance:textfield}
+.input-wrap input::-webkit-outer-spin-button,
+.input-wrap input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.input-wrap .sfx{font-size:10.5px;color:var(--muted);padding-left:3px;font-weight:500}
+
+/* CUSTOM ADD */
+.add-row{padding:16px 14px 6px;text-align:center}
+.add-btn{background:#fff;border:2px dashed var(--green3);color:var(--green2);border-radius:11px;padding:11px 18px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit}
+.add-btn:active{background:var(--green-pale)}
+.custom-form{background:#fff;border:1.5px solid var(--green3);border-radius:11px;padding:12px;margin:10px 12px 0}
+.custom-form .frm-row-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.custom-form-foot{display:flex;gap:8px;margin-top:10px}
+.btn-mini{padding:9px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;flex:1;border:1.5px solid var(--border);background:#fff;color:var(--muted)}
+.btn-mini.primary{background:var(--green2);color:#fff;border-color:var(--green2)}
+
+/* CUSTOM ITEMS LIST (above PRODUCT_LIB items) */
+.custom-list-hdr{padding:6px 16px;font-size:11px;font-weight:700;color:var(--green2);text-transform:uppercase;letter-spacing:1px}
+
+/* SUBMIT FOOTER */
+.submit-bar{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);padding:11px 14px env(safe-area-inset-bottom,11px);box-shadow:0 -4px 18px rgba(0,0,0,.06);z-index:60}
+.submit-bar-inner{max-width:560px;margin:0 auto;display:flex;align-items:center;gap:10px}
+.submit-summary{flex:1;font-size:11.5px;color:var(--muted);line-height:1.3}
+.submit-summary b{color:var(--text);font-size:13.5px;display:block;font-weight:700}
+.btn-submit{background:var(--green2);color:#fff;border:none;border-radius:10px;padding:12px 20px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0;box-shadow:0 4px 12px rgba(45,106,79,.3)}
+.btn-submit:disabled{background:#aaa;box-shadow:none;cursor:not-allowed}
+.btn-submit:active:not(:disabled){transform:scale(.97)}
+
+/* STATES & TOAST */
+.state{padding:80px 30px;text-align:center;color:var(--muted)}
+.state-icon{font-size:60px;margin-bottom:14px}
+.state-title{font-size:17px;color:var(--text);font-weight:700;margin-bottom:6px}
+.state-body{font-size:13.5px;line-height:1.6}
+.toast-wrap{position:fixed;top:16px;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:6px;z-index:200;pointer-events:none}
+.toast{background:var(--text);color:#fff;padding:10px 18px;border-radius:24px;font-size:13.5px;font-weight:500;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:80%;text-align:center;animation:toastIn .25s ease-out}
+.toast.ok{background:var(--green2)}.toast.err{background:var(--red)}
+@keyframes toastIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+
+/* STATUS PILL */
+.status-pill{display:inline-flex;align-items:center;gap:6px;background:var(--green-pale);color:var(--green2);padding:4px 11px;border-radius:20px;font-size:11.5px;font-weight:600;margin:10px 0 0 16px}
+.status-pill.warn{background:var(--orange-pale);color:#7a3010}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap"></div>
+<div class="toast-wrap" id="toasts"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   સૃષ્ટિ ખેડૂત હાટ — Farmer submit v4 (structured checklist)
+   File: sristi_haat_submit_v1.html (2026-06-11)
+
+   Flow: login (mobile + last-4-digit password) → scroll the full
+   product library grouped by category → type price + qty for what
+   you have → submit. Submission is structured items[] (no parsing
+   needed). Catalog reads it directly.
+
+   DB additions (under prakrutik_kheti namespace):
+     weekly/current               → current week #
+     weekly/{n}/meta              → {weekNum, dateLabel, frozen, deadline}
+     weekly/{n}/submissions/{fid} → {items[], submittedAt, updatedAt}
+     farmerAuth/{phone}/pwd       → custom password (else default = last-4)
+   ══════════════════════════════════════════════════════════════════ */
+
+const FB_CONFIG = {
+  apiKey:"AIzaSyCd0jU_rtG3Us3E4au4rntN5N8tbciHWY0",
+  authDomain:"prakrutik-kheti-c0a89.firebaseapp.com",
+  databaseURL:"https://prakrutik-kheti-c0a89-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"prakrutik-kheti-c0a89",
+  storageBucket:"prakrutik-kheti-c0a89.firebasestorage.app",
+  messagingSenderId:"269627097742",
+  appId:"1:269627097742:web:2d82d97f0621db87133fdf",
+};
+const FB_NAMESPACE='prakrutik_kheti';
+const AUTH_KEY='sristi_farmer_auth_v1';
+
+let FB={app:null,db:null};
+function fbRef(p){return FB.db.ref(FB_NAMESPACE+(p?'/'+p:''));}
+
+/* ── Master product library ── */
+const PRODUCT_LIB = [
+  // શાકભાજી
+  {n:"ભીંડા",u:"kg",c:"શાકભાજી",e:"🌶️"},{n:"દૂધી",u:"kg",c:"શાકભાજી",e:"🥒"},
+  {n:"ગલકા",u:"kg",c:"શાકભાજી",e:"🥒"},{n:"તુરિયા",u:"kg",c:"શાકભાજી",e:"🥒"},
+  {n:"કારેલા",u:"kg",c:"શાકભાજી",e:"🥒"},{n:"ગુવાર",u:"kg",c:"શાકભાજી",e:"🫘"},
+  {n:"ચોળી",u:"kg",c:"શાકભાજી",e:"🫘"},{n:"ટામેટા",u:"kg",c:"શાકભાજી",e:"🍅"},
+  {n:"કાકડી",u:"kg",c:"શાકભાજી",e:"🥒"},{n:"રીંગણ",u:"kg",c:"શાકભાજી",e:"🍆"},
+  {n:"સરગવો",u:"kg",c:"શાકભાજી",e:"🌿"},{n:"સૂકી ડુંગળી",u:"kg",c:"શાકભાજી",e:"🧅"},
+  {n:"બટાકા",u:"kg",c:"શાકભાજી",e:"🥔"},{n:"લસણ",u:"kg",c:"શાકભાજી",e:"🧄"},
+  {n:"કોળું",u:"kg",c:"શાકભાજી",e:"🎃"},{n:"મરચા",u:"kg",c:"શાકભાજી",e:"🌶️"},
+  {n:"લીંબુ",u:"kg",c:"શાકભાજી",e:"🍋"},{n:"ટીંડોળા",u:"kg",c:"શાકભાજી",e:"🥒"},
+  {n:"પરવળ",u:"kg",c:"શાકભાજી",e:"🥒"},{n:"બીટ",u:"kg",c:"શાકભાજી",e:"🟣"},
+  {n:"આદુ",u:"kg",c:"મસાલા",e:"🫚"},
+  // ભાજી
+  {n:"પાલખ",u:"જુડી",c:"ભાજી",e:"🌿"},{n:"ફુદીનો",u:"જુડી",c:"ભાજી",e:"🌿"},
+  {n:"મીઠો લીમડો",u:"જુડી",c:"ભાજી",e:"🌿"},{n:"લીલી ચા",u:"જુડી",c:"ભાજી",e:"🌿"},
+  {n:"સરગવાના પાન",u:"100gm",c:"ભાજી",e:"🌿"},{n:"પુનર્નવા",u:"જુડી",c:"ભાજી",e:"🌿"},
+  // ફળ
+  {n:"કેસર કેરી",u:"kg",c:"ફળ",e:"🥭"},{n:"દેશી કેરી",u:"kg",c:"ફળ",e:"🥭"},
+  {n:"કાચી કેરી",u:"kg",c:"ફળ",e:"🥭"},{n:"પાકા કેળા",u:"kg",c:"ફળ",e:"🍌"},
+  {n:"કાચા કેળા",u:"kg",c:"ફળ",e:"🍌"},{n:"પપૈયા",u:"kg",c:"ફળ",e:"🥭"},
+  {n:"દાડમ",u:"kg",c:"ફળ",e:"🍎"},{n:"તરબૂચ",u:"kg",c:"ફળ",e:"🍉"},
+  {n:"ચીકુ",u:"kg",c:"ફળ",e:"🟤"},
+  // ડેરી
+  {n:"ગીર ગાય ઘી",u:"Lt",c:"ડેરી",e:"🧈"},{n:"A2 દૂધ",u:"Lt",c:"ડેરી",e:"🥛"},
+  {n:"છાશ",u:"Lt",c:"ડેરી",e:"🥛"},{n:"વલોણાનું માખણ",u:"100gm",c:"ડેરી",e:"🧈"},
+  {n:"પનીર",u:"500gm",c:"ડેરી",e:"🧀"},
+  // દાળ/કઠોળ
+  {n:"તુવેર દાળ",u:"kg",c:"દાળ/કઠોળ",e:"🟡"},{n:"ચણા દાળ",u:"500gm",c:"દાળ/કઠોળ",e:"🟡"},
+  {n:"મગ દાળ",u:"500gm",c:"દાળ/કઠોળ",e:"🟢"},{n:"દેશી ચણા",u:"kg",c:"દાળ/કઠોળ",e:"🟤"},
+  {n:"દેશી મગ",u:"kg",c:"દાળ/કઠોળ",e:"🟢"},
+  // અનાજ/લોટ
+  {n:"ઘઉંનો લોટ",u:"kg",c:"અનાજ/લોટ",e:"🌾"},{n:"બાજરીનો લોટ",u:"kg",c:"અનાજ/લોટ",e:"🌾"},
+  {n:"જુવારનો લોટ",u:"kg",c:"અનાજ/લોટ",e:"🌾"},{n:"ચોખા",u:"kg",c:"અનાજ/લોટ",e:"🍚"},
+  // મસાલા
+  {n:"હળદર પાવડર",u:"500gm",c:"મસાલા",e:"🟡"},{n:"ધાણા-જીરૂ",u:"500gm",c:"મસાલા",e:"🟤"},
+  {n:"જીરૂ",u:"250gm",c:"મસાલા",e:"🟤"},{n:"કાશ્મીરી મરચું",u:"500gm",c:"મસાલા",e:"🔴"},
+  // તેલ
+  {n:"શીંગતેલ",u:"Lt",c:"તેલ",e:"🛢️"},{n:"તલ તેલ",u:"500ml",c:"તેલ",e:"🛢️"},
+];
+const CAT_ORDER = ["શાકભાજી","ભાજી","ફળ","ડેરી","દાળ/કઠોળ","અનાજ/લોટ","મસાલા","તેલ","ગોળ/ખાંડ","ફરસાણ","પ્રવાહી","તૈયાર ભોજન","અન્ય"];
+const CAT_EMOJI = {"શાકભાજી":"🥬","ભાજી":"🌿","ફળ":"🥭","ડેરી":"🥛","દાળ/કઠોળ":"🫘","અનાજ/લોટ":"🌾","મસાલા":"🌶️","તેલ":"🛢️","ગોળ/ખાંડ":"🍯","ફરસાણ":"🍪","પ્રવાહી":"🥤","તૈયાર ભોજન":"🍽️","અન્ય":"🌿"};
+const UNITS = ["kg","500gm","250gm","200gm","100gm","Lt","500ml","250ml","જુડી","નંગ","બોક્સ","ગ્લાસ","ડીશ","પેકેટ"];
+const CATS_ALL = CAT_ORDER;
+
+const $=q=>document.querySelector(q);
+const $$=q=>document.querySelectorAll(q);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{folder:'svg',ext:'.svg'}),0); }
+
+function toast(msg, kind=""){
+  const w=$('#toasts');const t=document.createElement('div');
+  t.className='toast '+(kind||"");t.textContent=msg;w.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';},2200);
+  setTimeout(()=>t.remove(),2700);
+}
+
+/* keyed by item name; values: {price, qty, unit, cat, emoji, custom?} */
+let WK=null, WK_META={}, FARMER=null, ENTRIES=new Map(), SUBMITTED_AT=null;
+let NOTE_TO_FARMER="";
+let SEARCH_Q="";
+
+async function init(){
+  FB.app = firebase.initializeApp(FB_CONFIG);
+  FB.db  = firebase.database();
+  const saved=(()=>{try{return JSON.parse(localStorage.getItem(AUTH_KEY)||"null");}catch{return null;}})();
+  if(saved && saved.phone){
+    showState("⏳","લોડ થઈ રહ્યું છે...","");
+    try{ await loginByPhone(saved.phone, saved.pwd, true); return; }catch{}
+  }
+  renderLogin();
+}
+
+/* ════════ LOGIN ════════ */
+function renderLogin(errMsg){
+  $('#wrap').innerHTML = `
+    <div class="login">
+      <div class="login-hero">
+        <div class="login-hero-emoji">🌿</div>
+        <div class="login-title">મારી પેદાશ<br>મોકલો</div>
+        <div class="login-sub">સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ</div>
+      </div>
+      <div class="login-card">
+        <div class="frm">
+          <div class="frm-row">
+            <label class="frm-label">મોબાઈલ નંબર</label>
+            <input class="frm-in" id="liPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="દા.ત. 9016810831" autocomplete="username">
+          </div>
+          <div class="frm-row">
+            <label class="frm-label">પાસવર્ડ</label>
+            <input class="frm-in" id="liPwd" type="password" inputmode="numeric" placeholder="મોબાઈલ ના છેલ્લા 4 અંક" autocomplete="current-password">
+          </div>
+          <button class="btn-primary" onclick="doLogin()">આગળ વધો →</button>
+          ${errMsg?`<div class="login-err">${esc(errMsg)}</div>`:''}
+        </div>
+        <div class="login-hint">
+          પહેલી વાર લોગ-ઇન કરો છો?<br>
+          <b>પાસવર્ડ = તમારા મોબાઈલ ના છેલ્લા 4 અંક</b><br>
+          (દા.ત. 9016810831 માટે પાસવર્ડ <b>0831</b>)
+        </div>
+      </div>
+    </div>
+  `;
+  setTimeout(()=>document.getElementById('liPhone')?.focus(),80);
+  ['liPhone','liPwd'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('keydown', e=>{if(e.key==='Enter')doLogin();});
+  });
+}
+window.doLogin = async () => {
+  const phoneRaw = ($('#liPhone')?.value||'').replace(/[^0-9]/g,'');
+  const pwd      = ($('#liPwd')?.value||'').trim();
+  if(phoneRaw.length<10) return renderLogin("મોબાઈલ નંબર બરાબર નથી");
+  if(!pwd)               return renderLogin("પાસવર્ડ ભરો");
+  try{ await loginByPhone(phoneRaw, pwd, false); }
+  catch(e){ renderLogin(e.message||"લોગ-ઇન નિષ્ફળ"); }
+};
+async function loginByPhone(phone, pwd, silent){
+  const fSnap = await fbRef('marketFarmers').get();
+  const all = fSnap.val()||{};
+  const arr = Object.values(all);
+  const match = arr.find(f=>f && f.active!==false && String(f.phone||'').replace(/[^0-9]/g,'').endsWith(phone));
+  if(!match) throw new Error("આ નંબર નોંધાયેલો નથી. કૃપા કરી ઑફિસ સંપર્ક કરો.");
+  const phoneClean = String(match.phone||'').replace(/[^0-9]/g,'');
+  const defaultPwd = phoneClean.slice(-4);
+  const authSnap = await fbRef('farmerAuth/'+phoneClean).get();
+  const customPwd = authSnap.exists()?String(authSnap.val().pwd||''):'';
+  const expected = customPwd || defaultPwd;
+  if(String(pwd) !== expected) throw new Error("પાસવર્ડ ખોટો છે");
+  try{localStorage.setItem(AUTH_KEY, JSON.stringify({phone:phoneClean, pwd}));}catch{}
+  FARMER = match;
+  if(!silent) toast("સ્વાગત છે, "+(match.name||"")+"!", "ok");
+  await loadSubmission();
+}
+window.doLogout = () => {
+  try{localStorage.removeItem(AUTH_KEY);}catch{}
+  FARMER=null; ENTRIES.clear(); SUBMITTED_AT=null;
+  renderLogin();
+};
+
+/* ════════ SUBMISSION LOAD ════════ */
+async function loadSubmission(){
+  const wkSnap = await fbRef('weekly/current').get();
+  WK = wkSnap.exists() ? wkSnap.val() : 1;
+  if(!wkSnap.exists()){
+    await fbRef('weekly/current').set(1);
+    await fbRef('weekly/1/meta').set({weekNum:1, dateLabel:"", frozen:false, createdAt:Date.now()});
+  }
+  const metaSnap = await fbRef('weekly/'+WK+'/meta').get();
+  WK_META = metaSnap.val() || {weekNum:WK};
+  if(WK_META.frozen) return showState("🔒","હાટ બંધ થઈ ગઈ",`હાટ #${WK} માટેનો સમય પૂરો થયો છે. આગલા હાટ માટે રાહ જુઓ.`);
+
+  ENTRIES = new Map();
+  const curSub = await fbRef('weekly/'+WK+'/submissions/'+FARMER.id).get();
+  if(curSub.exists()){
+    const v = curSub.val();
+    SUBMITTED_AT = v.submittedAt || null;
+    NOTE_TO_FARMER = v.noteToFarmer || "";
+    (v.items||[]).forEach(it => {
+      if(!it || !it.name) return;
+      ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
+    });
+  }else{
+    // pre-fill from last week if any
+    const lastWk = (typeof WK==='number'?WK:parseInt(WK,10))-1;
+    if(lastWk>0){
+      const lastSub = await fbRef('weekly/'+lastWk+'/submissions/'+FARMER.id).get();
+      if(lastSub.exists()){
+        (lastSub.val().items||[]).forEach(it=>{
+          if(!it || !it.name) return;
+          // copy price from last week, leave qty blank (varies week-to-week)
+          ENTRIES.set(it.name, {price:it.price||"", qty:"", unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
+        });
+      }
+    }
+  }
+  renderForm();
+}
+
+/* ════════ RENDER FORM ════════ */
+function deadlineText(){ return WK_META.deadline || "શનિવાર સાંજે 8 વાગ્યા સુધી"; }
+function activeCount(){ let n=0; ENTRIES.forEach(e=>{ if(+e.price>0) n++; }); return n; }
+
+function renderForm(){
+  const f = FARMER;
+  const initial = (f.name||"?").trim().charAt(0);
+  const photoHtml = f.photoUrl ? `<img src="${esc(f.photoUrl)}" alt="">` : esc(initial);
+  const venueText = (f.haat||"") || [f.village,f.taluka,f.district].filter(Boolean).join(", ");
+
+  const submittedTxt = SUBMITTED_AT
+    ? `<div class="status-pill">✓ ${formatAgo(SUBMITTED_AT)} મોકલાઈ — બદલીને ફરી મોકલી શકો</div>`
+    : (ENTRIES.size>0 ? `<div class="status-pill warn">↻ ગયા હાટ ની યાદી લોડ થઈ — બદલીને મોકલો</div>` : '');
+
+  $('#wrap').innerHTML = `
+    <div class="hdr">
+      <div class="hdr-top">
+        <div class="hdr-week">હાટ #${esc(WK)} ${WK_META.dateLabel?'• '+esc(WK_META.dateLabel):''}</div>
+        <button class="hdr-logout" onclick="doLogout()">⎋ લોગ-આઉટ</button>
+      </div>
+      <div class="hdr-title">તમારી પેદાશ મોકલો 🌿</div>
+      <div class="farmer-card">
+        <div class="farmer-avatar">${photoHtml}</div>
+        <div class="farmer-info">
+          <div class="farmer-name">${esc(f.name||"")}</div>
+          <div class="farmer-meta">${esc(venueText)}</div>
+        </div>
+      </div>
+    </div>
+    <div class="deadline">⏰ <b>છેલ્લો સમય:</b> ${esc(deadlineText())}</div>
+    ${NOTE_TO_FARMER ? `
+      <div class="admin-note">
+        <div style="font-size:11px;font-weight:700;color:#7a5a00;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">📝 ઑફિસ તરફથી સંદેશ</div>
+        <div style="font-size:14px;color:#3a2f00;line-height:1.5">${esc(NOTE_TO_FARMER)}</div>
+      </div>
+    ` : ''}
+    ${submittedTxt}
+
+    <div class="search-bar">
+      <div class="search-wrap">
+        <span style="margin-right:7px;color:var(--muted);font-size:16px">🔍</span>
+        <input id="searchIn" placeholder="વસ્તુ શોધો (દા.ત. ભીંડા, કેરી)..." value="${esc(SEARCH_Q)}" oninput="onSearch(this.value)">
+      </div>
+      <div class="search-meta">
+        <span><b>${PRODUCT_LIB.length + customItems().length}</b> વસ્તુ યાદીમાં</span>
+        <span><b id="activeCt">${activeCount()}</b> વસ્તુ ભરી</span>
+      </div>
+    </div>
+
+    <div id="itemsContainer">${renderItems()}</div>
+
+    <div class="add-row">
+      <button class="add-btn" onclick="openCustomForm()">+ યાદીમાં ન હોય તેવી વસ્તુ ઉમેરો</button>
+    </div>
+    <div id="customFormSlot"></div>
+
+    <div class="submit-bar">
+      <div class="submit-bar-inner">
+        <div class="submit-summary">
+          <b id="submitCt">${activeCount()} વસ્તુ ભરી</b>
+          હાટ #${esc(WK)} માટે
+        </div>
+        <button class="btn-submit" id="btnSubmit" onclick="submitAll()">મોકલો ✓</button>
+      </div>
+    </div>
+  `;
+  twe();
+}
+
+function customItems(){
+  const lib = new Set(PRODUCT_LIB.map(p=>p.n));
+  const arr = [];
+  ENTRIES.forEach((v,name) => { if(!lib.has(name)) arr.push({n:name, u:v.unit, c:v.cat, e:v.emoji||"🌿", custom:true}); });
+  return arr;
+}
+
+function renderItems(){
+  // group by cat: custom first, then PRODUCT_LIB in CAT_ORDER
+  const all = [...customItems(), ...PRODUCT_LIB];
+  const groups = {};
+  all.forEach(p=>{(groups[p.c]=groups[p.c]||[]).push(p);});
+  const order = CAT_ORDER.filter(c=>groups[c]).concat(Object.keys(groups).filter(c=>!CAT_ORDER.includes(c)));
+  return order.map(c=>`
+    <div class="cat-section">
+      <div class="cat-h">
+        <span class="cat-h-emoji">${CAT_EMOJI[c]||'🌿'}</span>
+        <span class="cat-h-name">${esc(c)}</span>
+        <span class="cat-h-count">${groups[c].length}</span>
+      </div>
+      <div class="items">${groups[c].map(itemRow).join('')}</div>
+    </div>
+  `).join('');
+}
+
+function itemRow(p){
+  const e = ENTRIES.get(p.n) || {price:"", qty:""};
+  const active = (+e.price)>0;
+  const pHas = active ? 'has-val' : '';
+  const qHas = (+e.qty)>0 ? 'has-val' : '';
+  const safeId = 'it_'+btoa(unescape(encodeURIComponent(p.n))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
+  return `
+    <div class="item ${active?'active':''}" data-name="${esc(p.n)}" id="row_${safeId}">
+      <div class="item-emo">${p.e||'🌿'}</div>
+      <div class="item-body">
+        <div class="item-name">${esc(p.n)}${p.custom?' <span style="font-size:9.5px;background:var(--green-pale);color:var(--green2);padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:700">CUSTOM</span>':''}</div>
+      </div>
+      <div class="item-inputs">
+        <div class="input-col">
+          <div class="input-col-lbl">ભાવ</div>
+          <div class="input-wrap ${pHas}">
+            <span class="pfx">₹</span>
+            <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.price)}" oninput="onPrice('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
+            <span class="sfx">/${esc(p.u)}</span>
+          </div>
+        </div>
+        <div class="input-col">
+          <div class="input-col-lbl">જથ્થો</div>
+          <div class="input-wrap ${qHas}">
+            <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.qty)}" oninput="onQty('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
+            <span class="sfx">${esc(p.u)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ════════ INTERACTIONS ════════ */
+window.onPrice = (name, val) => {
+  const e = ENTRIES.get(name) || pristine(name);
+  e.price = val;
+  ENTRIES.set(name, e);
+  // light update — toggle active class & input border without full re-render
+  refreshRow(name);
+};
+window.onQty = (name, val) => {
+  const e = ENTRIES.get(name) || pristine(name);
+  e.qty = val;
+  ENTRIES.set(name, e);
+  refreshRow(name);
+};
+function pristine(name){
+  const p = PRODUCT_LIB.find(x=>x.n===name);
+  return {price:"", qty:"", unit:p?p.u:"kg", cat:p?p.c:"અન્ય", emoji:p?p.e:"🌿"};
+}
+function refreshRow(name){
+  const safeId = 'it_'+btoa(unescape(encodeURIComponent(name))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
+  const row = document.getElementById('row_'+safeId);
+  const e = ENTRIES.get(name) || pristine(name);
+  if(!row) return;
+  const active = (+e.price)>0;
+  row.classList.toggle('active', active);
+  const wraps = row.querySelectorAll('.input-wrap');
+  if(wraps[0]) wraps[0].classList.toggle('has-val', active);
+  if(wraps[1]) wraps[1].classList.toggle('has-val', (+e.qty)>0);
+  const ct = activeCount();
+  const a = document.getElementById('activeCt'); if(a) a.textContent = ct;
+  const s = document.getElementById('submitCt'); if(s) s.textContent = ct + " વસ્તુ ભરી";
+}
+
+window.onSearch = (q) => {
+  SEARCH_Q = q;
+  const norm = (q||"").trim().toLowerCase();
+  document.querySelectorAll('.item').forEach(el=>{
+    const n = (el.dataset.name||"").toLowerCase();
+    el.classList.toggle('search-hidden', norm && !n.includes(norm));
+  });
+  // hide cat headers with no visible items
+  document.querySelectorAll('.cat-section').forEach(sec=>{
+    const any = sec.querySelector('.item:not(.search-hidden)');
+    sec.style.display = any ? '' : 'none';
+  });
+};
+
+/* ════════ CUSTOM ITEM ════════ */
+window.openCustomForm = () => {
+  const slot = document.getElementById('customFormSlot');
+  if(!slot) return;
+  slot.innerHTML = `
+    <div class="custom-form">
+      <div class="frm" style="gap:8px">
+        <div class="frm-row">
+          <label class="frm-label">વસ્તુનું નામ</label>
+          <input class="frm-in" id="cuNm" placeholder="દા.ત. ફણસ" autofocus>
+        </div>
+        <div class="frm-row-2">
+          <div class="frm-row">
+            <label class="frm-label">એકમ</label>
+            <select class="frm-in" id="cuU">${UNITS.map(u=>`<option ${u==='kg'?'selected':''}>${u}</option>`).join('')}</select>
+          </div>
+          <div class="frm-row">
+            <label class="frm-label">શ્રેણી</label>
+            <select class="frm-in" id="cuC">${CATS_ALL.map(c=>`<option ${c==='શાકભાજી'?'selected':''}>${c}</option>`).join('')}</select>
+          </div>
+        </div>
+      </div>
+      <div class="custom-form-foot">
+        <button class="btn-mini" onclick="closeCustomForm()">રદ</button>
+        <button class="btn-mini primary" onclick="saveCustom()">ઉમેરો</button>
+      </div>
+    </div>
+  `;
+  setTimeout(()=>document.getElementById('cuNm')?.focus(),50);
+};
+window.closeCustomForm = () => { document.getElementById('customFormSlot').innerHTML=""; };
+window.saveCustom = () => {
+  const nm = document.getElementById('cuNm').value.trim();
+  const u  = document.getElementById('cuU').value;
+  const c  = document.getElementById('cuC').value;
+  if(!nm) return toast("નામ ભરો","err");
+  // collide check
+  if(PRODUCT_LIB.find(p=>p.n===nm) || ENTRIES.has(nm)) return toast("આ વસ્તુ યાદીમાં છે જ","err");
+  ENTRIES.set(nm, {price:"", qty:"", unit:u, cat:c, emoji:CAT_EMOJI[c]||"🌿", custom:true});
+  closeCustomForm();
+  // re-render items container only (preserves scroll mostly)
+  document.getElementById('itemsContainer').innerHTML = renderItems();
+  toast("ઉમેરાઈ ગઈ — હવે ભાવ ભરો","ok");
+  // scroll to it
+  setTimeout(()=>{
+    const safeId = 'it_'+btoa(unescape(encodeURIComponent(nm))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
+    document.getElementById('row_'+safeId)?.scrollIntoView({behavior:'smooth', block:'center'});
+  }, 100);
+};
+
+/* ════════ SUBMIT ════════ */
+window.submitAll = async () => {
+  const items = [];
+  ENTRIES.forEach((e, name) => {
+    const price = +e.price;
+    if(!(price>0)) return;
+    const it = {name, price, unit:e.unit||"kg", cat:e.cat||"અન્ય", available:true};
+    if(e.qty != null && e.qty !== "" && +e.qty>0) it.qty = +e.qty;
+    if(e.emoji) it.emoji = e.emoji;
+    if(e.custom) it.custom = true;
+    items.push(it);
+  });
+  if(!items.length) return toast("ઓછામાં ઓછી 1 વસ્તુનો ભાવ ભરો","err");
+  const btn = $('#btnSubmit'); btn.disabled = true; btn.textContent = "મોકલાય છે...";
+  try{
+    // Check if we're re-editing a previously approved submission (so admin sees a flag)
+    const curSnap = await fbRef('weekly/'+WK+'/submissions/'+FARMER.id).get();
+    const cur = curSnap.val() || {};
+    const reEdited = cur.status === 'approved';
+    const payload = {
+      farmerId: FARMER.id,
+      farmerName: FARMER.name||"",
+      farmerPhone: String(FARMER.phone||"").replace(/[^0-9]/g,""),
+      farmerVillage: FARMER.village||"",
+      farmerDistrict: FARMER.district||"",
+      farmerHaat: FARMER.haat||"",
+      weekNum: WK,
+      items,
+      status: 'pending',
+      submittedAt: cur.submittedAt || firebase.database.ServerValue.TIMESTAMP,
+      updatedAt:   firebase.database.ServerValue.TIMESTAMP,
+    };
+    if(reEdited){
+      payload.previousItems = cur.items || [];
+      payload.previousApprovedAt = cur.approvedAt || null;
+      payload._reEdited = true;
+    }
+    await fbRef('weekly/'+WK+'/submissions/'+FARMER.id).set(payload);
+    showState("✅","ધન્યવાદ!",
+      `તમારી પેદાશ હાટ #${WK} માટે મોકલાઈ ગઈ છે.<br><br>
+       <b>${items.length} વસ્તુ</b><br><br>
+       ⏳ <b>સૃષ્ટિ ટીમની સમીક્ષા બાકી</b> — approve થયા પછી catalog માં દેખાશે.<br>
+       જરૂર પડે તો શનિવાર સાંજ સુધી ફરી લોગ-ઇન કરી બદલી શકો છો.<br><br>
+       <button class="btn-primary" onclick="loadSubmission()" style="max-width:200px;margin-top:8px">↻ બદલવા જાઓ</button>`);
+  }catch(e){
+    console.error(e);
+    toast("મોકલવામાં ભૂલ. ફરી પ્રયત્ન કરો.","err");
+    btn.disabled = false; btn.textContent = "મોકલો ✓";
+  }
+};
+
+function formatAgo(ts){
+  if(!ts) return "";
+  const m = Math.round((Date.now()-ts)/60000);
+  if(m<1)  return "હમણાં જ";
+  if(m<60) return m+" મિનિટ પહેલા";
+  const h = Math.round(m/60);
+  if(h<24) return h+" કલાક પહેલા";
+  return Math.round(h/24)+" દિવસ પહેલા";
+}
+
+function showState(icon, title, body){
+  $('#wrap').innerHTML = `<div class="state">
+    <div class="state-icon">${icon}</div>
+    <div class="state-title">${title}</div>
+    <div class="state-body">${body}</div>
+  </div>`;
+}
+
+init().catch(e=>{ console.error(e); renderLogin(e.message||String(e)); });
+</script>
+</body>
+</html>
