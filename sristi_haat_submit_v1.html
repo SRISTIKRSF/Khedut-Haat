@@ -69,10 +69,13 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 
 /* ITEM ROW (the structured form) */
 .items{padding:0 12px}
+.cat-section.collapsed .items{display:none}
+.cat-section.collapsed .cat-h{padding-bottom:14px}
 .item{background:#fff;border:1.5px solid var(--border);border-radius:11px;padding:9px 11px;margin-bottom:6px;display:flex;align-items:center;gap:9px;transition:.15s}
 .item.active{border-color:var(--green3);background:#f3fbf5}
 .item.search-hidden{display:none}
-.item-emo{width:34px;height:34px;border-radius:8px;background:var(--green-pale);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.item-emo{width:38px;height:38px;border-radius:8px;background:var(--green-pale);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;overflow:hidden}
+.item-emo img{width:100%;height:100%;object-fit:cover}
 .item.active .item-emo{background:var(--green3)}
 .item-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .item-name{font-size:13.5px;font-weight:600;color:var(--text);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -223,6 +226,31 @@ function toast(msg, kind=""){
 
 /* keyed by item name; values: {price, qty, unit, cat, emoji, custom?} */
 let WK=null, WK_META={}, FARMER=null, ENTRIES=new Map(), SUBMITTED_AT=null;
+let ROUTINE_ITEMS=new Map();  // item names from last week's submission — shown at top, unchecked by default
+let HAATS_ALL={};             // haats map { code -> {code, nameGu, open, weekDateLabel, ...} }
+let OPEN_HAATS=[];            // haat codes from this farmer's attended list that are currently OPEN
+let PRODUCT_ORDER={};         // categoryKey -> [productName, ...] (set by admin)
+let _orderPriority=new Map();
+function rebuildOrderPriority(){
+  _orderPriority = new Map();
+  let p = 0;
+  Object.values(PRODUCT_ORDER).forEach(arr => {
+    if(!Array.isArray(arr)) return;
+    arr.forEach(name => { if(!_orderPriority.has(name)) _orderPriority.set(name, p++); });
+  });
+}
+function orderRank(name){ return _orderPriority.has(name) ? _orderPriority.get(name) : 1e6; }
+function cloudinaryThumb(url, w){
+  if(!url) return '';
+  if(url.indexOf('res.cloudinary.com') !== -1 && url.indexOf('/upload/') !== -1 && url.indexOf('/upload/w_') === -1){
+    return url.replace('/upload/', '/upload/w_'+(w||120)+',q_auto,f_auto,c_fill/');
+  }
+  return url;
+}
+function emoOrPhoto(p){
+  if(p && p.photo) return `<img src="${esc(cloudinaryThumb(p.photo,120))}" alt="">`;
+  return esc((p&&p.e)||'🌿');
+}
 let NOTE_TO_FARMER="";
 let SEARCH_Q="";
 
@@ -316,7 +344,56 @@ async function loadSubmission(){
   WK_META = metaSnap.val() || {weekNum:WK};
   if(WK_META.frozen) return showState("🔒","હાટ બંધ થઈ ગઈ",`હાટ #${WK} માટેનો સમય પૂરો થયો છે. આગલા હાટ માટે રાહ જુઓ.`);
 
+  // Load product order (set by admin) — used to sort within each category
+  try{
+    const oSnap = await fbRef('productOrder').get();
+    PRODUCT_ORDER = oSnap.val() || {};
+    rebuildOrderPriority();
+  }catch(e){ /* non-fatal */ }
+
+  // Load the admin's canonical product database — overrides the seed PRODUCT_LIB
+  try{
+    const pSnap = await fbRef('products').get();
+    const fromDB = pSnap.val();
+    if(fromDB && Object.keys(fromDB).length){
+      const arr = Object.values(fromDB)
+        .filter(p => p && p.active !== false)
+        .sort((a,b) => {
+          const ca = CAT_ORDER.indexOf(a.cat); const cb = CAT_ORDER.indexOf(b.cat);
+          if(ca !== cb) return (ca===-1?99:ca) - (cb===-1?99:cb);
+          return (+a.order||0) - (+b.order||0);
+        })
+        .map(p => ({n:p.name, u:p.unit||'kg', c:p.cat||'અન્ય', e:p.emoji||'🌿', photo:p.photo||''}));
+      if(arr.length){
+        // Replace PRODUCT_LIB contents in place
+        PRODUCT_LIB.length = 0;
+        arr.forEach(x => PRODUCT_LIB.push(x));
+      }
+    }
+  }catch(e){ /* non-fatal — fall back to seeded PRODUCT_LIB */ }
+
+  // Load haats and filter to ones currently OPEN for this farmer
+  try{
+    const hSnap = await fbRef('haats').get();
+    HAATS_ALL = hSnap.val() || {};
+    const myCodes = Array.isArray(FARMER.haatCodes) ? FARMER.haatCodes : [];
+    if(myCodes.length){
+      OPEN_HAATS = myCodes.filter(c => HAATS_ALL[c] && HAATS_ALL[c].open);
+      if(!OPEN_HAATS.length){
+        const myHaatNames = myCodes.map(c => HAATS_ALL[c]?.nameGu || HAATS_ALL[c]?.name || c).join(', ');
+        return showState("⏸️","હાલ કોઈ હાટ ઓપન નથી",
+          `તમારા હાટ (${myHaatNames}) આ સમયે submission માટે બંધ છે. ઑફિસ ઓપન કરે ત્યારે ફરી લોગ-ઇન કરો.`);
+      }
+    } else {
+      // Legacy farmer without haatCodes — allow all open haats
+      OPEN_HAATS = Object.values(HAATS_ALL).filter(h=>h.open).map(h=>h.code);
+    }
+  }catch(e){ console.error(e); OPEN_HAATS = []; }
+
   ENTRIES = new Map();
+  ROUTINE_ITEMS = new Map();
+
+  // Load current week's submission first — if it exists, it becomes both ENTRIES (with prices) AND ROUTINE_ITEMS (shown at top)
   const curSub = await fbRef('weekly/'+WK+'/submissions/'+FARMER.id).get();
   if(curSub.exists()){
     const v = curSub.val();
@@ -324,18 +401,24 @@ async function loadSubmission(){
     NOTE_TO_FARMER = v.noteToFarmer || "";
     (v.items||[]).forEach(it => {
       if(!it || !it.name) return;
-      ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
+      ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", qtyByHaat: it.qtyByHaat || {}, unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
+      ROUTINE_ITEMS.set(it.name, {
+        lastPrice: it.price||"",
+        unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom
+      });
     });
-  }else{
-    // pre-fill from last week if any
+  } else {
+    // Otherwise fall back to last week's items as routine (unchecked, just shown at top for convenience)
     const lastWk = (typeof WK==='number'?WK:parseInt(WK,10))-1;
     if(lastWk>0){
       const lastSub = await fbRef('weekly/'+lastWk+'/submissions/'+FARMER.id).get();
       if(lastSub.exists()){
         (lastSub.val().items||[]).forEach(it=>{
           if(!it || !it.name) return;
-          // copy price from last week, leave qty blank (varies week-to-week)
-          ENTRIES.set(it.name, {price:it.price||"", qty:"", unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
+          ROUTINE_ITEMS.set(it.name, {
+            lastPrice: it.price||"",
+            unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom
+          });
         });
       }
     }
@@ -373,6 +456,14 @@ function renderForm(){
       </div>
     </div>
     <div class="deadline">⏰ <b>છેલ્લો સમય:</b> ${esc(deadlineText())}</div>
+    ${OPEN_HAATS.length ? `
+      <div style="background:#e8f5e9;border-left:4px solid #2d6a4f;padding:10px 14px;margin:10px 0 6px;border-radius:8px">
+        <div style="font-size:11.5px;font-weight:700;color:#1b4332;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">📍 આ submission નીચેના હાટ માટે છે</div>
+        <div style="font-size:14px;color:#1b4332;font-weight:600;line-height:1.5">
+          ${OPEN_HAATS.map(c => esc(HAATS_ALL[c]?.nameGu || HAATS_ALL[c]?.name || c)).join(' · ')}
+        </div>
+      </div>
+    ` : ''}
     ${NOTE_TO_FARMER ? `
       <div class="admin-note">
         <div style="font-size:11px;font-weight:700;color:#7a5a00;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">📝 ઑફિસ તરફથી સંદેશ</div>
@@ -419,45 +510,135 @@ function customItems(){
   return arr;
 }
 
+// Track which categories are expanded. મારી પ્રોડક્ટ્સ default open; rest closed.
+const EXPANDED = new Set(['__routine__']);
+window.toggleCat = (key) => {
+  if(EXPANDED.has(key)) EXPANDED.delete(key); else EXPANDED.add(key);
+  // Just update the section in place rather than full re-render (keeps focus)
+  const safeKey = btoa(unescape(encodeURIComponent(key))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
+  const sec = document.getElementById('cat_'+safeKey);
+  if(sec){
+    sec.classList.toggle('collapsed', !EXPANDED.has(key));
+    const chev = sec.querySelector('.cat-chev');
+    if(chev) chev.textContent = EXPANDED.has(key) ? '▼' : '▶';
+  }
+};
+
 function renderItems(){
-  // group by cat: custom first, then PRODUCT_LIB in CAT_ORDER
-  const all = [...customItems(), ...PRODUCT_LIB];
+  let html = '';
+
+  // Top section: "મારી પ્રોડક્ટ્સ"
+  if(ROUTINE_ITEMS.size > 0){
+    const routineList = [...ROUTINE_ITEMS.entries()].map(([name, r]) => ({
+      n: name, u: r.unit, c: r.cat, e: r.emoji || '🌿',
+      custom: r.custom, lastPrice: r.lastPrice,
+    }));
+    const isOpen = EXPANDED.has('__routine__');
+    const safeKey = btoa(unescape(encodeURIComponent('__routine__'))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
+    html += `
+      <div class="cat-section ${isOpen?'':'collapsed'}" id="cat_${safeKey}">
+        <div class="cat-h" style="background:linear-gradient(90deg,#d8f3dc,#fffbf4);cursor:pointer" onclick="toggleCat('__routine__')">
+          <span class="cat-h-emoji">⭐</span>
+          <span class="cat-h-name">મારી પ્રોડક્ટ્સ</span>
+          <span class="cat-h-count">${routineList.length}</span>
+          <span class="cat-chev" style="margin-left:6px;color:#7a7a7a;font-size:11px">${isOpen?'▼':'▶'}</span>
+        </div>
+        <div class="items">${routineList.map(p => itemRow(p, true)).join('')}</div>
+      </div>
+    `;
+  }
+
+  // Below: full master catalog by category, EXCLUDING routine items (collapsed by default)
+  // PRODUCT_LIB already sorted by p.order from products DB at load time; preserve that.
+  const all = [...customItems(), ...PRODUCT_LIB].filter(p => !ROUTINE_ITEMS.has(p.n));
   const groups = {};
   all.forEach(p=>{(groups[p.c]=groups[p.c]||[]).push(p);});
   const order = CAT_ORDER.filter(c=>groups[c]).concat(Object.keys(groups).filter(c=>!CAT_ORDER.includes(c)));
-  return order.map(c=>`
-    <div class="cat-section">
-      <div class="cat-h">
-        <span class="cat-h-emoji">${CAT_EMOJI[c]||'🌿'}</span>
-        <span class="cat-h-name">${esc(c)}</span>
-        <span class="cat-h-count">${groups[c].length}</span>
+  html += order.map(c=>{
+    const isOpen = EXPANDED.has(c);
+    const safeKey = btoa(unescape(encodeURIComponent(c))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
+    return `
+      <div class="cat-section ${isOpen?'':'collapsed'}" id="cat_${safeKey}">
+        <div class="cat-h" style="cursor:pointer" onclick="toggleCat('${esc(c).replace(/'/g,"\\'")}')">
+          <span class="cat-h-emoji">${CAT_EMOJI[c]||'🌿'}</span>
+          <span class="cat-h-name">${esc(c)}</span>
+          <span class="cat-h-count">${groups[c].length}</span>
+          <span class="cat-chev" style="margin-left:6px;color:#7a7a7a;font-size:11px">${isOpen?'▼':'▶'}</span>
+        </div>
+        <div class="items">${groups[c].map(itemRow).join('')}</div>
       </div>
-      <div class="items">${groups[c].map(itemRow).join('')}</div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
+  return html;
 }
 
-function itemRow(p){
-  const e = ENTRIES.get(p.n) || {price:"", qty:""};
+function itemRow(p, isRoutine){
+  const e = ENTRIES.get(p.n) || {price:"", qty:"", qtyByHaat:{}};
   const active = (+e.price)>0;
   const pHas = active ? 'has-val' : '';
-  const qHas = (+e.qty)>0 ? 'has-val' : '';
   const safeId = 'it_'+btoa(unescape(encodeURIComponent(p.n))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
-  return `
-    <div class="item ${active?'active':''}" data-name="${esc(p.n)}" id="row_${safeId}">
-      <div class="item-emo">${p.e||'🌿'}</div>
-      <div class="item-body">
-        <div class="item-name">${esc(p.n)}${p.custom?' <span style="font-size:9.5px;background:var(--green-pale);color:var(--green2);padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:700">CUSTOM</span>':''}</div>
+  const lastPrice = isRoutine && p.lastPrice ? p.lastPrice : '';
+  const pricePlaceholder = lastPrice ? `${lastPrice}` : '0';
+  const isMulti = OPEN_HAATS.length > 1;
+
+  const nameHtml = `<div class="item-name">${esc(p.n)}${p.custom?' <span style="font-size:9.5px;background:var(--green-pale);color:var(--green2);padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:700">CUSTOM</span>':''}${isRoutine&&lastPrice?` <span style="font-size:9.5px;color:#7a7a7a;margin-left:4px">ગયા હાટે ₹${esc(lastPrice)}</span>`:''}</div>`;
+
+  const priceCol = `
+    <div class="input-col">
+      <div class="input-col-lbl">ભાવ</div>
+      <div class="input-wrap ${pHas}">
+        <span class="pfx">₹</span>
+        <input type="number" inputmode="numeric" min="0" placeholder="${esc(pricePlaceholder)}" value="${esc(e.price)}" oninput="onPrice('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
+        <span class="sfx">/${esc(p.u)}</span>
       </div>
-      <div class="item-inputs">
-        <div class="input-col">
-          <div class="input-col-lbl">ભાવ</div>
-          <div class="input-wrap ${pHas}">
-            <span class="pfx">₹</span>
-            <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.price)}" oninput="onPrice('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
-            <span class="sfx">/${esc(p.u)}</span>
+    </div>
+  `;
+
+  if(isMulti){
+    const qbh = e.qtyByHaat || {};
+    let total = 0;
+    Object.values(qbh).forEach(v => { if(+v>0) total += +v; });
+    const haatRows = OPEN_HAATS.map(code => {
+      const haatName = HAATS_ALL[code]?.nameGu || HAATS_ALL[code]?.name || code;
+      const val = qbh[code] != null ? qbh[code] : '';
+      const has = (+val)>0 ? 'has-val' : '';
+      return `
+        <div style="display:flex;align-items:center;gap:8px;margin-top:5px">
+          <span style="font-size:11px;color:#5a5a5a;flex:1;font-weight:600">${esc(haatName)}</span>
+          <div class="input-wrap ${has}" style="flex:0 0 110px">
+            <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(val)}" oninput="onQtyForHaat('${esc(p.n).replace(/'/g,"\\'")}','${esc(code)}',this.value)">
+            <span class="sfx">${esc(p.u)}</span>
           </div>
         </div>
+      `;
+    }).join('');
+    return `
+      <div class="item multi-haat ${active?'active':''}" data-name="${esc(p.n)}" id="row_${safeId}" style="flex-direction:column;align-items:stretch;gap:6px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <div class="item-emo">${emoOrPhoto(p)}</div>
+          <div class="item-body" style="flex:1">${nameHtml}</div>
+          <div style="flex:0 0 130px">${priceCol}</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:7px 10px;border:1px dashed var(--border)">
+          <div style="font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.3px">હાટ વાર જથ્થો</div>
+          ${haatRows}
+          <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px dotted var(--border);font-size:11.5px">
+            <span style="color:var(--muted)">કુલ</span>
+            <span id="tot_${safeId}" style="font-weight:700;color:var(--green2)">${total ? total + ' ' + esc(p.u) : '—'}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Single-haat (original layout)
+  const qHas = (+e.qty)>0 ? 'has-val' : '';
+  return `
+    <div class="item ${active?'active':''}" data-name="${esc(p.n)}" id="row_${safeId}">
+      <div class="item-emo">${emoOrPhoto(p)}</div>
+      <div class="item-body">${nameHtml}</div>
+      <div class="item-inputs">
+        ${priceCol}
         <div class="input-col">
           <div class="input-col-lbl">જથ્થો</div>
           <div class="input-wrap ${qHas}">
@@ -484,9 +665,16 @@ window.onQty = (name, val) => {
   ENTRIES.set(name, e);
   refreshRow(name);
 };
+window.onQtyForHaat = (name, haatCode, val) => {
+  const e = ENTRIES.get(name) || pristine(name);
+  if(!e.qtyByHaat) e.qtyByHaat = {};
+  e.qtyByHaat[haatCode] = val;
+  ENTRIES.set(name, e);
+  refreshRow(name);
+};
 function pristine(name){
   const p = PRODUCT_LIB.find(x=>x.n===name);
-  return {price:"", qty:"", unit:p?p.u:"kg", cat:p?p.c:"અન્ય", emoji:p?p.e:"🌿"};
+  return {price:"", qty:"", qtyByHaat:{}, unit:p?p.u:"kg", cat:p?p.c:"અન્ય", emoji:p?p.e:"🌿"};
 }
 function refreshRow(name){
   const safeId = 'it_'+btoa(unescape(encodeURIComponent(name))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
@@ -496,8 +684,26 @@ function refreshRow(name){
   const active = (+e.price)>0;
   row.classList.toggle('active', active);
   const wraps = row.querySelectorAll('.input-wrap');
+  const isMulti = row.classList.contains('multi-haat');
   if(wraps[0]) wraps[0].classList.toggle('has-val', active);
-  if(wraps[1]) wraps[1].classList.toggle('has-val', (+e.qty)>0);
+  if(isMulti){
+    // wraps[1..N] = qty per haat; refresh has-val class + total
+    const qbh = e.qtyByHaat || {};
+    let total = 0;
+    OPEN_HAATS.forEach((code, idx) => {
+      const v = +(qbh[code] || 0);
+      if(v > 0) total += v;
+      if(wraps[idx+1]) wraps[idx+1].classList.toggle('has-val', v > 0);
+    });
+    const tot = document.getElementById('tot_'+safeId);
+    if(tot){
+      const p = PRODUCT_LIB.find(x => x.n === name);
+      const unit = p ? p.u : (e.unit || 'kg');
+      tot.textContent = total ? total + ' ' + unit : '—';
+    }
+  } else {
+    if(wraps[1]) wraps[1].classList.toggle('has-val', (+e.qty)>0);
+  }
   const ct = activeCount();
   const a = document.getElementById('activeCt'); if(a) a.textContent = ct;
   const s = document.getElementById('submitCt'); if(s) s.textContent = ct + " વસ્તુ ભરી";
@@ -569,12 +775,26 @@ window.saveCustom = () => {
 
 /* ════════ SUBMIT ════════ */
 window.submitAll = async () => {
+  const isMulti = OPEN_HAATS.length > 1;
   const items = [];
   ENTRIES.forEach((e, name) => {
     const price = +e.price;
     if(!(price>0)) return;
     const it = {name, price, unit:e.unit||"kg", cat:e.cat||"અન્ય", available:true};
-    if(e.qty != null && e.qty !== "" && +e.qty>0) it.qty = +e.qty;
+    if(isMulti && e.qtyByHaat){
+      const qbh = {};
+      let total = 0;
+      OPEN_HAATS.forEach(code => {
+        const v = +(e.qtyByHaat[code] || 0);
+        if(v > 0){ qbh[code] = v; total += v; }
+      });
+      if(Object.keys(qbh).length){
+        it.qtyByHaat = qbh;
+        it.qty = total;     // backwards-compat aggregate
+      }
+    } else if(e.qty != null && e.qty !== "" && +e.qty>0){
+      it.qty = +e.qty;
+    }
     if(e.emoji) it.emoji = e.emoji;
     if(e.custom) it.custom = true;
     items.push(it);
@@ -586,13 +806,18 @@ window.submitAll = async () => {
     const curSnap = await fbRef('weekly/'+WK+'/submissions/'+FARMER.id).get();
     const cur = curSnap.val() || {};
     const reEdited = cur.status === 'approved';
+    // Use only currently-open haats from the farmer's attended list (set by admin)
+    const submissionHaatNames = OPEN_HAATS.length
+      ? OPEN_HAATS.map(c => HAATS_ALL[c]?.nameGu || HAATS_ALL[c]?.name || c).join(', ')
+      : (FARMER.haat || "");
     const payload = {
       farmerId: FARMER.id,
       farmerName: FARMER.name||"",
       farmerPhone: String(FARMER.phone||"").replace(/[^0-9]/g,""),
       farmerVillage: FARMER.village||"",
       farmerDistrict: FARMER.district||"",
-      farmerHaat: FARMER.haat||"",
+      farmerHaat: submissionHaatNames,
+      farmerHaatCodes: OPEN_HAATS.slice(),
       weekNum: WK,
       items,
       status: 'pending',
