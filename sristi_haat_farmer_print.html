@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<title>ખેડૂત યાદી — હાટ પ્રમાણે</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Noto Sans Gujarati",-apple-system,sans-serif;background:#fff;color:#000;padding:14px;font-size:11.5px;line-height:1.35}
+h1{font-size:18px;font-weight:800;margin-bottom:4px}
+.sub{font-size:10.5px;color:#666;margin-bottom:10px}
+.print-btn{position:fixed;top:10px;right:10px;background:#2d6a4f;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.haat{border:1px solid #ccc;border-radius:6px;padding:8px;background:#fafafa;break-inside:avoid;page-break-inside:avoid}
+.haat h3{font-size:12.5px;font-weight:700;color:#1b4332;margin-bottom:5px;padding-bottom:4px;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:baseline}
+.haat .count{background:#d8f3dc;color:#2d6a4f;font-size:9.5px;padding:1px 6px;border-radius:8px;font-weight:600}
+.f{display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;border-bottom:1px dotted #eee;font-size:10.5px}
+.f:last-child{border:0}
+.fn{font-weight:600;color:#1a1a1a;max-width:62%}
+.fn .vil{font-size:9px;color:#777;font-weight:400}
+.fp{font-family:JetBrains Mono,monospace;font-size:10.5px;color:#444}
+.meta{font-size:9.5px;color:#888;margin-top:4px}
+@media print{
+  .print-btn{display:none}
+  body{padding:6px;font-size:10px}
+  .grid{gap:6px}
+  .haat{padding:5px}
+}
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">🖨️ Print</button>
+
+<h1>સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ — ખેડૂત યાદી</h1>
+<div class="sub" id="meta">લોડ થઈ રહ્યું છે …</div>
+<div class="grid" id="grid"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+const FB_CONFIG = {
+  apiKey:"AIzaSyCd0jU_rtG3Us3E4au4rntN5N8tbciHWY0",
+  authDomain:"prakrutik-kheti-c0a89.firebaseapp.com",
+  databaseURL:"https://prakrutik-kheti-c0a89-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"prakrutik-kheti-c0a89",
+};
+firebase.initializeApp(FB_CONFIG);
+const db = firebase.database();
+const fbRef = p => db.ref('prakrutik_kheti'+(p?'/'+p:''));
+function esc(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+const HAAT_NAMES = {
+  'AM-BAOU':'છારોડી (BAOU)','AM-SOLA':'સોલા ભાગવત','AM-PAL':'પલોડિયા','AM-NAV':'નવજીવન (આશ્રમ રોડ)',
+  'AM-VS':'વસ્ત્રાપુર','AM-SRI':'સૃષ્ટિ (ગુરુવાર)','GN-KAD':'ગાંધીનગર','AN-VVN':'વલ્લભ વિદ્યાનગર',
+  'KH-NDD':'નડિયાદ','VD-MSU':'વડોદરા','SK-HMT':'હિંમતનગર','AR-MDS':'મોડાસા',
+};
+const HAAT_ORDER = ['AM-NAV','AM-SOLA','AM-PAL','AM-BAOU','AM-VS','AM-SRI','GN-KAD','AN-VVN','KH-NDD','VD-MSU','SK-HMT','AR-MDS'];
+
+async function init(){
+  const fSnap = await fbRef('marketFarmers').get();
+  const farmers = fSnap.val() || {};
+  const byHaat = {};
+  let totalFarmers = 0;
+  Object.values(farmers).forEach(f => {
+    if(!f || !f.active) return;
+    totalFarmers++;
+    const codes = Array.isArray(f.haatCodes) ? f.haatCodes : [];
+    codes.forEach(code => { (byHaat[code] = byHaat[code] || []).push(f); });
+  });
+
+  document.getElementById('meta').textContent =
+    `કુલ ${totalFarmers} ખેડૂતો, ${Object.keys(byHaat).length} હાટ. છાપતી તારીખ: ${new Date().toLocaleDateString('en-IN')}`;
+
+  const html = HAAT_ORDER
+    .filter(code => byHaat[code])
+    .map(code => {
+      const list = byHaat[code];
+      list.sort((a,b) => (a.name||'').localeCompare(b.name||'','gu'));
+      return `
+        <div class="haat">
+          <h3>${esc(HAAT_NAMES[code]||code)} <span class="count">${list.length}</span></h3>
+          ${list.map(f => `
+            <div class="f">
+              <div class="fn">${esc(f.name||'?')}${f.village?`<br><span class="vil">${esc(f.village)}${f.district?', '+esc(f.district):''}</span>`:''}</div>
+              <div class="fp">${esc(f.phone||'')}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }).join('');
+
+  document.getElementById('grid').innerHTML = html;
+}
+init();
+</script>
+</body>
+</html>

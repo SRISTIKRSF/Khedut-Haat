@@ -161,9 +161,9 @@ const VENUES = [
 const CAT_EMOJI = {
   "શાકભાજી":"🥬","ભાજી":"🌿","ફળ":"🥭","ડેરી":"🥛",
   "દાળ/કઠોળ":"🫘","અનાજ/લોટ":"🌾","મસાલા":"🌶️","તેલ":"🛢️",
-  "ગોળ/ખાંડ":"🍯","ફરસાણ":"🍪","પ્રવાહી":"🥤","તૈયાર ભોજન":"🍽️","અન્ય":"🌿"
+  "ગોળ/ખાંડ/મધ":"🍯","ફરસાણ":"🍪","પ્રવાહી":"🥤","તૈયાર ભોજન":"🍽️","અન્ય":"🌿"
 };
-const CAT_ORDER = ["શાકભાજી","ભાજી","ફળ","ડેરી","દાળ/કઠોળ","અનાજ/લોટ","મસાલા","તેલ","ગોળ/ખાંડ","ફરસાણ","પ્રવાહી","તૈયાર ભોજન","અન્ય"];
+const CAT_ORDER = ["શાકભાજી","ભાજી","ફળ","ડેરી","દાળ/કઠોળ","અનાજ/લોટ","મસાલા","તેલ","ગોળ/ખાંડ/મધ","ફરસાણ","પ્રવાહી","તૈયાર ભોજન","અન્ય"];
 
 const $=q=>document.querySelector(q);
 const $$=q=>document.querySelectorAll(q);
@@ -173,7 +173,56 @@ function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{f
 let WK=null, WK_META={}, SUBMISSIONS={}, FARMERS_MAP={};
 let PRODUCT_PHOTOS={};        // safeKey OR cellKey -> URL/dataURL
 let PRODUCT_PHOTO_MAP={};     // safeKey -> cellKey (when slicer was used)
+let HAATS_DATA={};            // code -> {nameGu, open, ...}
+let OPEN_VENUE_KEYS=new Set();// VENUES keys that map to a currently-open haat
+let DEMO_MODE=false;          // ?demo=1 — show everything regardless of open state
+let MASTER_PRODUCTS={};       // id -> {id, name, cat, price, unit, photo, active}
+let PRODUCT_ORDER={};         // legacy categoryKey -> [productName, ...]
+let PRODUCTS_FROM_DB={};      // admin's curated products: id -> {name, order, cat, ...}
+let _orderPriority=new Map(); // productName -> rank (lower = earlier)
 let ALL_ITEMS=[], FARMER_LIST=[];
+
+function rebuildOpenVenueSet(){
+  OPEN_VENUE_KEYS = new Set();
+  if(DEMO_MODE){
+    // Demo: treat every venue as open
+    VENUES.forEach(v => OPEN_VENUE_KEYS.add(v.key));
+    return;
+  }
+  Object.values(HAATS_DATA).forEach(h => {
+    if(!h || !h.open) return;
+    const nameGu = (h.nameGu || h.name || '').toString();
+    VENUES.forEach(v => {
+      if(nameGu.includes(v.key) || v.key.includes(nameGu)) OPEN_VENUE_KEYS.add(v.key);
+    });
+  });
+}
+function isVenueOpen(venueValue){
+  if(!venueValue) return false;
+  if(OPEN_VENUE_KEYS.has(venueValue)) return true;
+  for(const key of OPEN_VENUE_KEYS){
+    if(venueValue.includes(key) || key.includes(venueValue)) return true;
+  }
+  return false;
+}
+function anyHaatOpen(){ return OPEN_VENUE_KEYS.size > 0; }
+
+function rebuildOrderPriority(){
+  _orderPriority = new Map();
+  // Primary source: admin's curated PRODUCTS_FROM_DB (uses each product's saved drag-order)
+  Object.values(PRODUCTS_FROM_DB).forEach(p => {
+    if(p && p.name && p.order != null && !_orderPriority.has(p.name)){
+      _orderPriority.set(p.name, +p.order);
+    }
+  });
+  // Fallback: legacy productOrder (category arrays)
+  let p = 1e5;
+  Object.values(PRODUCT_ORDER).forEach(arr => {
+    if(!Array.isArray(arr)) return;
+    arr.forEach(name => { if(!_orderPriority.has(name)) _orderPriority.set(name, p++); });
+  });
+}
+function orderRank(name){ return _orderPriority.has(name) ? _orderPriority.get(name) : 1e6; }
 
 function photoKey(name){
   try{ return 'p_'+btoa(unescape(encodeURIComponent(String(name||'')))).replace(/[^a-zA-Z0-9]/g,'').slice(0,100); }
@@ -204,29 +253,126 @@ function venueMatch(itemVenues, venueKey){
   return itemVenues.some(v => v.includes(venueKey) || venueKey.includes(v));
 }
 
+function getOrCreateDeviceId(){
+  try{
+    let id = localStorage.getItem('sristi_visitor_id');
+    if(!id){
+      id = 'v_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
+      localStorage.setItem('sristi_visitor_id', id);
+    }
+    return id;
+  }catch(e){ return 'v_anon_' + Date.now(); }
+}
+
+async function trackCatalogView(){
+  try{
+    const dateKey = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+    const dev = getOrCreateDeviceId();
+    const updates = {};
+    const incPath = (path) => fbRef(path).transaction(c => (c||0) + 1);
+    await Promise.all([
+      incPath('catalogStats/totalViews'),
+      incPath('catalogStats/byDate/'+dateKey),
+      WK ? incPath('catalogStats/byWeek/'+WK) : Promise.resolve(),
+      fbRef('catalogStats/uniqueDevices/'+dev).set({firstSeen: firebase.database.ServerValue.TIMESTAMP, lastSeen: Date.now()}),
+    ]);
+  }catch(e){ /* tracking is non-fatal — never break the catalog */ }
+}
+
 async function init(){
   FB.app = firebase.initializeApp(FB_CONFIG);
   FB.db  = firebase.database();
   try{
-    const cur = await fbRef('weekly/current').get();
-    WK = cur.exists() ? cur.val() : 1;
-    const [metaSnap, subSnap, fSnap, pSnap, mSnap] = await Promise.all([
+    // ?wk=N to preview a specific week, ?demo=1 for the full master catalog (no haat-open gating)
+    const params = new URLSearchParams(location.search);
+    DEMO_MODE = params.get('demo') === '1';
+    const urlWk = params.get('wk');
+    if(urlWk && /^\d+$/.test(urlWk)){
+      WK = parseInt(urlWk, 10);
+    } else {
+      const cur = await fbRef('weekly/current').get();
+      WK = cur.exists() ? cur.val() : 1;
+    }
+    const [metaSnap, subSnap, fSnap, pSnap, mSnap, ancSnap, oSnap, hSnap, mpSnap] = await Promise.all([
       fbRef('weekly/'+WK+'/meta').get(),
       fbRef('weekly/'+WK+'/submissions').get(),
       fbRef('marketFarmers').get(),
       fbRef('productPhotos').get(),
       fbRef('productPhotoMap').get(),
+      fbRef('announcement/current').get(),
+      fbRef('productOrder').get(),
+      fbRef('haats').get(),
+      fbRef('masterProducts').get(),
     ]);
+    MASTER_PRODUCTS = mpSnap.val() || {};
+    // Fetch only the order/name pair from products (lightweight — no photos)
+    try{
+      const pdbSnap = await fbRef('products').get();
+      const pdbVal = pdbSnap.val() || {};
+      PRODUCTS_FROM_DB = {};
+      Object.entries(pdbVal).forEach(([id, p]) => {
+        if(!p) return;
+        PRODUCTS_FROM_DB[id] = {name: p.name, cat: p.cat, order: p.order};
+      });
+    }catch(e){ PRODUCTS_FROM_DB = {}; }
     WK_META = metaSnap.val() || {weekNum:WK};
     SUBMISSIONS = subSnap.val() || {};
+    if(DEMO_MODE){
+      // Demo: merge in every farmer's most-recent submission from any week
+      try{
+        const allSnap = await fbRef('weekly').get();
+        const allWeeks = allSnap.val() || {};
+        const merged = {};
+        Object.values(allWeeks).forEach(weekData => {
+          if(!weekData || typeof weekData !== 'object' || !weekData.submissions) return;
+          Object.entries(weekData.submissions).forEach(([fid, sub]) => {
+            if(!sub || sub.status === 'pending' || sub.status === 'rejected') return;
+            const existing = merged[fid];
+            if(!existing || (+sub.submittedAt || 0) > (+existing.submittedAt || 0)){
+              merged[fid] = sub;
+            }
+          });
+        });
+        SUBMISSIONS = merged;
+      }catch(e){ console.error('demo all-weeks merge failed', e); }
+    }
     PRODUCT_PHOTOS = pSnap.val() || {};
     PRODUCT_PHOTO_MAP = mSnap.val() || {};
+    PRODUCT_ORDER = oSnap.val() || {};
+    HAATS_DATA = hSnap.val() || {};
+    rebuildOpenVenueSet();
+    rebuildOrderPriority();
     const raw = fSnap.val() || {};
     Object.values(raw).forEach(f => { if(f && f.id && f.active!==false) FARMERS_MAP[f.id] = f; });
+    // Show announcement popup if active — shows on every visit until admin disables it
+    const anc = ancSnap.val();
+    if(anc && anc.active && anc.imageUrl){
+      showAnnouncement(anc);
+    }
   }catch(e){ console.error(e); }
   buildLists();
   render();
+  if(!DEMO_MODE) trackCatalogView();
 }
+
+function showAnnouncement(anc){
+  const div = document.createElement('div');
+  div.id = 'announcementModal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
+  div.innerHTML = `
+    <div style="position:relative;max-width:600px;width:100%;max-height:90vh;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.4)">
+      <button onclick="dismissAnnouncement('${esc(anc.id||'')}')" style="position:absolute;top:8px;right:8px;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.55);color:#fff;border:none;font-size:18px;font-weight:700;cursor:pointer;z-index:1;display:flex;align-items:center;justify-content:center" aria-label="બંધ કરો">✕</button>
+      <img src="${esc(anc.imageUrl)}" alt="${esc(anc.title||'')}" style="display:block;width:100%;height:auto;max-height:80vh;object-fit:cover">
+      ${anc.title ? `<div style="padding:10px 14px;font-size:14px;color:#1b4332;font-weight:600;text-align:center;background:#fffbf4">${esc(anc.title)}</div>` : ''}
+    </div>
+  `;
+  document.body.appendChild(div);
+}
+window.dismissAnnouncement = (id) => {
+  try { if(id) localStorage.setItem('anc_dismissed_'+id, '1'); } catch(e){}
+  const el = document.getElementById('announcementModal');
+  if(el) el.remove();
+};
 
 function farmerVenues(f){
   if(!f) return [];
@@ -305,11 +451,36 @@ function buildLists(){
       _k: agg._k
     };
   });
+  // Inject master products — they always show at every open haat
+  const allVenueKeys = VENUES.map(v => v.key);
+  Object.values(MASTER_PRODUCTS).forEach(mp => {
+    if(!mp || !mp.name || mp.active === false) return;
+    // Skip if a submission with the same name already exists (avoid duplicate)
+    if(ALL_ITEMS.find(it => it.name === mp.name)) return;
+    ALL_ITEMS.push({
+      name: mp.name,
+      unit: mp.unit || 'kg',
+      cat: mp.cat || 'અન્ય',
+      emoji: mp.emoji || CAT_EMOJI[mp.cat] || '🌿',
+      minPrice: mp.price, maxPrice: mp.price, price: mp.price,
+      qty: null,
+      hasMultipleUnits: false,
+      farmerCount: 0,
+      venues: allVenueKeys,
+      farmers: [],
+      variantNames: [],
+      photoUrl: mp.photo || '',
+      isMaster: true,
+      _k: 'master_'+(mp.id || ''),
+    });
+  });
 }
 
 function filteredItems(){
   const q = Q.trim().toLowerCase();
   return ALL_ITEMS.filter(it=>{
+    // Only show items available at currently-open haats
+    if(!it.venues.some(v => isVenueOpen(v))) return false;
     if(CAT!=='all' && it.cat!==CAT) return false;
     if(!venueMatch(it.venues, VENUE)) return false;
     if(q){
@@ -322,6 +493,7 @@ function filteredItems(){
 function filteredFarmers(){
   const q = Q.trim().toLowerCase();
   return FARMER_LIST.filter(f=>{
+    if(!f.venues.some(v => isVenueOpen(v))) return false;
     if(CAT!=='all' && !f.items.some(it=>it.cat===CAT)) return false;
     if(!venueMatch(f.venues, VENUE)) return false;
     if(q){
@@ -341,11 +513,17 @@ function render(){
   const activeVenues = uniqueActiveVenues();
 
   $('#wrap').innerHTML = `
+    ${DEMO_MODE ? `
+      <div style="background:#fef3c7;border-bottom:2px solid #f59e0b;padding:10px 16px;text-align:center;font-size:13.5px;color:#78350f;font-weight:600;line-height:1.5">
+        🎭 <b>DEMO VIEW</b> — બધા હાટ ની full catalog. હાલ live customer ને આ બતાવાતું નથી; ફક્ત preview/share માટે.
+        <br><a href="?" style="color:#0c4a6e;text-decoration:underline;font-size:12.5px">→ Live customer view પર પાછા જાવ</a>
+      </div>
+    ` : ''}
     <div class="hero">
       <img class="hero-img" src="hero.jpg" alt="" loading="eager">
       <div class="hero-overlay"></div>
       <div class="hero-content">
-        <div class="hero-badge">🌿 #${esc(WK||'-')} · રવિવાર</div>
+        <div class="hero-badge">🌿 #${esc(WK||'-')} · રવિવાર${DEMO_MODE?' · 🎭 DEMO':''}</div>
         <div class="hero-title">સૃષ્ટિ<br>ખેડૂત હાટ</div>
         <div class="hero-sub">ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી</div>
         <div class="hero-chips">
@@ -404,14 +582,28 @@ function render(){
 }
 
 function uniqueActiveVenues(){
+  if(!anyHaatOpen()) return [];
   const set = new Set();
   FARMER_LIST.forEach(f=>f.venues.forEach(v=>set.add(v)));
   return VENUES.filter(v=>{
+    if(!isVenueOpen(v.key)) return false;
     return [...set].some(s => s.includes(v.key) || v.key.includes(s));
   });
 }
 
 function renderBody(){
+  if(!anyHaatOpen()){
+    return `
+      <div class="empty" style="padding:30px 18px;text-align:center">
+        <div class="empty-icon">⏸️</div>
+        <p style="font-weight:700;font-size:16px;margin-bottom:6px">આ સમયે કોઈ હાટ ઉપલબ્ધ નથી</p>
+        <p style="font-size:13px;color:var(--muted);line-height:1.6;max-width:380px;margin:0 auto">
+          હાલ કોઈ હાટ ઓપન નથી. આગલા હાટ ની તારીખે અમારી પેદાશ ની યાદી અહીં દેખાશે.<br>
+          કૃપા કરી થોડા સમય પછી ફરી ખોલો.
+        </p>
+      </div>
+    `;
+  }
   const itemCount = filteredItems().length;
   const farmerCountF = filteredFarmers().length;
   const total = TAB==='items'?itemCount:farmerCountF;
@@ -441,6 +633,7 @@ function renderItems(){
   }
   const groups = {};
   items.forEach(it=>{(groups[it.cat||'અન્ય'] = groups[it.cat||'અન્ય']||[]).push(it);});
+  Object.values(groups).forEach(arr => arr.sort((a,b) => orderRank(a.name) - orderRank(b.name)));
   const order = CAT_ORDER.filter(c=>groups[c]).concat(Object.keys(groups).filter(c=>!CAT_ORDER.includes(c)));
   return order.map(c=>`
     <div class="cat-section fade-in">
@@ -517,19 +710,21 @@ function renderFarmers(){
 }
 
 function venueChips(){
-  // Count items per venue (using current CAT/Q so chip counts stay consistent with what would show)
+  // Only chips for currently-open haats. Count items per venue (CAT-aware).
   const counts = {};
   ALL_ITEMS.forEach(it=>{
     if(CAT!=='all' && it.cat!==CAT) return;
+    if(!it.venues.some(v => isVenueOpen(v))) return;
     (it.venues||[]).forEach(v=>{
       VENUES.forEach(vk=>{
+        if(!isVenueOpen(vk.key)) return;
         if(v.includes(vk.key) || vk.key.includes(v)){
           counts[vk.key] = (counts[vk.key]||0)+1;
         }
       });
     });
   });
-  return VENUES.filter(v=>counts[v.key]).map(v=>({key:v.key, count:counts[v.key]}));
+  return VENUES.filter(v=>isVenueOpen(v.key) && counts[v.key]).map(v=>({key:v.key, count:counts[v.key]}));
 }
 
 window.setTab = t => { TAB=t; render(); };
