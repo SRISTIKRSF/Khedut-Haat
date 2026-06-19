@@ -174,6 +174,8 @@ let WK=null, WK_META={}, SUBMISSIONS={}, FARMERS_MAP={};
 let PRODUCT_PHOTOS={};        // safeKey OR cellKey -> URL/dataURL
 let PRODUCT_PHOTO_MAP={};     // safeKey -> cellKey (when slicer was used)
 let ALL_ITEMS=[], FARMER_LIST=[];
+let DEMO_MODE = (new URLSearchParams(location.search).get('demo') === '1');
+let PRODUCTS_DB_FULL = {};    // demo only: products/ node — admin's curated list
 
 function photoKey(name){
   try{ return 'p_'+btoa(unescape(encodeURIComponent(String(name||'')))).replace(/[^a-zA-Z0-9]/g,'').slice(0,100); }
@@ -223,9 +225,42 @@ async function init(){
     PRODUCT_PHOTO_MAP = mSnap.val() || {};
     const raw = fSnap.val() || {};
     Object.values(raw).forEach(f => { if(f && f.id && f.active!==false) FARMERS_MAP[f.id] = f; });
+    if(DEMO_MODE){
+      // Demo: merge every farmer's most-recent approved submission across ALL weeks
+      try{
+        const allSnap = await fbRef('weekly').get();
+        const allWeeks = allSnap.val() || {};
+        const merged = {};
+        Object.values(allWeeks).forEach(weekData => {
+          if(!weekData || typeof weekData !== 'object' || !weekData.submissions) return;
+          Object.entries(weekData.submissions).forEach(([fid, sub]) => {
+            if(!sub || sub.status === 'pending' || sub.status === 'rejected') return;
+            const existing = merged[fid];
+            if(!existing || (+sub.submittedAt || 0) > (+existing.submittedAt || 0)){
+              merged[fid] = sub;
+            }
+          });
+        });
+        SUBMISSIONS = merged;
+      }catch(e){ console.error('demo all-weeks merge failed', e); }
+      // Demo: also load full admin Products list so brand-new products show even without submissions
+      try{
+        const pdbSnap = await fbRef('products').get();
+        PRODUCTS_DB_FULL = pdbSnap.val() || {};
+      }catch(e){ PRODUCTS_DB_FULL = {}; }
+      showDemoBanner();
+    }
   }catch(e){ console.error(e); }
   buildLists();
   render();
+}
+
+function showDemoBanner(){
+  const b = document.createElement('div');
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#e36414;color:#fff;text-align:center;padding:6px 10px;font-size:12px;font-weight:700;letter-spacing:1px;z-index:9999;box-shadow:0 2px 6px rgba(0,0,0,.2)';
+  b.textContent = '🎬 DEMO MODE — બધી પ્રોડક્ટ્સ બતાવાઈ રહી છે';
+  document.body.appendChild(b);
+  document.body.style.paddingTop = '28px';
 }
 
 function farmerVenues(f){
@@ -305,6 +340,32 @@ function buildLists(){
       _k: agg._k
     };
   });
+  // 4. DEMO MODE: inject every product from admin's curated products/ list
+  //    (so sponsor demos show the full catalog even if no farmer has submitted them yet)
+  if(DEMO_MODE){
+    const allVenueKeys = VENUES.map(v => v.key);
+    const existingNames = new Set(ALL_ITEMS.map(it => it.name));
+    Object.values(PRODUCTS_DB_FULL).forEach(p => {
+      if(!p || !p.name || p.active === false) return;
+      if(existingNames.has(p.name)) return;
+      ALL_ITEMS.push({
+        name: p.name,
+        unit: p.unit || 'kg',
+        cat: p.cat || 'અન્ય',
+        emoji: p.emoji || CAT_EMOJI[p.cat] || '🌿',
+        minPrice: 0, maxPrice: 0, price: 0,
+        qty: null,
+        hasMultipleUnits: false,
+        farmerCount: 0,
+        venues: allVenueKeys,
+        farmers: [],
+        variantNames: [],
+        photoUrl: p.photo || photoFor(p.name) || '',
+        isDemoExtra: true,
+        _k: 'demo_' + (p.id || p.name)
+      });
+    });
+  }
 }
 
 function filteredItems(){
@@ -460,7 +521,9 @@ function itemCard(it){
   const img = photo ? `<img src="${esc(cloudinaryThumb(photo,200))}" alt="" loading="lazy">` : esc(emo);
   const priceTxt = (it.minPrice && it.maxPrice && it.minPrice !== it.maxPrice)
     ? `₹${esc(it.minPrice)}-${esc(it.maxPrice)}`
-    : `₹${esc(it.minPrice || it.price)}`;
+    : (it.minPrice || it.price)
+      ? `₹${esc(it.minPrice || it.price)}`
+      : `<span style="color:var(--muted);font-weight:500;font-size:13px">જલ્દી જ</span>`;
   const qtyTxt = it.qty
     ? `<div class="item-card-qty">~${esc(it.qty)}${esc(it.unit)}</div>`
     : (it.hasMultipleUnits ? `<div class="item-card-qty">વિવિધ સાઈઝ</div>` : '');
