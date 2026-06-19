@@ -18,7 +18,7 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 
 /* HERO */
 .hero{position:relative;height:340px;overflow:hidden;background:#1b4332}
-.hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 75%;filter:brightness(.65)}
+.hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 90%;filter:brightness(.65)}
 .hero-fallback{display:none}
 .hero-overlay{position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.1) 0%,rgba(27,67,50,.85) 100%)}
 .hero-content{position:absolute;bottom:0;left:0;right:0;padding:24px 20px 28px;color:#fff}
@@ -358,7 +358,6 @@ function render(){
     </div>
 
     <div class="locations-strip">
-      <div class="loc-heading">📍 ${activeVenues.length?'આ રવિવારે '+activeVenues.length+' સ્થળે':'12 સ્થળોએ ભરાય છે'}</div>
       <div class="loc-cards">
         ${(activeVenues.length?activeVenues:VENUES).slice(0,3).map(v=>`
           <div class="loc-card">
