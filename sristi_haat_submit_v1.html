@@ -161,7 +161,9 @@ const FB_CONFIG = {
   appId:"1:269627097742:web:2d82d97f0621db87133fdf",
 };
 const FB_NAMESPACE='prakrutik_kheti';
-const AUTH_KEY='sristi_farmer_auth_v1';
+const AUTH_KEY='sristi_farmer_auth_v2';      // bumped: no longer stores password
+const PHONE_HINT_KEY='sristi_farmer_phone';  // localStorage: phone-only for autofill
+const AUTH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days; re-PIN after expiry
 
 let FB={app:null,db:null};
 function fbRef(p){return FB.db.ref(FB_NAMESPACE+(p?'/'+p:''));}
@@ -257,16 +259,38 @@ let SEARCH_Q="";
 async function init(){
   FB.app = firebase.initializeApp(FB_CONFIG);
   FB.db  = firebase.database();
-  const saved=(()=>{try{return JSON.parse(localStorage.getItem(AUTH_KEY)||"null");}catch{return null;}})();
-  if(saved && saved.phone){
+  // Migration: clear v1 storage (which held plaintext password)
+  try{ localStorage.removeItem("sristi_farmer_auth_v1"); }catch{}
+  // v2: sessionStorage holds only {phone, expires} — no password
+  const saved=(()=>{try{return JSON.parse(sessionStorage.getItem(AUTH_KEY)||"null");}catch{return null;}})();
+  if(saved && saved.phone && (+saved.expires||0) > Date.now()){
     showState("⏳","લોડ થઈ રહ્યું છે...","");
-    try{ await loginByPhone(saved.phone, saved.pwd, true); return; }catch{}
+    try{ await resumeSession(saved.phone); return; }catch{}
   }
   renderLogin();
 }
 
+// Re-establish a previously verified session WITHOUT re-checking the password.
+// The session blob already proves prior PIN verification within the same browser tab.
+async function resumeSession(phoneClean){
+  const fSnap = await fbRef('marketFarmers').get();
+  const all = fSnap.val()||{};
+  const match = Object.values(all).find(f =>
+    f && f.active!==false &&
+    String(f.phone||'').replace(/[^0-9]/g,'').slice(-10) === String(phoneClean).slice(-10)
+  );
+  if(!match){
+    try{ sessionStorage.removeItem(AUTH_KEY); }catch{}
+    throw new Error("Farmer record missing");
+  }
+  FARMER = match;
+  await loadSubmission();
+}
+
 /* ════════ LOGIN ════════ */
 function renderLogin(errMsg){
+  let phoneHint = "";
+  try{ phoneHint = (localStorage.getItem(PHONE_HINT_KEY)||"").slice(-10); }catch{}
   $('#wrap').innerHTML = `
     <div class="login">
       <div class="login-hero">
@@ -278,7 +302,7 @@ function renderLogin(errMsg){
         <div class="frm">
           <div class="frm-row">
             <label class="frm-label">મોબાઈલ નંબર</label>
-            <input class="frm-in" id="liPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="દા.ત. 9016810831" autocomplete="username">
+            <input class="frm-in" id="liPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="દા.ત. 9016810831" autocomplete="username" value="${esc(phoneHint)}">
           </div>
           <div class="frm-row">
             <label class="frm-label">પાસવર્ડ</label>
@@ -295,7 +319,11 @@ function renderLogin(errMsg){
       </div>
     </div>
   `;
-  setTimeout(()=>document.getElementById('liPhone')?.focus(),80);
+  setTimeout(()=>{
+    const phoneEl = document.getElementById('liPhone');
+    if(phoneEl && phoneEl.value) document.getElementById('liPwd')?.focus();
+    else phoneEl?.focus();
+  },80);
   ['liPhone','liPwd'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.addEventListener('keydown', e=>{if(e.key==='Enter')doLogin();});
@@ -313,7 +341,12 @@ async function loginByPhone(phone, pwd, silent){
   const fSnap = await fbRef('marketFarmers').get();
   const all = fSnap.val()||{};
   const arr = Object.values(all);
-  const match = arr.find(f=>f && f.active!==false && String(f.phone||'').replace(/[^0-9]/g,'').endsWith(phone));
+  // exact last-10 match (was: endsWith — overly permissive)
+  const entered10 = String(phone).replace(/[^0-9]/g,'').slice(-10);
+  const match = arr.find(f =>
+    f && f.active!==false &&
+    String(f.phone||'').replace(/[^0-9]/g,'').slice(-10) === entered10
+  );
   if(!match) throw new Error("આ નંબર નોંધાયેલો નથી. કૃપા કરી ઑફિસ સંપર્ક કરો.");
   const phoneClean = String(match.phone||'').replace(/[^0-9]/g,'');
   const defaultPwd = phoneClean.slice(-4);
@@ -321,13 +354,77 @@ async function loginByPhone(phone, pwd, silent){
   const customPwd = authSnap.exists()?String(authSnap.val().pwd||''):'';
   const expected = customPwd || defaultPwd;
   if(String(pwd) !== expected) throw new Error("પાસવર્ડ ખોટો છે");
-  try{localStorage.setItem(AUTH_KEY, JSON.stringify({phone:phoneClean, pwd}));}catch{}
+
+  // Persist phone-only hint (NEVER password) in localStorage for autofill convenience
+  try{ localStorage.setItem(PHONE_HINT_KEY, phoneClean); }catch{}
+  // Per-tab session blob with expiry; sessionStorage dies on tab close
+  try{
+    sessionStorage.setItem(AUTH_KEY, JSON.stringify({phone:phoneClean, expires: Date.now() + AUTH_TTL_MS}));
+  }catch{}
+
   FARMER = match;
   if(!silent) toast("સ્વાગત છે, "+(match.name||"")+"!", "ok");
+
+  // SECURITY: if farmer is still using the default password (last 4 digits of phone),
+  // force them to set a new one before proceeding. One-time prompt; skips on subsequent
+  // logins once a custom password is recorded.
+  if(!customPwd && String(pwd) === defaultPwd){
+    return renderForceChangePwd(phoneClean);
+  }
   await loadSubmission();
 }
+
+function renderForceChangePwd(phoneClean){
+  $('#wrap').innerHTML = `
+    <div class="login">
+      <div class="login-hero">
+        <div class="login-hero-emoji">🔐</div>
+        <div class="login-title">નવો પાસવર્ડ<br>બનાવો</div>
+        <div class="login-sub">તમારી માહિતી સુરક્ષિત રાખવા</div>
+      </div>
+      <div class="login-card">
+        <div class="frm">
+          <div class="frm-row">
+            <label class="frm-label">નવો પાસવર્ડ (4 અંક)</label>
+            <input class="frm-in" id="np1" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="new-password" autofocus>
+          </div>
+          <div class="frm-row">
+            <label class="frm-label">ફરી લખો</label>
+            <input class="frm-in" id="np2" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="new-password">
+          </div>
+          <button class="btn-primary" onclick="saveNewPwd('${esc(phoneClean)}')">પાસવર્ડ બદલો →</button>
+          <div id="npErr"></div>
+        </div>
+        <div class="login-hint">
+          <b>ઘોરણભૂત (default) પાસવર્ડ સુરક્ષિત નથી.</b><br>
+          તમારો પોતાનો 4-અંકનો પાસવર્ડ બનાવો જે ફક્ત તમે જાણો છો.<br>
+          (મોબાઈલ ના છેલ્લા 4 અંક <b>નહીં</b> હોવા જોઈએ)
+        </div>
+      </div>
+    </div>
+  `;
+}
+window.saveNewPwd = async (phoneClean) => {
+  const p1 = ($('#np1')?.value||'').trim();
+  const p2 = ($('#np2')?.value||'').trim();
+  const errEl = $('#npErr');
+  const showErr = m => { if(errEl) errEl.innerHTML = `<div class="login-err">${esc(m)}</div>`; };
+  if(p1.length !== 4 || !/^\d{4}$/.test(p1)) return showErr("4 અંક નો પાસવર્ડ ભરો");
+  if(p1 !== p2) return showErr("બંને પાસવર્ડ સરખા હોવા જોઈએ");
+  if(p1 === phoneClean.slice(-4)) return showErr("મોબાઈલ ના છેલ્લા 4 અંક નહિ ચાલે — બીજો બનાવો");
+  try{
+    await fbRef('farmerAuth/'+phoneClean).set({pwd: p1, updatedAt: firebase.database.ServerValue.TIMESTAMP});
+    toast("પાસવર્ડ બદલાઈ ગયો", "ok");
+    await loadSubmission();
+  }catch(e){
+    console.error(e);
+    showErr("સેવ થયો નહીં — ફરી પ્રયત્ન કરો");
+  }
+};
 window.doLogout = () => {
-  try{localStorage.removeItem(AUTH_KEY);}catch{}
+  try{ sessionStorage.removeItem(AUTH_KEY); }catch{}
+  try{ localStorage.removeItem("sristi_farmer_auth_v1"); }catch{}
+  // keep PHONE_HINT_KEY so phone field auto-fills next login
   FARMER=null; ENTRIES.clear(); SUBMITTED_AT=null;
   renderLogin();
 };
