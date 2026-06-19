@@ -3,7 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ</title>
+<title>સૃષ્ટિ ખેડૂત હાટ — Demo Catalog</title>
+<meta name="description" content="Sristi Praakrutik Khedut Haat — full catalog of organic farm produce direct from farmers across 12 venues in Gujarat.">
+<link rel="icon" type="image/jpeg" href="sristi-logo.jpg">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="સૃષ્ટિ ખેડૂત હાટ">
+<meta property="og:title" content="સૃષ્ટિ ખેડૂત હાટ — Full Catalog Demo">
+<meta property="og:description" content="All organic produce, all 12 haat venues, all participating farmers — direct from Sristi.">
+<meta property="og:image" content="https://prakrutik-kheti-c0a89.web.app/hero.jpg">
+<meta property="og:url" content="https://prakrutik-kheti-c0a89.web.app/demo">
+<meta name="twitter:card" content="summary_large_image">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,700;0,9..144,900;1,9..144,400&family=Noto+Sans+Gujarati:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -284,9 +293,10 @@ async function init(){
   FB.app = firebase.initializeApp(FB_CONFIG);
   FB.db  = firebase.database();
   try{
-    // ?wk=N to preview a specific week, ?demo=1 for the full master catalog (no haat-open gating)
+    // ?wk=N to preview a specific week.
+    // Demo mode triggers via ?demo=1 OR via the clean /demo Firebase rewrite path.
     const params = new URLSearchParams(location.search);
-    DEMO_MODE = params.get('demo') === '1';
+    DEMO_MODE = params.get('demo') === '1' || /^\/demo\/?$/i.test(location.pathname);
     const urlWk = params.get('wk');
     if(urlWk && /^\d+$/.test(urlWk)){
       WK = parseInt(urlWk, 10);
