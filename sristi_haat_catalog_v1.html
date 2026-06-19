@@ -507,7 +507,8 @@ function filteredItems(){
   const q = Q.trim().toLowerCase();
   return ALL_ITEMS.filter(it=>{
     // Only show items available at currently-open haats
-    if(!it.venues.some(v => isVenueOpen(v))) return false;
+    // (DEMO_MODE bypasses this — demo shows every product regardless of which farmer's venues it came from)
+    if(!DEMO_MODE && !it.venues.some(v => isVenueOpen(v))) return false;
     if(CAT!=='all' && it.cat!==CAT) return false;
     if(!venueMatch(it.venues, VENUE)) return false;
     if(q){
