@@ -1,0 +1,61 @@
+{
+  "_comment": "Recommended Firebase RTDB rules for prakrutik-kheti-c0a89. Paste contents (minus this comment) at: https://console.firebase.google.com/u/0/project/prakrutik-kheti-c0a89/database/prakrutik-kheti-c0a89-default-rtdb/rules then click Publish. Audit: tested 2026-06-19.",
+  "_critical": "These rules do NOT enforce per-user write isolation because the apps don't use Firebase Auth. They DO close the worst hole: leaking farmer passwords from farmerAuth/. Migrating to Firebase Auth is the #1 follow-up so writes can be properly scoped to authenticated users.",
+
+  "rules": {
+    "prakrutik_kheti": {
+
+      ".read": true,
+      ".write": true,
+
+      "farmerAuth": {
+        ".read": false,
+        ".write": false,
+        "$phone": {
+          ".read": false,
+          ".write": "newData.child('pwd').isString() && newData.child('pwd').val().length >= 4 && newData.child('pwd').val().length <= 12"
+        }
+      },
+
+      "weekly": {
+        "$wk": {
+          "submissions": {
+            "$fid": {
+              ".validate": "newData.hasChildren(['items', 'status']) && newData.child('items').val() != null"
+            }
+          }
+        }
+      },
+
+      "marketFarmers": {
+        ".read": true,
+        ".indexOn": ["phone", "active", "haat"]
+      },
+
+      "products": {
+        ".indexOn": ["order", "cat", "active"]
+      },
+
+      "catalogViews": {
+        ".read": false,
+        "$device": {
+          ".read": false,
+          ".write": true
+        }
+      },
+
+      "settings": {
+        ".read": true,
+        ".write": false
+      }
+    }
+  },
+
+  "_followup_required": [
+    "Migrate admin and farmer auth to Firebase Auth (Phone OTP or email link).",
+    "After migration, scope writes to authenticated users with role-based rules.",
+    "Add field-level rules to prevent farmers from editing other farmers' submissions.",
+    "Move Cloudinary upload preset to a Firebase Function (so the unsigned preset is no longer client-visible).",
+    "Cap the size of submissions/items arrays (e.g., max 200 items) to prevent abuse."
+  ]
+}
