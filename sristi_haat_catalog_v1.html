@@ -179,6 +179,7 @@ let DEMO_MODE=false;          // ?demo=1 — show everything regardless of open 
 let MASTER_PRODUCTS={};       // id -> {id, name, cat, price, unit, photo, active}
 let PRODUCT_ORDER={};         // legacy categoryKey -> [productName, ...]
 let PRODUCTS_FROM_DB={};      // admin's curated products: id -> {name, order, cat, ...}
+let PRODUCTS_DB_FULL={};      // demo mode only: full products data with photo, unit, emoji
 let _orderPriority=new Map(); // productName -> rank (lower = earlier)
 let ALL_ITEMS=[], FARMER_LIST=[];
 
@@ -306,15 +307,17 @@ async function init(){
     ]);
     MASTER_PRODUCTS = mpSnap.val() || {};
     // Fetch only the order/name pair from products (lightweight — no photos)
+    // In DEMO_MODE, also keep the full product record so we can inject every product
     try{
       const pdbSnap = await fbRef('products').get();
       const pdbVal = pdbSnap.val() || {};
       PRODUCTS_FROM_DB = {};
+      PRODUCTS_DB_FULL = DEMO_MODE ? (pdbVal || {}) : {};
       Object.entries(pdbVal).forEach(([id, p]) => {
         if(!p) return;
         PRODUCTS_FROM_DB[id] = {name: p.name, cat: p.cat, order: p.order};
       });
-    }catch(e){ PRODUCTS_FROM_DB = {}; }
+    }catch(e){ PRODUCTS_FROM_DB = {}; PRODUCTS_DB_FULL = {}; }
     WK_META = metaSnap.val() || {weekNum:WK};
     SUBMISSIONS = subSnap.val() || {};
     if(DEMO_MODE){
@@ -474,6 +477,30 @@ function buildLists(){
       _k: 'master_'+(mp.id || ''),
     });
   });
+  // DEMO MODE: also inject every product from the admin's curated products/ list,
+  // so sponsor demos show the full catalog even if no farmer has submitted those items yet.
+  if(DEMO_MODE){
+    Object.values(PRODUCTS_DB_FULL).forEach(p => {
+      if(!p || !p.name || p.active === false) return;
+      if(ALL_ITEMS.find(it => it.name === p.name)) return;
+      ALL_ITEMS.push({
+        name: p.name,
+        unit: p.unit || 'kg',
+        cat: p.cat || 'અન્ય',
+        emoji: p.emoji || CAT_EMOJI[p.cat] || '🌿',
+        minPrice: null, maxPrice: null, price: null,
+        qty: null,
+        hasMultipleUnits: false,
+        farmerCount: 0,
+        venues: allVenueKeys,
+        farmers: [],
+        variantNames: [],
+        photoUrl: p.photo || photoFor(p.name) || '',
+        isDemoExtra: true,
+        _k: 'demo_'+(p.id || p.name),
+      });
+    });
+  }
 }
 
 function filteredItems(){
@@ -653,7 +680,9 @@ function itemCard(it){
   const img = photo ? `<img src="${esc(cloudinaryThumb(photo,200))}" alt="" loading="lazy">` : esc(emo);
   const priceTxt = (it.minPrice && it.maxPrice && it.minPrice !== it.maxPrice)
     ? `₹${esc(it.minPrice)}-${esc(it.maxPrice)}`
-    : `₹${esc(it.minPrice || it.price)}`;
+    : (it.minPrice || it.price)
+      ? `₹${esc(it.minPrice || it.price)}`
+      : `<span style="color:var(--muted);font-weight:500">જલ્દી જ</span>`;
   const qtyTxt = it.qty
     ? `<div class="item-card-qty">~${esc(it.qty)}${esc(it.unit)}</div>`
     : (it.hasMultipleUnits ? `<div class="item-card-qty">વિવિધ સાઈઝ</div>` : '');
