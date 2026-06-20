@@ -1,9 +1,20 @@
-# Admin file — keeps PIN private (only deployed via Firebase Hosting)
-sristi_haat_admin_v1.html
+# Admin file is now tracked in git (PIN no longer in source — uses admins/{username} DB lookup)
+# sristi_haat_admin_v1.html — INTENTIONALLY tracked since 2026-06-20
 
-# Local-only tools
+# Local-only tools (deploy via Firebase, don't push to GitHub)
 sristi_haat_photo_slicer.html
 sristi_haat_seed_week492.html
+
+# Backup files from in-place edits
+*.BROKEN-*.html
+*.ROLLEDBACK-*.bak
+*.V4-restored.bak
+
+# Files copied as safety duplicates
+* - Copy.html
+* - Copy.md
+* - Copy.jpg
+* - Copy.png
 
 # Firebase deploy machinery (lives at parent Sristi/ folder)
 .firebase/
