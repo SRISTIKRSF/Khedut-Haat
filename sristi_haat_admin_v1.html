@@ -3203,6 +3203,7 @@ ${submitUrl}
       ${hasSub ? `<button class="preview-btn" onclick="previewSub('${esc(f.id).replace(/'/g,"\\'")}')">👁️</button>` : ''}
       ${waUrl ? `<a class="preview-btn" href="${waUrl}" target="_blank" rel="noopener" style="text-decoration:none;background:#25d366;color:#fff;border-color:#25d366">WA</a>` : ''}
       <button class="preview-btn" onclick="openEditFarmer('${esc(f.id).replace(/'/g,"\\'")}')" title="ખેડૂત edit કરો — હાટ બદલો, નામ સુધારો">✏️</button>
+      ${f.phone ? `<button class="preview-btn" style="background:#fff8d6;color:#7a5a00;border-color:#f7c800" onclick="resetFarmerPwd('${esc(f.id).replace(/'/g,"\\'")}','${esc(f.name||'').replace(/'/g,"\\'")}','${esc(String(f.phone).replace(/[^0-9]/g,'')).replace(/'/g,"\\'")}')" title="પાસવર્ડ reset કરો">🔑</button>` : ''}
       <button class="preview-btn" style="background:var(--red-pale);color:var(--red);border-color:#f5c4c4" onclick="removeFarmer('${esc(f.id).replace(/'/g,"\\'")}','${esc(f.name||'').replace(/'/g,"\\'")}')" title="આ યાદીમાંથી દૂર કરો">🗑️</button>
     </div>
   `;
@@ -3214,6 +3215,33 @@ window.removeFarmer = async (fid, name) => {
     await fbRef('marketFarmers/'+fid).set(null);
     toast("દૂર થયો","ok"); await loadAll();
   }catch(e){ toast("દૂર નિષ્ફળ","err"); }
+};
+
+window.resetFarmerPwd = async (fid, name, phoneClean) => {
+  const me = adminIdentity();
+  const last4 = String(phoneClean).slice(-4);
+  if(!confirm(
+    `"${name}" નો પાસવર્ડ reset કરવો છે?\n\n` +
+    `તેમના નવા login માટે:\n` +
+    `   📱 મોબાઈલ: ${phoneClean}\n` +
+    `   🔑 પાસવર્ડ: ${last4} (છેલ્લા 4 અંક)\n\n` +
+    `Login કરતી વખતે પોતાનો નવો પાસવર્ડ બનાવવા કહેવાશે.`
+  )) return;
+  try{
+    // Delete the custom-password record — default (last 4 of phone) becomes valid;
+    // farmer's next login triggers the force-change-pwd flow.
+    await fbRef('farmerAuth/'+phoneClean).remove();
+    // Audit on the farmer record
+    await fbRef('marketFarmers/'+fid).update({
+      lastPwdResetBy: me?.username || 'unknown',
+      lastPwdResetAt: firebase.database.ServerValue.TIMESTAMP
+    });
+    toast(`🔑 Reset: પાસવર્ડ = ${last4} (છેલ્લા 4 અંક)`,"ok");
+    await loadAll();
+  }catch(e){
+    console.error(e);
+    toast("Reset નિષ્ફળ: " + (e.message||""),"err");
+  }
 };
 
 window.openEditFarmer = (fid) => {
