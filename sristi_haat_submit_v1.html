@@ -259,6 +259,8 @@ function emoOrPhoto(p){
   return esc((p&&p.e)||'🌿');
 }
 let NOTE_TO_FARMER="";
+let LAST_WK_SUBMISSION=null;
+let CUR_STATUS='';
 let SEARCH_Q="";
 
 async function init(){
@@ -523,6 +525,8 @@ async function loadSubmission(){
 
   ENTRIES = new Map();
   ROUTINE_ITEMS = new Map();
+  LAST_WK_SUBMISSION = null;
+  CUR_STATUS = '';
 
   // Load current week's submission first — if it exists, it becomes both ENTRIES (with prices) AND ROUTINE_ITEMS (shown at top)
   const curSub = await fbRef('weekly/'+WK+'/submissions/'+FARMER.id).get();
@@ -530,6 +534,7 @@ async function loadSubmission(){
     const v = curSub.val();
     SUBMITTED_AT = v.submittedAt || null;
     NOTE_TO_FARMER = v.noteToFarmer || "";
+    CUR_STATUS = v.status || '';
     (v.items||[]).forEach(it => {
       if(!it || !it.name) return;
       ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", qtyByHaat: it.qtyByHaat || {}, unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
@@ -538,21 +543,33 @@ async function loadSubmission(){
         unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom
       });
     });
-  } else {
-    // Otherwise fall back to last week's items as routine (unchecked, just shown at top for convenience)
-    const lastWk = (typeof WK==='number'?WK:parseInt(WK,10))-1;
-    if(lastWk>0){
+  }
+
+  // Always try to load last week's submission for the "ગયા હાટ ની યાદી" accordion
+  const lastWk = (typeof WK==='number'?WK:parseInt(WK,10))-1;
+  if(lastWk>0){
+    try{
       const lastSub = await fbRef('weekly/'+lastWk+'/submissions/'+FARMER.id).get();
       if(lastSub.exists()){
-        (lastSub.val().items||[]).forEach(it=>{
-          if(!it || !it.name) return;
-          ROUTINE_ITEMS.set(it.name, {
-            lastPrice: it.price||"",
-            unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom
+        const v = lastSub.val();
+        LAST_WK_SUBMISSION = {
+          wk: lastWk,
+          items: v.items || [],
+          status: v.status || '',
+          totalValue: (v.items||[]).reduce((s,it) => s + (+it.price||0) * (+it.qty||1), 0)
+        };
+        // If no current submission, also seed ROUTINE_ITEMS so the form pre-fills
+        if(!curSub.exists()){
+          (v.items||[]).forEach(it=>{
+            if(!it || !it.name) return;
+            ROUTINE_ITEMS.set(it.name, {
+              lastPrice: it.price||"",
+              unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom
+            });
           });
-        });
+        }
       }
-    }
+    }catch{}
   }
   renderForm();
 }
@@ -560,6 +577,40 @@ async function loadSubmission(){
 /* ════════ RENDER FORM ════════ */
 function deadlineText(){ return WK_META.deadline || "શનિવાર સાંજે 8 વાગ્યા સુધી"; }
 function activeCount(){ let n=0; ENTRIES.forEach(e=>{ if(+e.price>0) n++; }); return n; }
+
+let LAST_WK_OPEN = false;
+function renderLastWeekAccordion(){
+  if(!LAST_WK_SUBMISSION) return '';
+  const lw = LAST_WK_SUBMISSION;
+  const statusBadge = lw.status === 'approved'
+    ? '<span style="background:#d8f3dc;color:#1b4332;font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:9999px;letter-spacing:.3px">✓ APPROVED</span>'
+    : (lw.status === 'rejected' ? '<span style="background:#ffe0e0;color:#c1121f;font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:9999px">✗ REJECTED</span>' : `<span style="background:#f4f4ef;color:#666;font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:9999px">${esc(lw.status||'?').toUpperCase()}</span>`);
+  return `
+    <div style="background:#e8f5e9;border-left:4px solid #2d6a4f;border-radius:8px;margin:8px 14px 4px;overflow:hidden">
+      <div onclick="toggleLastWk()" style="padding:9px 13px;display:flex;justify-content:space-between;align-items:center;cursor:pointer">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#1b4332;letter-spacing:.5px;text-transform:uppercase">🕐 ગયા હાટ ની યાદી (#${esc(lw.wk)})</div>
+          <div style="font-size:12.5px;color:#1b4332;font-weight:600;margin-top:2px">${lw.items.length} વસ્તુ · ₹${Math.round(lw.totalValue).toLocaleString('en-IN')} · ${statusBadge}</div>
+        </div>
+        <div style="color:#2d6a4f;font-size:18px;font-weight:700">${LAST_WK_OPEN ? '▴' : '▾'}</div>
+      </div>
+      ${LAST_WK_OPEN ? `
+        <div style="border-top:1px solid #c1e8c9;padding:9px 13px;background:#f3fbf5">
+          ${lw.items.map(it => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12.5px">
+              <span>${esc(it.emoji||'🌿')} ${esc(it.name)}</span>
+              <span style="color:#e36414;font-weight:600">₹${esc(it.price)}/${esc(it.unit)}${it.qty?` · ${esc(it.qty)}`:''}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+window.toggleLastWk = () => {
+  LAST_WK_OPEN = !LAST_WK_OPEN;
+  renderForm();
+};
 
 function renderForm(){
   const f = FARMER;
@@ -599,12 +650,19 @@ function renderForm(){
         </div>
       </div>
     ` : ''}
-    ${NOTE_TO_FARMER ? `
+    ${NOTE_TO_FARMER ? (CUR_STATUS === 'sent_back' ? `
+      <div style="background:#fff0e0;border:2px solid #e36414;border-radius:11px;padding:12px 14px;margin:11px 14px 4px;box-shadow:0 4px 12px rgba(227,100,20,.2)">
+        <div style="font-size:11px;font-weight:700;color:#7a3010;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">🔄 ઑફિસ એ સુધારવા કહ્યું છે</div>
+        <div style="font-size:14px;color:#3a2010;line-height:1.5;font-weight:500">${esc(NOTE_TO_FARMER)}</div>
+        <div style="font-size:11.5px;color:#7a3010;margin-top:6px;font-style:italic">સુધારો કરી ફરી મોકલો ↓</div>
+      </div>
+    ` : `
       <div class="admin-note">
         <div style="font-size:11px;font-weight:700;color:#7a5a00;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">📝 ઑફિસ તરફથી સંદેશ</div>
         <div style="font-size:14px;color:#3a2f00;line-height:1.5">${esc(NOTE_TO_FARMER)}</div>
       </div>
-    ` : ''}
+    `) : ''}
+    ${LAST_WK_SUBMISSION ? renderLastWeekAccordion() : ''}
     ${submittedTxt}
 
     <div class="search-bar">

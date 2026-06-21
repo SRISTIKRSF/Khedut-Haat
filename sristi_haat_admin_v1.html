@@ -299,7 +299,7 @@ Now parse the messages below. Return ONLY the JSON object — no other text.
 `;
 
 /* ════════ State ════════ */
-let WK=null, WK_META={}, FARMERS=[], SUBS={};
+let WK=null, WK_META={}, FARMERS=[], SUBS={}, PREV_SUBS={};
 let PRODUCT_PHOTOS={};      // safeKey OR cellKey -> Cloudinary URL
 let PRODUCT_PHOTO_MAP={};   // safeKey -> cellKey (slicer mapping)
 let PRODUCT_ORDER={};       // categoryKey -> [productName, ...]
@@ -622,6 +622,11 @@ async function loadAll(){
     ]);
     WK_META = metaSnap.val() || {weekNum:WK};
     SUBS = subSnap.val() || {};
+    // Load previous week's submissions for "vs last week" comparison in review cards
+    try{
+      const prevSnap = await fbRef('weekly/'+(WK-1)+'/submissions').get();
+      PREV_SUBS = prevSnap.val() || {};
+    }catch{ PREV_SUBS = {}; }
     PRODUCT_PHOTOS = pSnap.val() || {};
     PRODUCT_PHOTO_MAP = pmSnap.val() || {};
     CLOUDINARY_CFG = cSnap.val() || null;
@@ -1142,10 +1147,37 @@ function renderReviewCard(fid){
     ).join(' ');
   })();
 
-  // Per-item rows with per-haat qty breakdown (no photos)
+  // For "vs last week" comparison — same farmer's last submission, indexed by item name
+  const lastWkSub = PREV_SUBS[fid] || {};
+  const lastWkItems = (lastWkSub.status === 'approved' || lastWkSub.status === 'pending')
+    ? (lastWkSub.items || [])
+    : [];
+  const lastWkByName = new Map(lastWkItems.map(it => [it.name, {price: +it.price||0, qty: +it.qty||0}]));
+
+  // Per-item rows with per-haat qty breakdown + vs-last-week deltas
   const itemRows = items.map(it => {
     const prev = reEdited && prevItems.find(p => p.name === it.name);
     const priceChanged = prev && prev.price !== it.price;
+    const lw = lastWkByName.get(it.name);
+    // Price delta
+    let priceDelta = '';
+    if(lw && lw.price > 0 && +it.price > 0){
+      const diff = +it.price - lw.price;
+      const pct = Math.round((diff / lw.price) * 100);
+      if(diff === 0) priceDelta = `<span style="color:var(--muted);font-size:10.5px">= ₹${lw.price}</span>`;
+      else if(Math.abs(pct) >= 30) priceDelta = `<span style="color:var(--red);font-weight:600;font-size:10.5px">${diff>0?'↑':'↓'} ${Math.abs(pct)}% (was ₹${lw.price})</span>`;
+      else priceDelta = `<span style="color:var(--green2);font-size:10.5px">${diff>0?'↑':'↓'} ${Math.abs(pct)}%</span>`;
+    } else if(lw && lw.price > 0){
+      priceDelta = `<span style="color:var(--muted);font-size:10.5px">was ₹${lw.price}</span>`;
+    } else if(!lw){
+      priceDelta = `<span style="color:var(--green2);font-size:10.5px;font-weight:600">NEW</span>`;
+    }
+    // Qty anomaly flag
+    let qtyFlag = '';
+    if(it.qty && lw && lw.qty > 0){
+      const ratio = +it.qty / lw.qty;
+      if(ratio >= 5 || ratio <= 0.2) qtyFlag = ` <span title="last week: ${lw.qty}" style="color:var(--red);font-weight:700">⚠️</span>`;
+    }
 
     // Quantity display: per-haat split if available, else single qty
     let qtyHtml = '';
@@ -1167,13 +1199,14 @@ function renderReviewCard(fid){
     return `
       <div style="display:flex;align-items:center;gap:11px;padding:9px 14px;border-bottom:1px solid var(--border)">
         <div style="flex:1;min-width:0">
-          <div style="font-size:14px;font-weight:600;line-height:1.3">${esc(it.emoji||'🌿')} ${esc(it.name)} <span style="color:var(--muted);font-size:11px;font-weight:400">${esc(it.cat||'')}</span></div>
+          <div style="font-size:14px;font-weight:600;line-height:1.3">${esc(it.emoji||'🌿')} ${esc(it.name)}${qtyFlag} <span style="color:var(--muted);font-size:11px;font-weight:400">${esc(it.cat||'')}</span></div>
           ${qtyHtml}
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:15.5px;font-weight:800;color:var(--orange);line-height:1">₹${esc(it.price)}</div>
           <div style="font-size:10.5px;color:var(--muted);margin-top:2px">/${esc(it.unit)}</div>
           ${priceChanged?`<div style="font-size:10px;color:var(--muted);margin-top:2px"><s>₹${esc(prev.price)}</s></div>`:''}
+          ${priceDelta?`<div style="margin-top:3px">${priceDelta}</div>`:''}
         </div>
       </div>
     `;
@@ -1235,6 +1268,7 @@ function renderReviewCard(fid){
       <div style="display:flex;gap:8px;padding:11px 16px;border-top:1px solid var(--border);flex-wrap:wrap;justify-content:flex-end">
         <button class="btn-sm" onclick="openNote('${esc(fid)}')">📝 ${sub.noteToFarmer?'Edit note':'Note'}</button>
         <button class="btn-sm" onclick="editSubmission('${esc(fid)}')">✏️ Edit</button>
+        <button class="btn-sm" style="background:#fff8d6;color:#7a5a00;border-color:#f7c800" onclick="sendBackSubmission('${esc(fid)}')">🔄 Send Back</button>
         <button class="btn-sm" style="background:var(--red-pale);color:var(--red);border-color:#f5c4c4" onclick="rejectSubmission('${esc(fid)}')">✗ Reject</button>
         <button class="btn-sm primary" onclick="approveSubmission('${esc(fid)}')">✓ Approve</button>
       </div>
@@ -1288,6 +1322,47 @@ window.approveAllPending = async () => {
     toast(`✓ ${pending.length} submissions approved`,"ok");
     render();
   }catch(e){ console.error(e); toast("Bulk approve નિષ્ફળ","err"); }
+};
+
+window.sendBackSubmission = (fid) => {
+  const sub = SUBS[fid] || {};
+  modal(`
+    <div class="modal-hdr">
+      <div class="modal-title">🔄 Send back to ${esc(sub.farmerName||fid)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="card-sub">Submission ખેડૂત ને પાછી મોકલો સુધારવા. તેઓ submit form ખોલશે ત્યારે તમારી note દેખાશે, અને ફરી submit કરી શકશે.</div>
+      <div class="frm-row" style="margin-top:14px">
+        <label class="frm-label">શું સુધારવા કહેવું? (ખેડૂતને દેખાશે)</label>
+        <textarea class="frm-in" id="sbReason" rows="3" placeholder="દા.ત. દૂધી જથ્થો 102 લાગે છે — 12 હશે? ફરી જુઓ"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn-sm" onclick="closeModal()" style="flex:1">રદ</button>
+        <button class="btn-sm" style="flex:1;background:#e36414;color:#fff;border-color:#e36414" onclick="confirmSendBack('${esc(fid)}')">🔄 Send Back</button>
+      </div>
+    </div>
+  `);
+};
+window.confirmSendBack = async (fid) => {
+  const reason = $('#sbReason')?.value?.trim() || '';
+  if(!reason) return toast("કારણ ભરો — ખેડૂતને ખબર પડે કે શું સુધારવું","err");
+  const me = adminIdentity();
+  try{
+    await fbRef('weekly/'+WK+'/submissions/'+fid).update({
+      status: 'sent_back',
+      sentBackAt: firebase.database.ServerValue.TIMESTAMP,
+      sentBackBy: me?.username || 'unknown',
+      noteToFarmer: reason,
+    });
+    if(SUBS[fid]){
+      SUBS[fid].status = 'sent_back';
+      SUBS[fid].noteToFarmer = reason;
+    }
+    closeModal();
+    toast("🔄 Sent back — ખેડૂતને edit કરવા કહેવાશે","ok");
+    render();
+  }catch(e){ console.error(e); toast("Send back નિષ્ફળ: "+(e.message||e),"err"); }
 };
 
 window.rejectSubmission = (fid) => {
@@ -3236,12 +3311,45 @@ window.resetFarmerPwd = async (fid, name, phoneClean) => {
       lastPwdResetBy: me?.username || 'unknown',
       lastPwdResetAt: firebase.database.ServerValue.TIMESTAMP
     });
-    toast(`🔑 Reset: પાસવર્ડ = ${last4} (છેલ્લા 4 અંક)`,"ok");
+    toast(`🔑 Reset done — Send WhatsApp now`,"ok");
+    showResetPwdWhatsAppHelper(name, phoneClean, last4);
     await loadAll();
   }catch(e){
     console.error(e);
     toast("Reset નિષ્ફળ: " + (e.message||""),"err");
   }
+};
+
+function showResetPwdWhatsAppHelper(name, phoneClean, last4){
+  const msg =
+`નમસ્તે ${name},
+તમારો સૃષ્ટિ હાટ login reset થયો છે.
+
+📱 મોબાઈલ: ${phoneClean}
+🔑 પાસવર્ડ: ${last4} (છેલ્લા 4 અંક)
+🔗 લિંક: https://prakrutik-kheti-c0a89.web.app/submit
+
+Login કરી પોતાનો નવો પાસવર્ડ બનાવજો.`;
+  const waUrl = `https://wa.me/91${phoneClean.slice(-10)}?text=${encodeURIComponent(msg)}`;
+  modal(`
+    <div class="modal-hdr">
+      <div class="modal-title">✅ Password reset — Share new login</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:#5f5e5a;margin-bottom:9px">${esc(name)} · ${esc(phoneClean)}</div>
+      <div style="background:#f4f4ef;border-radius:8px;padding:11px 13px;font-size:12px;color:#444;line-height:1.6;font-family:'Consolas',monospace;white-space:pre-wrap;margin-bottom:11px;border:1px solid #e8e0d0" id="rpMsg">${esc(msg)}</div>
+      <div style="display:flex;gap:9px">
+        <a href="${waUrl}" target="_blank" rel="noopener" style="background:#25d366;color:#fff;border-radius:8px;padding:11px 14px;font-size:13px;font-weight:700;text-decoration:none;flex:1;text-align:center" onclick="setTimeout(closeModal,300)">📱 Send via WhatsApp</a>
+        <button class="btn-sm" style="padding:11px 14px;font-size:13px" onclick="copyResetMsg()">📋 Copy</button>
+      </div>
+      <div style="margin-top:11px;font-size:11px;color:#888;text-align:center">Logged in audit · admin reset @ ${(new Date()).toLocaleString('en-IN', {hour12:false})}</div>
+    </div>
+  `);
+}
+window.copyResetMsg = () => {
+  const txt = document.getElementById('rpMsg')?.textContent || '';
+  navigator.clipboard?.writeText(txt).then(()=>toast("Copied — paste in WhatsApp","ok"));
 };
 
 window.openEditFarmer = (fid) => {
