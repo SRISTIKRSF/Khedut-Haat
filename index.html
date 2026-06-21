@@ -410,9 +410,9 @@ function render(){
         <div class="hero-title">સૃષ્ટિ ખેડૂત હાટ</div>
         <div class="hero-sub">ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી</div>
         <div class="hero-chips">
-          <span class="hero-chip">📍 12 સ્થળે</span>
-          ${farmerCount?`<span class="hero-chip">🌾 ${farmerCount} ખેડૂત</span>`:''}
-          ${itemCount?`<span class="hero-chip">📦 ${itemCount} પ્રોડક્ટ્સ</span>`:''}
+          <span class="hero-chip" onclick="showAllLocs()" style="cursor:pointer" title="બધા સ્થળ જુઓ">📍 12 સ્થળે</span>
+          ${farmerCount?`<span class="hero-chip" onclick="scrollToList('farmers')" style="cursor:pointer" title="ખેડૂત જુઓ">🌾 ${farmerCount} ખેડૂત</span>`:''}
+          ${itemCount?`<span class="hero-chip" onclick="scrollToList('items')" style="cursor:pointer" title="વસ્તુ જુઓ">📦 ${itemCount} પ્રોડક્ટ્સ</span>`:''}
           <span class="hero-chip">🛍️ થેલી લઈ આવજો</span>
         </div>
       </div>
@@ -688,6 +688,12 @@ function venueChips(){
 }
 
 window.setTab = t => { TAB=t; render(); };
+window.scrollToList = (tab) => {
+  if(TAB !== tab){ TAB = tab; render(); }
+  setTimeout(()=>{
+    document.querySelector('.tabs')?.scrollIntoView({behavior:'smooth', block:'start'});
+  }, 50);
+};
 window.setVenue = v => { VENUE=v; render(); };
 window.setCat = c => { CAT=c; render(); };
 window.setQ = q => { Q=q; const wasFocus = document.activeElement?.id==='searchInput'; const car = wasFocus?document.activeElement.selectionStart:null; render(); if(wasFocus){ const el=document.getElementById('searchInput'); if(el){el.focus(); if(car!=null) el.setSelectionRange(car,car);}} };

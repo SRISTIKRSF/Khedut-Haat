@@ -692,12 +692,16 @@ function render(){
     </div>
 
     <div class="tab-loading" id="tabLoading"></div>
-    <div class="tabs">
+    <div class="tabs" style="gap:0;align-items:center">
+      <div style="padding:0 8px 0 12px;font-size:9.5px;color:#888;font-weight:700;letter-spacing:.6px;text-transform:uppercase;flex-shrink:0">આ અઠવાડિયું</div>
       <button class="tab ${TAB==='dashboard'?'active':''}" onclick="setTab('dashboard')">📊 ડેશબોર્ડ</button>
       <button class="tab ${TAB==='review'?'active':''}" onclick="setTab('review')">✅ સમીક્ષા ${pendingReviewCount()>0?`<span class="badge">${pendingReviewCount()}</span>`:''}</button>
       <button class="tab ${TAB==='summary'?'active':''}" onclick="setTab('summary')">📊 સારાંશ</button>
-      <button class="tab ${TAB==='products'?'active':''}" onclick="setTab('products')">📦 પ્રોડક્ટ</button>
+      <div style="width:1px;height:22px;background:#e8e0d0;margin:0 8px;flex-shrink:0"></div>
+      <div style="padding:0 8px;font-size:9.5px;color:#888;font-weight:700;letter-spacing:.6px;text-transform:uppercase;flex-shrink:0">મેનેજ</div>
       <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')">🌾 ખેડૂત <span class="badge">${pendingTab}</span></button>
+      <button class="tab ${TAB==='products'?'active':''}" onclick="setTab('products')">📦 પ્રોડક્ટ</button>
+      <div style="width:1px;height:22px;background:#e8e0d0;margin:0 8px;flex-shrink:0"></div>
       <button class="tab ${TAB==='guide'?'active':''}" onclick="setTab('guide')">📖 માર્ગદર્શન</button>
     </div>
 
@@ -808,6 +812,82 @@ function renderDashboard(){
       </div>
     </div>
     `:''}
+
+    ${renderActivityLog()}
+  `;
+}
+
+function renderActivityLog(){
+  // Derive last 10 admin actions from existing data (no separate audit table needed)
+  const events = [];
+  Object.entries(SUBS).forEach(([fid, sub]) => {
+    if(sub.approvedAt){
+      events.push({
+        ts: +sub.approvedAt, kind: 'approve', icon: '✓',
+        color: '#1b4332', bg: '#d8f3dc',
+        who: sub.approvedBy || 'admin',
+        what: `Approved <b>${esc(sub.farmerName || fid)}</b>`,
+        sub: sub.items?.length ? `${sub.items.length} વસ્તુ` : ''
+      });
+    }
+    if(sub.rejectedAt){
+      events.push({
+        ts: +sub.rejectedAt, kind: 'reject', icon: '✗',
+        color: '#c1121f', bg: '#ffe0e0',
+        who: sub.rejectedBy || 'admin',
+        what: `Rejected <b>${esc(sub.farmerName || fid)}</b>`,
+        sub: sub.rejectReason || ''
+      });
+    }
+    if(sub.sentBackAt){
+      events.push({
+        ts: +sub.sentBackAt, kind: 'sentback', icon: '🔄',
+        color: '#7a3010', bg: '#fff0e0',
+        who: sub.sentBackBy || 'admin',
+        what: `Sent back <b>${esc(sub.farmerName || fid)}</b>`,
+        sub: sub.noteToFarmer ? `"${esc(sub.noteToFarmer.slice(0,40))}${sub.noteToFarmer.length>40?'…':''}"` : ''
+      });
+    }
+  });
+  FARMERS.forEach(f => {
+    if(f.lastPwdResetAt){
+      events.push({
+        ts: +f.lastPwdResetAt, kind: 'reset', icon: '🔑',
+        color: '#7a5a00', bg: '#fff8d6',
+        who: f.lastPwdResetBy || 'admin',
+        what: `Reset password <b>${esc(f.name || f.id)}</b>`,
+        sub: ''
+      });
+    }
+  });
+  events.sort((a,b) => b.ts - a.ts);
+  const recent = events.slice(0, 10);
+  if(!recent.length) return '';
+  return `
+    <div class="card" style="padding:0;margin-top:14px">
+      <div style="padding:11px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--green)">📋 Activity</div>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Last ${recent.length} admin actions across this week</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted)">${events.length > 10 ? '+'+(events.length-10)+' older' : ''}</div>
+      </div>
+      <div>
+        ${recent.map(e => `
+          <div style="display:flex;align-items:flex-start;gap:11px;padding:9px 16px;border-bottom:1px solid #f0eee5">
+            <div style="background:${e.bg};color:${e.color};border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0">${e.icon}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;color:var(--text);line-height:1.35">${e.what}</div>
+              ${e.sub?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${e.sub}</div>`:''}
+            </div>
+            <div style="text-align:right;flex-shrink:0;font-size:10.5px;color:var(--muted)">
+              <div>${formatAgo(e.ts)}</div>
+              <div style="font-weight:600;color:${e.color}">${esc(e.who)}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
   `;
 }
 

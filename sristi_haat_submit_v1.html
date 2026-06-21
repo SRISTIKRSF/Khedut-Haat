@@ -579,6 +579,9 @@ function deadlineText(){ return WK_META.deadline || "શનિવાર સા�
 function activeCount(){ let n=0; ENTRIES.forEach(e=>{ if(+e.price>0) n++; }); return n; }
 
 let LAST_WK_OPEN = false;
+let OFFICE_NOTE_COLLAPSED = false;
+window.toggleOfficeNote = () => { OFFICE_NOTE_COLLAPSED = !OFFICE_NOTE_COLLAPSED; renderForm(); };
+
 function renderLastWeekAccordion(){
   if(!LAST_WK_SUBMISSION) return '';
   const lw = LAST_WK_SUBMISSION;
@@ -656,12 +659,17 @@ function renderForm(){
         <div style="font-size:14px;color:#3a2010;line-height:1.5;font-weight:500">${esc(NOTE_TO_FARMER)}</div>
         <div style="font-size:11.5px;color:#7a3010;margin-top:6px;font-style:italic">સુધારો કરી ફરી મોકલો ↓</div>
       </div>
-    ` : `
-      <div class="admin-note">
-        <div style="font-size:11px;font-weight:700;color:#7a5a00;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">📝 ઑફિસ તરફથી સંદેશ</div>
-        <div style="font-size:14px;color:#3a2f00;line-height:1.5">${esc(NOTE_TO_FARMER)}</div>
+    ` : (OFFICE_NOTE_COLLAPSED ? `
+      <div onclick="toggleOfficeNote()" style="background:#fff8d6;border:1px solid #f7c800;border-radius:9999px;padding:4px 11px;margin:8px 14px 4px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:11.5px;color:#7a5a00;font-weight:600;width:fit-content">
+        📝 ઑફિસ સંદેશ <span style="color:#a37800;font-weight:500;font-size:10.5px">— ટેપ કરી જુઓ</span>
       </div>
-    `) : ''}
+    ` : `
+      <div class="admin-note" style="position:relative">
+        <div style="position:absolute;top:6px;right:8px;background:#f7c800;color:#fff;border-radius:50%;width:18px;height:18px;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:700;cursor:pointer" onclick="toggleOfficeNote()" title="બંધ કરો">−</div>
+        <div style="font-size:11px;font-weight:700;color:#7a5a00;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">📝 ઑફિસ તરફથી સંદેશ</div>
+        <div style="font-size:14px;color:#3a2f00;line-height:1.5;padding-right:18px">${esc(NOTE_TO_FARMER)}</div>
+      </div>
+    `)) : ''}
     ${LAST_WK_SUBMISSION ? renderLastWeekAccordion() : ''}
     ${submittedTxt}
 
