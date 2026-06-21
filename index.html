@@ -216,7 +216,50 @@ function venueMatch(itemVenues, venueKey){
   return itemVenues.some(v => v.includes(venueKey) || venueKey.includes(v));
 }
 
+function renderSkeleton(){
+  // Shown immediately on load while Firebase fetches — no more blank-page first impression
+  $('#wrap').innerHTML = `
+    <div class="hero" style="background:#1b4332">
+      <div class="hero-overlay"></div>
+      <div class="hero-content">
+        <div style="height:30px;background:rgba(255,255,255,.15);border-radius:6px;width:60%;margin-bottom:10px"></div>
+        <div style="height:14px;background:rgba(255,255,255,.1);border-radius:4px;width:80%;margin-bottom:14px"></div>
+        <div style="display:flex;gap:8px">
+          <div style="height:24px;background:rgba(255,255,255,.1);border-radius:20px;width:60px"></div>
+          <div style="height:24px;background:rgba(255,255,255,.1);border-radius:20px;width:70px"></div>
+          <div style="height:24px;background:rgba(255,255,255,.1);border-radius:20px;width:85px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="locations-strip">
+      <div class="loc-cards">
+        <div class="loc-card" style="opacity:.4"><div style="flex:1"><div style="height:11px;background:rgba(255,255,255,.2);border-radius:3px;width:60%;margin-bottom:5px"></div><div style="height:9px;background:rgba(255,255,255,.12);border-radius:3px;width:40%"></div></div></div>
+        <div class="loc-card" style="opacity:.3"><div style="flex:1"><div style="height:11px;background:rgba(255,255,255,.2);border-radius:3px;width:50%;margin-bottom:5px"></div><div style="height:9px;background:rgba(255,255,255,.12);border-radius:3px;width:35%"></div></div></div>
+      </div>
+    </div>
+    <div style="background:#fff;padding:12px 14px;border-bottom:1px solid var(--border)">
+      <div style="height:36px;background:var(--bg);border-radius:10px;border:1.5px solid var(--border)"></div>
+    </div>
+    <div style="padding:14px 10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px">
+      ${Array(10).fill(0).map(()=>'<div style="background:#fff;border:1px solid var(--border);border-radius:9px;aspect-ratio:0.78;background:linear-gradient(180deg,#d8f3dc 0 60%,#fff 60% 100%);opacity:.55"></div>').join('')}
+    </div>
+  `;
+}
+
+function renderErrorState(retry){
+  $('#wrap').innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:40px 24px;text-align:center;background:var(--bg)">
+      <div style="font-size:54px;margin-bottom:14px;opacity:.6">⚠️</div>
+      <div style="font-family:'Fraunces','Noto Sans Gujarati',serif;font-size:20px;font-weight:700;color:var(--green);margin-bottom:6px">ડેટા લોડ થયો નહીં</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6;max-width:280px">નેટવર્ક તપાસો અને ફરી પ્રયત્ન કરો.<br>કોઈ માહિતી ખોવાઈ નથી.</div>
+      <button onclick="(${retry.toString()})()" style="background:var(--green2);color:#fff;border:none;border-radius:9px;padding:11px 24px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;box-shadow:0 3px 12px rgba(45,106,79,.3)">⟳ ફરી પ્રયત્ન કરો</button>
+      <div style="margin-top:16px;font-size:11px;color:#888">સતત નિષ્ફળતા? · ઑફિસ સંપર્ક કરો</div>
+    </div>
+  `;
+}
+
 async function init(){
+  renderSkeleton();
   FB.app = firebase.initializeApp(FB_CONFIG);
   FB.db  = firebase.database();
   try{
@@ -235,7 +278,10 @@ async function init(){
     PRODUCT_PHOTO_MAP = mSnap.val() || {};
     const raw = fSnap.val() || {};
     Object.values(raw).forEach(f => { if(f && f.id && f.active!==false) FARMERS_MAP[f.id] = f; });
-  }catch(e){ console.error(e); }
+  }catch(e){
+    console.error(e);
+    return renderErrorState(init);
+  }
   buildLists();
   render();
 }

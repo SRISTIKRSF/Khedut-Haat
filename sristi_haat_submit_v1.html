@@ -221,9 +221,14 @@ function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{f
 
 function toast(msg, kind=""){
   const w=$('#toasts');const t=document.createElement('div');
-  t.className='toast '+(kind||"");t.textContent=msg;w.appendChild(t);
-  setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';},2200);
-  setTimeout(()=>t.remove(),2700);
+  t.className='toast '+(kind||"");t.textContent=msg;
+  t.style.cursor='pointer';
+  t.title='ટેપ કરી બંધ કરો';
+  w.appendChild(t);
+  const dismiss = ()=>{ t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),320); };
+  t.addEventListener('click', dismiss);
+  // Older farmers may take time to read — 5s instead of 2.2s
+  setTimeout(dismiss, 5000);
 }
 
 /* keyed by item name; values: {price, qty, unit, cat, emoji, custom?} */
@@ -329,13 +334,34 @@ function renderLogin(errMsg){
     if(el) el.addEventListener('keydown', e=>{if(e.key==='Enter')doLogin();});
   });
 }
+// Show login error inline WITHOUT clearing phone or losing focus — better than full re-render
+function showLoginError(msg){
+  const phoneEl = document.getElementById('liPhone');
+  const pwdEl   = document.getElementById('liPwd');
+  let errEl     = document.getElementById('liErr');
+  if(!errEl){
+    errEl = document.createElement('div');
+    errEl.id = 'liErr';
+    errEl.className = 'login-err';
+    errEl.style.cssText = 'display:flex;align-items:center;gap:7px';
+    const btn = document.querySelector('.btn-primary');
+    btn?.parentElement?.insertBefore(errEl, btn.nextSibling);
+  }
+  errEl.innerHTML = `<span style="font-size:14px">⚠️</span><span>${esc(msg)}</span>`;
+  // Red border on whichever field is the most likely culprit
+  if(/પાસવર્ડ|password/i.test(msg)){
+    if(pwdEl){ pwdEl.style.borderColor='#c1121f'; pwdEl.value=''; pwdEl.focus(); }
+  } else {
+    if(phoneEl){ phoneEl.style.borderColor='#c1121f'; phoneEl.focus(); }
+  }
+}
 window.doLogin = async () => {
   const phoneRaw = ($('#liPhone')?.value||'').replace(/[^0-9]/g,'');
   const pwd      = ($('#liPwd')?.value||'').trim();
-  if(phoneRaw.length<10) return renderLogin("મોબાઈલ નંબર બરાબર નથી");
-  if(!pwd)               return renderLogin("પાસવર્ડ ભરો");
+  if(phoneRaw.length<10) return showLoginError("મોબાઈલ નંબર બરાબર નથી");
+  if(!pwd)               return showLoginError("પાસવર્ડ ભરો");
   try{ await loginByPhone(phoneRaw, pwd, false); }
-  catch(e){ renderLogin(e.message||"લોગ-ઇન નિષ્ફળ"); }
+  catch(e){ showLoginError(e.message||"લોગ-ઇન નિષ્ફળ"); }
 };
 async function loginByPhone(phone, pwd, silent){
   const fSnap = await fbRef('marketFarmers').get();
@@ -375,34 +401,42 @@ async function loginByPhone(phone, pwd, silent){
 }
 
 function renderForceChangePwd(phoneClean){
+  const welcomeName = FARMER?.name || 'ખેડૂત';
   $('#wrap').innerHTML = `
-    <div class="login">
-      <div class="login-hero">
-        <div class="login-hero-emoji">🔐</div>
-        <div class="login-title">નવો પાસવર્ડ<br>બનાવો</div>
-        <div class="login-sub">તમારી માહિતી સુરક્ષિત રાખવા</div>
+    <div style="background:#fff7ed;min-height:100vh">
+      <!-- Orange success banner across the top -->
+      <div style="background:linear-gradient(135deg,#e36414,#c14a08);color:#fff;padding:18px 16px 36px;text-align:center;position:relative">
+        <div style="font-size:9.5px;font-weight:700;letter-spacing:1.5px;opacity:.92;text-transform:uppercase;margin-bottom:4px">🎉 લોગ-ઇન સફળ</div>
+        <div style="font-size:16px;font-weight:700">સ્વાગત છે, ${esc(welcomeName)}!</div>
       </div>
-      <div class="login-card">
-        <div class="frm">
+      <!-- Card overlapping the banner -->
+      <div style="margin:-22px 18px 0;background:#fff;border-radius:16px;padding:22px 18px 18px;box-shadow:0 6px 24px rgba(122,48,16,.12);position:relative">
+        <div style="font-size:54px;text-align:center;margin-bottom:6px">🔐</div>
+        <div style="font-family:'Fraunces','Noto Sans Gujarati',serif;font-size:20px;font-weight:700;text-align:center;color:#7a3010;line-height:1.15;margin-bottom:4px">નવો પાસવર્ડ બનાવો</div>
+        <div style="font-size:12.5px;color:#6b7280;text-align:center;margin-bottom:18px;line-height:1.5">પ્રથમ વાર લોગ-ઇન કર્યું છે. ઘોરણભૂત પાસવર્ડ ને બદલે,<br>તમારો પોતાનો 4-અંકનો પાસવર્ડ બનાવો.</div>
+        <div class="frm" style="gap:13px">
           <div class="frm-row">
             <label class="frm-label">નવો પાસવર્ડ (4 અંક)</label>
-            <input class="frm-in" id="np1" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="new-password" autofocus>
+            <input class="frm-in" id="np1" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="new-password" autofocus style="border-color:#e36414;letter-spacing:8px;text-align:center;font-size:18px">
           </div>
           <div class="frm-row">
             <label class="frm-label">ફરી લખો</label>
-            <input class="frm-in" id="np2" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="new-password">
+            <input class="frm-in" id="np2" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="new-password" style="letter-spacing:8px;text-align:center;font-size:18px">
           </div>
-          <button class="btn-primary" onclick="saveNewPwd('${esc(phoneClean)}')">પાસવર્ડ બદલો →</button>
+          <button class="btn-primary" onclick="saveNewPwd('${esc(phoneClean)}')" style="background:#e36414;box-shadow:0 4px 14px rgba(227,100,20,.3)">પાસવર્ડ બદલો →</button>
           <div id="npErr"></div>
         </div>
-        <div class="login-hint">
-          <b>ઘોરણભૂત (default) પાસવર્ડ સુરક્ષિત નથી.</b><br>
-          તમારો પોતાનો 4-અંકનો પાસવર્ડ બનાવો જે ફક્ત તમે જાણો છો.<br>
-          (મોબાઈલ ના છેલ્લા 4 અંક <b>નહીં</b> હોવા જોઈએ)
+        <div style="background:#fff8d6;border-left:3px solid #f7c800;border-radius:7px;padding:9px 11px;margin-top:14px;font-size:11.5px;color:#7a5a00;line-height:1.5">
+          💡 <b>ટિપ:</b> મોબાઈલ ના છેલ્લા 4 અંક <b>નહીં</b> વાપરો. કંઈક જે ફક્ત તમે જાણો — જેમ કે જન્મ વર્ષ.
         </div>
       </div>
     </div>
   `;
+  setTimeout(()=>{
+    const a=document.getElementById('np1');
+    const b=document.getElementById('np2');
+    [a,b].forEach(el => el && el.addEventListener('keydown', e=>{if(e.key==='Enter')saveNewPwd(phoneClean);}));
+  },80);
 }
 window.saveNewPwd = async (phoneClean) => {
   const p1 = ($('#np1')?.value||'').trim();
@@ -855,13 +889,54 @@ window.openCustomForm = () => {
   setTimeout(()=>document.getElementById('cuNm')?.focus(),50);
 };
 window.closeCustomForm = () => { document.getElementById('customFormSlot').innerHTML=""; };
+// Levenshtein distance — used to detect typos of canonical product names
+function levenshtein(a, b){
+  const m=a.length, n=b.length;
+  if(!m) return n; if(!n) return m;
+  const dp = Array.from({length:m+1}, ()=>new Array(n+1).fill(0));
+  for(let i=0;i<=m;i++) dp[i][0]=i;
+  for(let j=0;j<=n;j++) dp[0][j]=j;
+  for(let i=1;i<=m;i++) for(let j=1;j<=n;j++){
+    dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+  }
+  return dp[m][n];
+}
 window.saveCustom = () => {
-  const nm = document.getElementById('cuNm').value.trim();
-  const u  = document.getElementById('cuU').value;
-  const c  = document.getElementById('cuC').value;
+  let nm   = document.getElementById('cuNm').value.trim();
+  let u    = document.getElementById('cuU').value;
+  let c    = document.getElementById('cuC').value;
   if(!nm) return toast("નામ ભરો","err");
   // collide check
   if(PRODUCT_LIB.find(p=>p.n===nm) || ENTRIES.has(nm)) return toast("આ વસ્તુ યાદીમાં છે જ","err");
+  // typo guard: if name is within 2 edits of a canonical product, suggest swapping
+  const similar = PRODUCT_LIB.find(p => {
+    const d = levenshtein(nm, p.n);
+    return d > 0 && d <= 2;
+  });
+  if(similar){
+    const useCanonical = confirm(
+      `'${nm}' '${similar.n}' જેવું લાગે છે — typo હોઈ શકે?\n\n` +
+      `OK દબાવી '${similar.n}' (યાદીમાં છે) નો ઉપયોગ કરો\n` +
+      `Cancel દબાવી '${nm}' ને નવી custom વસ્તુ તરીકે ઉમેરો`
+    );
+    if(useCanonical){
+      // Swap to the canonical product — uses its category/unit/emoji
+      nm = similar.n;
+      u  = similar.u || u;
+      c  = similar.c || c;
+      if(ENTRIES.has(nm)){ closeCustomForm(); return toast(`'${nm}' પહેલેથી છે — ભાવ ભરો`,"ok"); }
+      ENTRIES.set(nm, {price:"", qty:"", unit:u, cat:c, emoji:similar.e||CAT_EMOJI[c]||"🌿"});
+      closeCustomForm();
+      document.getElementById('itemsContainer').innerHTML = renderItems();
+      toast(`'${nm}' (યાદીમાંથી) — ભાવ ભરો`,"ok");
+      setTimeout(()=>{
+        const safeId = 'it_'+btoa(unescape(encodeURIComponent(nm))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
+        document.getElementById('row_'+safeId)?.scrollIntoView({behavior:'smooth', block:'center'});
+      }, 100);
+      return;
+    }
+    // else: fall through, save as custom with the typed name
+  }
   ENTRIES.set(nm, {price:"", qty:"", unit:u, cat:c, emoji:CAT_EMOJI[c]||"🌿", custom:true});
   closeCustomForm();
   // re-render items container only (preserves scroll mostly)
@@ -876,6 +951,19 @@ window.saveCustom = () => {
 
 /* ════════ SUBMIT ════════ */
 window.submitAll = async () => {
+  // CRITICAL: force-read every visible input from the DOM before submit.
+  // Without this, an unfocused input's last keystroke can be lost if the
+  // user taps "મોકલો" before the input fires its 'input' event.
+  document.querySelectorAll('.item').forEach(row => {
+    const name = row.dataset?.name;
+    if(!name) return;
+    const inputs = row.querySelectorAll('input[type="number"]');
+    inputs.forEach(inp => {
+      // Dispatch a synthetic 'input' so any debounced/uncaptured value flushes
+      inp.dispatchEvent(new Event('input', {bubbles:true}));
+    });
+  });
+
   const isMulti = OPEN_HAATS.length > 1;
   const items = [];
   ENTRIES.forEach((e, name) => {
