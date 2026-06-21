@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sristi Haat — Migrate Farmers to new ID scheme</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Noto Sans Gujarati","DM Sans",-apple-system,sans-serif;background:#fffbf4;color:#1a1a1a;padding:24px;min-height:100vh}
+.wrap{max-width:1100px;margin:0 auto}
+h1{font-size:22px;font-weight:800;color:#1b4332;margin-bottom:6px}
+.sub{font-size:13.5px;color:#6b7280;margin-bottom:20px}
+.card{background:#fff;border:1px solid #e8e0d0;border-radius:12px;padding:18px;margin-bottom:14px;box-shadow:0 2px 10px rgba(0,0,0,.03)}
+h3{font-size:15px;font-weight:700;color:#1b4332;margin-bottom:8px}
+.muted{font-size:12.5px;color:#6b7280;margin-bottom:12px;line-height:1.55}
+.btn{background:#2d6a4f;color:#fff;border:none;border-radius:9px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-right:8px;margin-bottom:8px}
+.btn:hover{background:#1b4332}
+.btn:disabled{background:#aaa;cursor:not-allowed}
+.btn.outline{background:#fff;color:#2d6a4f;border:1.5px solid #2d6a4f}
+.log{background:#1f2937;color:#e5e7eb;border-radius:9px;padding:14px;font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.6;max-height:340px;overflow:auto;white-space:pre-wrap;margin-top:14px}
+.log.ok{border-left:4px solid #2d6a4f}
+.log.err{border-left:4px solid #c1121f}
+.warn{background:#fff0e0;color:#7a3010;padding:10px 12px;border-radius:8px;border-left:4px solid #e36414;font-size:12.5px;margin-bottom:14px;line-height:1.55}
+code{background:#1f2937;color:#e5e7eb;border-radius:5px;padding:1px 6px;font-family:"JetBrains Mono",monospace;font-size:11.5px}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}
+th,td{border:1px solid #e8e0d0;padding:5px 7px;text-align:left;vertical-align:top}
+th{background:#f0eadd;font-weight:700;position:sticky;top:0}
+.tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-right:3px}
+.tag.ok{background:#d8f3dc;color:#2d6a4f}
+.tag.warn{background:#fff0e0;color:#7a3010}
+.tag.err{background:#ffe0e0;color:#7a1010}
+.scroll{max-height:520px;overflow:auto}
+.stat{display:inline-block;background:#d8f3dc;color:#2d6a4f;padding:3px 10px;border-radius:14px;font-size:12px;font-weight:700;margin-right:6px}
+.stat.warn{background:#fff0e0;color:#7a3010}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>🌱 Sristi Haat — Migrate farmers to new ID scheme</h1>
+<div class="sub">Adds <code>districtCode</code>, <code>haatCodes[]</code>, <code>applicationNo</code> to existing farmer records. <b>Additive — old fields (<code>district</code>, <code>haat</code>) stay untouched.</b></div>
+
+<div class="warn">
+  <b>Run order:</b> 1) Read → 2) Preview → 3) Apply → 4) Verify. Apply step is the only write. Re-running Apply is idempotent (overwrites the same new fields).
+</div>
+
+<div class="card">
+  <h3>Step 1 — Read existing farmers</h3>
+  <button class="btn outline" onclick="step1()">📥 Read marketFarmers + haatFarmers</button>
+  <div id="log1" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Step 2 — Preview proposed migration</h3>
+  <div class="muted">For each farmer: parse <code>district</code> text → district code, parse <code>haat</code> text → haat codes, assign <code>applicationNo</code> per-district counter.</div>
+  <button class="btn outline" onclick="step2()">👁️ Preview mapping</button>
+  <div id="preview2"></div>
+</div>
+
+<div class="card">
+  <h3>Step 3 — Apply</h3>
+  <div class="muted">Writes new fields to each farmer record under <code>marketFarmers/{id}</code> and <code>haatFarmers/{id}</code>. Old fields untouched.</div>
+  <button class="btn" onclick="step3()">▶ Apply migration</button>
+  <div id="log3" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Step 4 — Verify</h3>
+  <button class="btn outline" onclick="step4()">✓ Verify counts + sample</button>
+  <div id="log4" class="log" style="display:none"></div>
+</div>
+
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+const FB_CONFIG = {
+  apiKey:"AIzaSyCd0jU_rtG3Us3E4au4rntN5N8tbciHWY0",
+  authDomain:"prakrutik-kheti-c0a89.firebaseapp.com",
+  databaseURL:"https://prakrutik-kheti-c0a89-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"prakrutik-kheti-c0a89",
+  storageBucket:"prakrutik-kheti-c0a89.firebasestorage.app",
+  messagingSenderId:"269627097742",
+  appId:"1:269627097742:web:2d82d97f0621db87133fdf",
+};
+firebase.initializeApp(FB_CONFIG);
+const db = firebase.database();
+const NS = 'prakrutik_kheti';
+
+// ── Mapping dictionaries ───────────────────────────────────────────────
+// District text → 2-letter code. Lower-cased text matches.
+const DISTRICT_ALIASES = {
+  'ahmedabad':'AM','amdavad':'AM','અમદાવાદ':'AM','amd':'AM','am':'AM',
+  'amreli':'AL','અમરેલી':'AL','al':'AL',
+  'anand':'AN','આણંદ':'AN','an':'AN',
+  'aravalli':'AR','arvalli':'AR','અરવલ્લી':'AR','arv':'AR','ar':'AR',
+  'banaskantha':'BK','banas kantha':'BK','બનાસકાંઠા':'BK','bnk':'BK','bk':'BK',
+  'bharuch':'BR','ભરૂચ':'BR','br':'BR',
+  'bhavnagar':'BN','ભાવનગર':'BN','bhv':'BN','bn':'BN',
+  'botad':'BT','બોટાદ':'BT','bot':'BT','bt':'BT',
+  'chhota udaipur':'CU','chhotaudaipur':'CU','છોટા ઉદેપુર':'CU','cu':'CU',
+  'dahod':'DH','દાહોદ':'DH','dah':'DH','dh':'DH',
+  'dang':'DG','ડાંગ':'DG','dg':'DG',
+  'devbhumi dwarka':'DW','devbhoomi dwarka':'DW','dwarka':'DW','dw':'DW',
+  'gandhinagar':'GN','ગાંધીનગર':'GN','gnr':'GN','gn':'GN',
+  'gir somnath':'GS','somnath':'GS','ગીર સોમનાથ':'GS','smn':'GS','gs':'GS',
+  'jamnagar':'JM','જામનગર':'JM','jam':'JM','jm':'JM',
+  'junagadh':'JG','જૂનાગઢ':'JG','jun':'JG','jg':'JG',
+  'kachchh':'KT','kutch':'KT','kachh':'KT','કચ્છ':'KT','kch':'KT','kt':'KT',
+  'kheda':'KH','ખેડા':'KH','ked':'KH','kh':'KH',
+  'mahisagar':'MH','મહિસાગર':'MH','mh':'MH',
+  'mehsana':'MS','mahesana':'MS','મહેસાણા':'MS','msn':'MS','ms':'MS',
+  'morbi':'MR','મોરબી':'MR','mr':'MR',
+  'narmada':'NR','નર્મદા':'NR','nr':'NR',
+  'navsari':'NV','નવસારી':'NV','nv':'NV',
+  'panchmahal':'PN','panch mahal':'PN','પંચમહાલ':'PN','pmd':'PN','pn':'PN',
+  'patan':'PT','પાટણ':'PT','ptn':'PT','pt':'PT',
+  'porbandar':'PB','પોરબંદર':'PB','pbr':'PB','pb':'PB',
+  'rajkot':'RJ','રાજકોટ':'RJ','raj':'RJ','rj':'RJ',
+  'sabarkantha':'SK','sabar kantha':'SK','સાબરકાંઠા':'SK','sbk':'SK','sk':'SK',
+  'surat':'SR','સુરત':'SR','sr':'SR',
+  'surendranagar':'SN','સુરેન્દ્રનગર':'SN','sur':'SN','sn':'SN',
+  'tapi':'TP','તાપી':'TP','tp':'TP',
+  'vadodara':'VD','baroda':'VD','વડોદરા':'VD','vad':'VD','vd':'VD',
+  'valsad':'VL','વલસાડ':'VL','vl':'VL',
+};
+
+// Haat keyword → haat code. Matches if keyword found anywhere in lowercased haat text.
+const HAAT_KEYWORDS = [
+  ['baou','AM-BAOU'], ['charodi','AM-BAOU'], ['છારોડી','AM-BAOU'],
+  ['sola','AM-SOLA'], ['bhagvat','AM-SOLA'], ['સોલા','AM-SOLA'], ['ભાગવત','AM-SOLA'],
+  ['palodia','AM-PAL'], ['atmavikas','AM-PAL'], ['atma vikas','AM-PAL'], ['પલોડિયા','AM-PAL'], ['આત્મ','AM-PAL'],
+  ['navjivan','AM-NAV'], ['ashram','AM-NAV'], ['નવજીવન','AM-NAV'], ['આશ્રમ','AM-NAV'],
+  ['vastrapur','AM-VS'], ['amc','AM-VS'], ['વસ્ત્રાપુર','AM-VS'],
+  ['sristi','AM-SRI'], ['aes','AM-SRI'], ['સૃષ્ટિ પરિસર','AM-SRI'],
+  ['kadi','GN-KAD'], ['sarva vidyalaya','GN-KAD'], ['ગાંધીનગર','GN-KAD'], ['કડી','GN-KAD'],
+  ['vvn','AN-VVN'], ['vallabh vidyanagar','AN-VVN'], ['spu','AN-VVN'], ['sardar patel','AN-VVN'], ['વલ્લભ','AN-VVN'],
+  ['nadiad','KH-NDD'], ['chetak','KH-NDD'], ['નડિયાદ','KH-NDD'],
+  ['vadodara','VD-MSU'], ['msu','VD-MSU'], ['baroda','VD-MSU'], ['વડોદરા','VD-MSU'],
+  ['himmatnagar','SK-HMT'], ['kanal','SK-HMT'], ['હિંમતનગર','SK-HMT'],
+  ['modasa','AR-MDS'], ['annapurna','AR-MDS'], ['મોડાસા','AR-MDS'],
+];
+
+// ── State ──────────────────────────────────────────────────────────────
+let FARMERS = [];     // [{id, source:'marketFarmers'|'haatFarmers', raw:{...}}]
+let MAPPED = [];      // [{...farmer, proposed:{districtCode, haatCodes, applicationNo, notes:[]}}]
+
+function logTo(id, msg, cls){
+  const el = document.getElementById(id);
+  el.style.display='block';
+  el.className = 'log ' + (cls||'');
+  el.textContent += (el.textContent?'\n':'') + msg;
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog(id){ const el=document.getElementById(id); el.textContent=''; el.className='log'; }
+function esc(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function matchDistrict(text){
+  if(!text) return null;
+  const t = text.toLowerCase().trim();
+  if(DISTRICT_ALIASES[t]) return DISTRICT_ALIASES[t];
+  // try each word
+  for(const k of Object.keys(DISTRICT_ALIASES)){
+    if(t.includes(k)) return DISTRICT_ALIASES[k];
+  }
+  return null;
+}
+function matchHaats(text){
+  if(!text) return [];
+  const t = text.toLowerCase().trim();
+  const codes = new Set();
+  for(const [kw, code] of HAAT_KEYWORDS){
+    if(t.includes(kw)) codes.add(code);
+  }
+  return [...codes];
+}
+
+async function step1(){
+  clearLog('log1');
+  logTo('log1', 'Reading marketFarmers + haatFarmers …');
+  try {
+    const [mfSnap, hfSnap] = await Promise.all([
+      db.ref(`${NS}/marketFarmers`).once('value'),
+      db.ref(`${NS}/haatFarmers`).once('value'),
+    ]);
+    const mf = mfSnap.val() || {};
+    const hf = hfSnap.val() || {};
+    FARMERS = [];
+    Object.entries(mf).forEach(([id, raw]) => FARMERS.push({id, source:'marketFarmers', raw}));
+    Object.entries(hf).forEach(([id, raw]) => FARMERS.push({id, source:'haatFarmers', raw}));
+    logTo('log1', `✓ marketFarmers: ${Object.keys(mf).length}`, 'ok');
+    logTo('log1', `✓ haatFarmers:   ${Object.keys(hf).length}`, 'ok');
+    logTo('log1', `✓ total to process: ${FARMERS.length}`, 'ok');
+    if(FARMERS.length){
+      const sample = FARMERS[0];
+      logTo('log1', `\nsample: ${JSON.stringify(sample.raw, null, 2).slice(0,400)}…`);
+    }
+  } catch(e){
+    logTo('log1', `✗ ${e.message}`, 'err');
+  }
+}
+
+function step2(){
+  if(!FARMERS.length){ document.getElementById('preview2').innerHTML = '<div class="warn">Run Step 1 first.</div>'; return; }
+
+  // Build proposed mappings + per-district counter for Application Number
+  const districtCounters = {}; // {AM: 5, KH: 2, ...}
+  MAPPED = FARMERS.map(f => {
+    const r = f.raw || {};
+    const notes = [];
+    const districtCode = matchDistrict(r.district) || matchDistrict(r.village) || null;
+    const haatCodes = matchHaats(r.haat);
+    if(!districtCode) notes.push('district unmatched');
+    if(!haatCodes.length) notes.push('no haat matched');
+
+    let applicationNo = null;
+    if(districtCode){
+      districtCounters[districtCode] = (districtCounters[districtCode] || 0) + 1;
+      applicationNo = `A-GJ-${districtCode}-${String(districtCounters[districtCode]).padStart(5,'0')}`;
+    } else {
+      notes.push('applicationNo skipped');
+    }
+    return {...f, proposed: {districtCode, haatCodes, applicationNo, notes}};
+  });
+
+  const matched = MAPPED.filter(m => m.proposed.districtCode).length;
+  const unmatched = MAPPED.length - matched;
+  const withHaats = MAPPED.filter(m => m.proposed.haatCodes.length).length;
+
+  const rows = MAPPED.map(m => {
+    const r = m.raw||{};
+    const p = m.proposed;
+    return `<tr>
+      <td>${esc(m.source==='haatFarmers'?'HF':'MF')}</td>
+      <td>${esc(r.name||'')}</td>
+      <td>${esc(r.village||'')}</td>
+      <td>${esc(r.district||'')}<br><span class="tag ${p.districtCode?'ok':'err'}">${p.districtCode||'—'}</span></td>
+      <td>${esc(r.haat||'')}<br>${p.haatCodes.map(c=>`<span class="tag ok">${c}</span>`).join('')||'<span class="tag warn">—</span>'}</td>
+      <td><code>${esc(p.applicationNo||'—')}</code></td>
+      <td>${p.notes.map(n=>`<span class="tag warn">${esc(n)}</span>`).join(' ')}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('preview2').innerHTML = `
+    <div style="margin-top:10px">
+      <span class="stat">${MAPPED.length} total</span>
+      <span class="stat">${matched} district mapped</span>
+      <span class="stat warn">${unmatched} district unmapped</span>
+      <span class="stat">${withHaats} have haat codes</span>
+    </div>
+    <div class="scroll" style="margin-top:10px">
+      <table>
+        <tr><th>Src</th><th>Name</th><th>Village</th><th>District (text → code)</th><th>Haat (text → codes)</th><th>Application No</th><th>Notes</th></tr>
+        ${rows}
+      </table>
+    </div>
+    <div class="muted" style="margin-top:10px">
+      <b>Unmatched rows</b> still get migrated, but with no district/haat code (and no Application Number). You can fix those in the admin later.
+    </div>
+  `;
+}
+
+async function step3(){
+  clearLog('log3');
+  if(!MAPPED.length){ logTo('log3', 'Run Step 2 first.', 'err'); return; }
+
+  logTo('log3', `Applying migration to ${MAPPED.length} farmers …`);
+  const updates = {};
+  let written = 0;
+  for(const m of MAPPED){
+    const path = `${NS}/${m.source}/${m.id}`;
+    const patch = {
+      districtCode: m.proposed.districtCode || null,
+      haatCodes: m.proposed.haatCodes.length ? m.proposed.haatCodes : null,
+      applicationNo: m.proposed.applicationNo || null,
+      _migratedAt: Date.now(),
+    };
+    // Multi-path update: write each field as its own path so other fields stay untouched
+    for(const k of Object.keys(patch)){
+      updates[`${path}/${k}`] = patch[k];
+    }
+    written++;
+  }
+  try {
+    await db.ref().update(updates);
+    logTo('log3', `✓ wrote ${written} farmer records (additive — old fields untouched)`, 'ok');
+    logTo('log3', `✓ done. Verify with Step 4.`, 'ok');
+  } catch(e){
+    logTo('log3', `✗ ${e.message}`, 'err');
+  }
+}
+
+async function step4(){
+  clearLog('log4');
+  try {
+    const [mfSnap, hfSnap] = await Promise.all([
+      db.ref(`${NS}/marketFarmers`).once('value'),
+      db.ref(`${NS}/haatFarmers`).once('value'),
+    ]);
+    const mf = mfSnap.val() || {};
+    const hf = hfSnap.val() || {};
+    let withApp = 0, withHaats = 0, withDistrict = 0, total = 0;
+    [mf, hf].forEach(coll => Object.values(coll).forEach(r => {
+      total++;
+      if(r.applicationNo) withApp++;
+      if(r.haatCodes && r.haatCodes.length) withHaats++;
+      if(r.districtCode) withDistrict++;
+    }));
+    logTo('log4', `total farmers: ${total}`);
+    logTo('log4', `with districtCode: ${withDistrict}`, 'ok');
+    logTo('log4', `with haatCodes:    ${withHaats}`, 'ok');
+    logTo('log4', `with applicationNo: ${withApp}`, 'ok');
+    // Sample 3 records
+    const samples = [...Object.values(mf).slice(0,2), ...Object.values(hf).slice(0,1)];
+    logTo('log4', `\nsamples:`);
+    samples.forEach(r => logTo('log4', `  ${r.name||''} → ${r.applicationNo||'(no)'} • ${r.districtCode||'—'} • haats=[${(r.haatCodes||[]).join(',')}]`));
+  } catch(e){
+    logTo('log4', `✗ ${e.message}`, 'err');
+  }
+}
+</script>
+</body>
+</html>

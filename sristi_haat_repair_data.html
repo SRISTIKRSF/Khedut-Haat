@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sristi Haat — Repair categories + venue names</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Noto Sans Gujarati","DM Sans",-apple-system,sans-serif;background:#fffbf4;color:#1a1a1a;padding:24px}
+.wrap{max-width:840px;margin:0 auto}
+h1{font-size:22px;font-weight:800;color:#1b4332;margin-bottom:6px}
+.sub{font-size:13.5px;color:#6b7280;margin-bottom:20px;line-height:1.5}
+.card{background:#fff;border:1px solid #e8e0d0;border-radius:12px;padding:18px;margin-bottom:14px;box-shadow:0 2px 10px rgba(0,0,0,.03)}
+h3{font-size:15px;font-weight:700;color:#1b4332;margin-bottom:8px}
+.muted{font-size:12.5px;color:#6b7280;margin-bottom:12px;line-height:1.55}
+.btn{background:#2d6a4f;color:#fff;border:none;border-radius:9px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-right:8px;margin-bottom:8px}
+.btn:hover{background:#1b4332}
+.btn.outline{background:#fff;color:#2d6a4f;border:1.5px solid #2d6a4f}
+.btn.danger{background:#c1121f}
+.log{background:#1f2937;color:#e5e7eb;border-radius:9px;padding:14px;font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.6;max-height:340px;overflow:auto;white-space:pre-wrap;margin-top:14px}
+.warn{background:#fff0e0;color:#7a3010;padding:10px 12px;border-radius:8px;border-left:4px solid #e36414;font-size:12.5px;margin-bottom:14px;line-height:1.55}
+code{background:#1f2937;color:#e5e7eb;border-radius:5px;padding:1px 6px;font-family:"JetBrains Mono",monospace;font-size:11.5px}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+th,td{border:1px solid #e8e0d0;padding:5px 8px;text-align:left}
+th{background:#f0eadd;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>🛠️ Repair data — categories + venue names</h1>
+<div class="sub">Fixes what I broke when I seeded today's data with new category labels (પાવડર, આયુર્વેદ, મિઠાઈ etc.) and haat codes (AM-VS) — none of which the old catalog knows about. Repair maps everything back to the old catalog's vocabulary. Catalog UI is NOT touched.</div>
+
+<div class="warn">
+  <b>What gets changed (in <code>prakrutik-kheti-c0a89</code>):</b>
+  <ul style="padding-left:20px;margin-top:6px">
+    <li><code>marketFarmers/{id}/haat</code> — codes (AM-VS) → Gujarati names (વસ્ત્રાપુર)</li>
+    <li><code>weekly/493/submissions/{id}/items[].cat</code> — unknown cats → <b>અન્ય</b></li>
+    <li><code>weekly/493/submissions/{id}/farmerHaat</code> — same code → name fix</li>
+  </ul>
+  Names + prices + units stay exactly as-is.
+</div>
+
+<div class="card">
+  <h3>Step 1 — Preview what needs fixing (read-only)</h3>
+  <button class="btn outline" onclick="step1()">👁️ Scan</button>
+  <div id="log1" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Step 2 — Apply repairs</h3>
+  <button class="btn" onclick="step2()">▶ Fix data</button>
+  <div id="log2" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Step 3 — Open catalog to verify</h3>
+  <a class="btn outline" href="sristi_haat_catalog_v1.html" target="_blank" style="text-decoration:none">→ Open catalog</a>
+</div>
+
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+const FB_CONFIG = {
+  apiKey:"AIzaSyCd0jU_rtG3Us3E4au4rntN5N8tbciHWY0",
+  authDomain:"prakrutik-kheti-c0a89.firebaseapp.com",
+  databaseURL:"https://prakrutik-kheti-c0a89-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"prakrutik-kheti-c0a89",
+  storageBucket:"prakrutik-kheti-c0a89.firebasestorage.app",
+  messagingSenderId:"269627097742",
+  appId:"1:269627097742:web:2d82d97f0621db87133fdf",
+};
+firebase.initializeApp(FB_CONFIG);
+const db = firebase.database();
+const NS = 'prakrutik_kheti';
+const fbRef = p => db.ref(NS+(p?'/'+p:''));
+
+// Old catalog's known categories (CAT_ORDER + cats not in order but in CAT_EMOJI):
+const OLD_CATS = new Set(["શાકભાજી","ભાજી","ફળ","ડેરી","દાળ/કઠોળ","અનાજ/લોટ","મસાલા","તેલ","ગોળ/ખાંડ","ફરસાણ","પ્રવાહી","તૈયાર ભોજન","અન્ય"]);
+
+// New cat → old cat mapping
+const CAT_FIX = {
+  // exact matches (no change needed but list them so we know)
+  'શાકભાજી':'શાકભાજી','ભાજી':'ભાજી','ફળ':'ફળ','ડેરી':'ડેરી',
+  'દાળ/કઠોળ':'દાળ/કઠોળ','અનાજ/લોટ':'અનાજ/લોટ','મસાલા':'મસાલા','તેલ':'તેલ',
+  'ગોળ/ખાંડ':'ગોળ/ખાંડ','ફરસાણ':'ફરસાણ','પ્રવાહી':'પ્રવાહી','તૈયાર ભોજન':'તૈયાર ભોજન','અન્ય':'અન્ય',
+  // remaps
+  'ગોળ/સાકર':'ગોળ/ખાંડ',
+  'રેડી-ટુ-ઈટ':'તૈયાર ભોજન',
+  'મિઠાઈ':'અન્ય',
+  'મુખવાસ':'અન્ય',
+  'મધ':'અન્ય',
+  'આયુર્વેદ':'અન્ય',
+  'સૌંદર્ય':'અન્ય',
+  'અથાણું':'અન્ય',
+  'પાવડર':'મસાલા',
+  'ગૌ ઉત્પાદન':'ડેરી',
+};
+
+const HAAT_NAMES = {
+  'AM-BAOU':'છારોડી','AM-SOLA':'સોલા','AM-PAL':'પલોડિયા','AM-NAV':'નવજીવન',
+  'AM-VS':'વસ્ત્રાપુર','AM-SRI':'સૃષ્ટિ','GN-KAD':'ગાંધીનગર','AN-VVN':'વલ્લભ વિદ્યાનગર',
+  'KH-NDD':'નડિયાદ','VD-MSU':'વડોદરા','SK-HMT':'હિંમતનગર','AR-MDS':'મોડાસા',
+};
+
+function fixHaatString(s){
+  if (!s) return s;
+  return s.split(/[,;|\/]/).map(t => {
+    const trimmed = t.trim();
+    return HAAT_NAMES[trimmed] || trimmed;
+  }).join(', ');
+}
+function fixCat(c){
+  if (OLD_CATS.has(c)) return c;
+  return CAT_FIX[c] || 'અન્ય';
+}
+function logTo(id, msg, cls){
+  const el = document.getElementById(id);
+  el.style.display='block';
+  if (cls === 'reset') { el.textContent=''; el.className='log'; return; }
+  el.className = 'log ' + (cls||'');
+  el.textContent += (el.textContent?'\n':'') + msg;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function step1(){
+  logTo('log1', '', 'reset');
+  logTo('log1', 'Scanning marketFarmers + weekly/493/submissions …');
+  const [fSnap, sSnap] = await Promise.all([
+    fbRef('marketFarmers').once('value'),
+    fbRef('weekly/493/submissions').once('value'),
+  ]);
+  const farmers = fSnap.val() || {};
+  const subs = sSnap.val() || {};
+
+  // farmer haat fixes needed
+  let haatFixes = 0;
+  const haatSamples = [];
+  Object.values(farmers).forEach(f => {
+    if (typeof f.haat === 'string' && /^[A-Z]{2}-[A-Z]+/.test(f.haat.split(',')[0].trim())) {
+      haatFixes++;
+      if (haatSamples.length < 3) haatSamples.push(`${f.id || f.name}: "${f.haat}" → "${fixHaatString(f.haat)}"`);
+    }
+  });
+
+  // item category remaps needed
+  const catCounts = {};
+  let totalItems = 0, badCats = 0;
+  Object.values(subs).forEach(s => {
+    (s.items||[]).forEach(it => {
+      totalItems++;
+      const c = it.cat;
+      if (!OLD_CATS.has(c)) {
+        badCats++;
+        catCounts[c] = (catCounts[c]||0) + 1;
+      }
+    });
+  });
+
+  logTo('log1', `farmers needing haat fix: ${haatFixes}`, 'ok');
+  haatSamples.forEach(s => logTo('log1', `  ${s}`));
+  logTo('log1', ``);
+  logTo('log1', `items total: ${totalItems}`, 'ok');
+  logTo('log1', `items with non-old categories: ${badCats}`, 'ok');
+  if (badCats) {
+    logTo('log1', `breakdown:`);
+    Object.entries(catCounts).sort((a,b)=>b[1]-a[1]).forEach(([c,n]) => {
+      const fixed = fixCat(c);
+      logTo('log1', `  ${c.padEnd(20)} (${n})  →  ${fixed}`);
+    });
+  }
+}
+
+async function step2(){
+  logTo('log2', '', 'reset');
+  if (!confirm('Apply repair to marketFarmers + weekly/493/submissions?')) return;
+  logTo('log2', 'Reading + repairing …');
+  const [fSnap, sSnap] = await Promise.all([
+    fbRef('marketFarmers').once('value'),
+    fbRef('weekly/493/submissions').once('value'),
+  ]);
+  const farmers = fSnap.val() || {};
+  const subs = sSnap.val() || {};
+  const updates = {};
+
+  let farmerFixed = 0;
+  Object.entries(farmers).forEach(([id, f]) => {
+    if (typeof f.haat === 'string') {
+      const newHaat = fixHaatString(f.haat);
+      if (newHaat !== f.haat) {
+        updates[`marketFarmers/${id}/haat`] = newHaat;
+        farmerFixed++;
+      }
+    }
+  });
+
+  let itemFixed = 0, subFixed = 0;
+  Object.entries(subs).forEach(([id, s]) => {
+    if (typeof s.farmerHaat === 'string') {
+      const newH = fixHaatString(s.farmerHaat);
+      if (newH !== s.farmerHaat) updates[`weekly/493/submissions/${id}/farmerHaat`] = newH;
+    }
+    const newItems = (s.items||[]).map(it => {
+      const fc = fixCat(it.cat);
+      if (fc !== it.cat) itemFixed++;
+      return { ...it, cat: fc };
+    });
+    if (newItems.length) {
+      updates[`weekly/493/submissions/${id}/items`] = newItems;
+      subFixed++;
+    }
+  });
+
+  try {
+    await fbRef('').update(updates);
+    logTo('log2', `✓ farmer.haat fixes:    ${farmerFixed}`, 'ok');
+    logTo('log2', `✓ submissions touched:   ${subFixed}`, 'ok');
+    logTo('log2', `✓ item.cat remaps:       ${itemFixed}`, 'ok');
+    logTo('log2', `\nDone. Open the catalog to verify.`, 'ok');
+  } catch (e) {
+    logTo('log2', `✗ ${e.message}`, 'err');
+  }
+}
+</script>
+</body>
+</html>

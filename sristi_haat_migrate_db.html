@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sristi Haat — Migrate DB c0a89 → e9194</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Noto Sans Gujarati","DM Sans",-apple-system,sans-serif;background:#fffbf4;color:#1a1a1a;padding:24px;min-height:100vh}
+.wrap{max-width:1000px;margin:0 auto}
+h1{font-size:22px;font-weight:800;color:#1b4332;margin-bottom:6px}
+.sub{font-size:13.5px;color:#6b7280;margin-bottom:20px}
+.card{background:#fff;border:1px solid #e8e0d0;border-radius:12px;padding:18px;margin-bottom:14px;box-shadow:0 2px 10px rgba(0,0,0,.03)}
+h3{font-size:15px;font-weight:700;color:#1b4332;margin-bottom:8px}
+.muted{font-size:12.5px;color:#6b7280;margin-bottom:12px;line-height:1.55}
+.btn{background:#2d6a4f;color:#fff;border:none;border-radius:9px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-right:8px;margin-bottom:8px}
+.btn:hover{background:#1b4332}
+.btn:disabled{background:#aaa;cursor:not-allowed}
+.btn.outline{background:#fff;color:#2d6a4f;border:1.5px solid #2d6a4f}
+.btn.danger{background:#c1121f}
+.log{background:#1f2937;color:#e5e7eb;border-radius:9px;padding:14px;font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.6;max-height:380px;overflow:auto;white-space:pre-wrap;margin-top:14px}
+.warn{background:#fff0e0;color:#7a3010;padding:10px 12px;border-radius:8px;border-left:4px solid #e36414;font-size:12.5px;margin-bottom:14px;line-height:1.55}
+.danger{background:#ffe0e0;color:#7a1010;padding:10px 12px;border-radius:8px;border-left:4px solid #c1121f;font-size:12.5px;margin-bottom:14px;line-height:1.55}
+code{background:#1f2937;color:#e5e7eb;border-radius:5px;padding:1px 6px;font-family:"JetBrains Mono",monospace;font-size:11.5px}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}
+th,td{border:1px solid #e8e0d0;padding:6px 10px;text-align:left;vertical-align:top}
+th{background:#f0eadd;font-weight:700}
+.tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;margin-right:3px}
+.tag.ok{background:#d8f3dc;color:#2d6a4f}
+.tag.warn{background:#fff0e0;color:#7a3010}
+.tag.danger{background:#ffe0e0;color:#7a1010}
+.tag.skip{background:#e8e8e8;color:#555}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>🔄 Sristi Haat — Migrate DB</h1>
+<div class="sub">Copies Khedut-Haat-specific nodes from <code>prakrutik-kheti-c0a89</code> (current) → <code>prakrutik-kheti-e9194</code> (target, same project as Hosting and Farm Verification).</div>
+
+<div class="danger">
+  <b>⚠️ Read carefully before clicking Apply:</b><br>
+  This copies data into a different Firebase database. Source is untouched. Destination gets WRITES — Farm Verification's nodes (<code>haatFarmers</code>, <code>convFarmers</code>, <code>activity</code>, <code>forms</code>, <code>activeSessions</code>, <code>pendingEnrolments</code>) are explicitly SKIPPED so they're never overwritten.
+</div>
+
+<div class="card">
+  <h3>What gets copied</h3>
+  <table>
+    <tr><th>Node</th><th>What it is</th><th>Action</th></tr>
+    <tr><td><code>haats</code></td><td>12 active haats (seeded earlier)</td><td><span class="tag ok">copy</span></td></tr>
+    <tr><td><code>geo</code></td><td>33 districts + 1 state (seeded earlier)</td><td><span class="tag ok">copy</span></td></tr>
+    <tr><td><code>weekly</code></td><td>Per-week meta + submissions</td><td><span class="tag ok">copy</span></td></tr>
+    <tr><td><code>marketFarmers</code></td><td>Khedut Haat farmer roster (37)</td><td><span class="tag ok">copy</span></td></tr>
+    <tr><td><code>productPhotos</code></td><td>Cloudinary URL map</td><td><span class="tag ok">copy</span></td></tr>
+    <tr><td><code>productPhotoMap</code></td><td>Item-name → cell-key map</td><td><span class="tag ok">copy</span></td></tr>
+    <tr><td><code>settings</code></td><td>Cloudinary config etc.</td><td><span class="tag ok">copy</span></td></tr>
+    <tr><td><code>counters</code></td><td>App-number per-district seqs</td><td><span class="tag ok">copy</span></td></tr>
+    <tr><td><code>haatFarmers</code></td><td>FV-owned (verified farmers)</td><td><span class="tag skip">skip</span></td></tr>
+    <tr><td><code>convFarmers</code> + 4 others</td><td>FV-owned (conversion etc.)</td><td><span class="tag skip">skip</span></td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Step 1 — Inspect both databases</h3>
+  <button class="btn outline" onclick="step1()">📊 Read source + destination</button>
+  <div id="log1" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Step 2 — Migrate (copy source → dest)</h3>
+  <div class="muted">For each safe node, writes source data to dest. Conflicts on existing dest data WILL be overwritten (only for the safe nodes — FV nodes never touched).</div>
+  <button class="btn danger" onclick="step2()">▶ Apply migration</button>
+  <div id="log2" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Step 3 — Verify</h3>
+  <button class="btn outline" onclick="step3()">✓ Compare source vs dest</button>
+  <div id="log3" class="log" style="display:none"></div>
+</div>
+
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+const NS = 'prakrutik_kheti';
+const SAFE_NODES = ['haats','geo','weekly','marketFarmers','productPhotos','productPhotoMap','settings','counters'];
+
+const SOURCE_CONFIG = {
+  apiKey:"AIzaSyCd0jU_rtG3Us3E4au4rntN5N8tbciHWY0",
+  authDomain:"prakrutik-kheti-c0a89.firebaseapp.com",
+  databaseURL:"https://prakrutik-kheti-c0a89-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"prakrutik-kheti-c0a89",
+  storageBucket:"prakrutik-kheti-c0a89.firebasestorage.app",
+  messagingSenderId:"269627097742",
+  appId:"1:269627097742:web:2d82d97f0621db87133fdf",
+};
+const DEST_CONFIG = {
+  apiKey:"AIzaSyCvU5_U8keTQ_kZAYxaV30drKytIXiw7kQ",
+  authDomain:"prakrutik-kheti-e9194.firebaseapp.com",
+  databaseURL:"https://prakrutik-kheti-e9194-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"prakrutik-kheti-e9194",
+  storageBucket:"prakrutik-kheti-e9194.firebasestorage.app",
+  messagingSenderId:"711481160967",
+  appId:"1:269627097742:web:2d82d97f0621db87133fdf",
+};
+
+const srcApp  = firebase.initializeApp(SOURCE_CONFIG, 'src');
+const destApp = firebase.initializeApp(DEST_CONFIG, 'dest');
+const srcDb  = srcApp.database();
+const destDb = destApp.database();
+const srcRef  = p => srcDb.ref(NS+(p?'/'+p:''));
+const destRef = p => destDb.ref(NS+(p?'/'+p:''));
+
+function logTo(id, msg, cls){
+  const el = document.getElementById(id);
+  el.style.display='block';
+  el.className = 'log ' + (cls||'');
+  el.textContent += (el.textContent?'\n':'') + msg;
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog(id){ const el=document.getElementById(id); el.textContent=''; el.className='log'; }
+function countChildren(v){ if(!v||typeof v!=='object') return v?1:0; return Object.keys(v).length; }
+function jsonBytes(v){ try { return JSON.stringify(v||null).length; } catch { return 0; } }
+
+async function step1(){
+  clearLog('log1');
+  logTo('log1', 'Inspecting both databases …');
+  try {
+    const [srcRoot, destRoot] = await Promise.all([
+      srcRef('').once('value').then(s=>s.val()||{}),
+      destRef('').once('value').then(s=>s.val()||{}),
+    ]);
+    const allNodes = [...new Set([...Object.keys(srcRoot), ...Object.keys(destRoot)])].sort();
+    logTo('log1', '', '');
+    logTo('log1', 'NODE'.padEnd(20) + 'SOURCE'.padEnd(20) + 'DEST'.padEnd(20) + 'PLAN');
+    logTo('log1', '─'.repeat(75));
+    for (const node of allNodes) {
+      const sCount = countChildren(srcRoot[node]);
+      const dCount = countChildren(destRoot[node]);
+      const sBytes = jsonBytes(srcRoot[node]);
+      const dBytes = jsonBytes(destRoot[node]);
+      const plan = SAFE_NODES.includes(node) ? '→ COPY' : 'SKIP (FV node)';
+      logTo('log1',
+        node.padEnd(20) +
+        `${sCount} (${sBytes}B)`.padEnd(20) +
+        `${dCount} (${dBytes}B)`.padEnd(20) +
+        plan
+      );
+    }
+  } catch (e) {
+    logTo('log1', `✗ ${e.message}`, 'err');
+  }
+}
+
+async function step2(){
+  clearLog('log2');
+  logTo('log2', 'Copying source → dest (safe nodes only) …');
+  try {
+    let totalBytes = 0, totalNodes = 0;
+    for (const node of SAFE_NODES) {
+      const snap = await srcRef(node).once('value');
+      const val = snap.val();
+      if (val === null) {
+        logTo('log2', `  ${node.padEnd(20)} (empty in source — skipped)`);
+        continue;
+      }
+      await destRef(node).set(val);
+      const bytes = jsonBytes(val);
+      const children = countChildren(val);
+      totalBytes += bytes; totalNodes++;
+      logTo('log2', `  ✓ ${node.padEnd(20)} ${children} children, ${bytes}B`, 'ok');
+    }
+    logTo('log2', '', '');
+    logTo('log2', `✓ done. ${totalNodes} nodes copied, ~${totalBytes}B total.`, 'ok');
+    logTo('log2', `Now run Step 3 to verify.`);
+  } catch (e) {
+    logTo('log2', `✗ ${e.message}`, 'err');
+  }
+}
+
+async function step3(){
+  clearLog('log3');
+  logTo('log3', 'Verifying source vs dest (safe nodes only) …');
+  try {
+    let allMatch = true;
+    for (const node of SAFE_NODES) {
+      const [s, d] = await Promise.all([
+        srcRef(node).once('value').then(x=>x.val()),
+        destRef(node).once('value').then(x=>x.val()),
+      ]);
+      const sB = jsonBytes(s);
+      const dB = jsonBytes(d);
+      const match = JSON.stringify(s||null) === JSON.stringify(d||null);
+      if (!match) allMatch = false;
+      logTo('log3', `  ${match?'✓':'✗'} ${node.padEnd(20)} src=${sB}B  dest=${dB}B  ${match?'MATCH':'DIFFER'}`, match?'ok':'err');
+    }
+    if (allMatch) logTo('log3', '\n✓ All safe nodes match. Migration verified.', 'ok');
+    else logTo('log3', '\n✗ Some nodes differ. Investigate before repointing apps.', 'err');
+  } catch (e) {
+    logTo('log3', `✗ ${e.message}`, 'err');
+  }
+}
+</script>
+</body>
+</html>

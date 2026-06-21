@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sristi Haat — Map week-493 products to existing catalogue</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Noto Sans Gujarati","DM Sans",-apple-system,sans-serif;background:#fffbf4;color:#1a1a1a;padding:18px}
+.wrap{max-width:1400px;margin:0 auto}
+h1{font-size:22px;font-weight:800;color:#1b4332;margin-bottom:6px}
+.sub{font-size:13px;color:#6b7280;margin-bottom:14px;line-height:1.5}
+.card{background:#fff;border:1px solid #e8e0d0;border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.03)}
+h3{font-size:14px;font-weight:700;color:#1b4332;margin-bottom:6px}
+.btn{background:#2d6a4f;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-right:6px;margin-bottom:6px}
+.btn:hover{background:#1b4332}
+.btn:disabled{background:#aaa;cursor:not-allowed}
+.btn.outline{background:#fff;color:#2d6a4f;border:1.5px solid #2d6a4f}
+.btn.danger{background:#c1121f}
+.log{background:#1f2937;color:#e5e7eb;border-radius:9px;padding:12px;font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.6;max-height:280px;overflow:auto;white-space:pre-wrap;margin-top:8px}
+.warn{background:#fff0e0;color:#7a3010;padding:8px 11px;border-radius:7px;border-left:4px solid #e36414;font-size:12px;margin-bottom:10px;line-height:1.45}
+code{background:#1f2937;color:#e5e7eb;border-radius:5px;padding:1px 5px;font-family:"JetBrains Mono",monospace;font-size:11px}
+.stat{display:inline-block;background:#d8f3dc;color:#2d6a4f;padding:2px 8px;border-radius:12px;font-size:11.5px;font-weight:700;margin-right:5px}
+.stat.warn{background:#fff0e0;color:#7a3010}
+.stat.danger{background:#ffe0e0;color:#7a1010}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{border:1px solid #e8e0d0;padding:4px 6px;text-align:left;vertical-align:top}
+th{background:#f0eadd;font-weight:700;position:sticky;top:0;z-index:1}
+.tag{display:inline-block;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600;margin:1px}
+.tag.exact{background:#d8f3dc;color:#2d6a4f}
+.tag.high{background:#a7d6c2;color:#1b4332}
+.tag.med{background:#fff0e0;color:#7a3010}
+.tag.low{background:#ffe0d0;color:#a05030}
+.tag.new{background:#ffe0e0;color:#7a1010}
+.scroll{max-height:65vh;overflow:auto}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;font-size:12px;align-items:center}
+.controls select,.controls input{padding:4px 7px;border:1px solid #ccc;border-radius:6px;font-family:inherit;font-size:12px}
+select.match-select{font-family:inherit;font-size:11.5px;padding:3px 5px;border:1px solid #ccc;border-radius:4px;max-width:280px;width:100%}
+.farmer-name{font-size:10.5px;color:#6b7280}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>🔗 Map week-493 items → existing catalogue (week 492)</h1>
+<div class="sub">For each of the 794 farmer items, suggest the closest match from the 174 canonical items. You override any row with the dropdown. Nothing is written until Step 4.</div>
+
+<div class="card">
+  <h3>Step 1 — Read both catalogs</h3>
+  <button class="btn outline" onclick="step1()">📥 Read</button>
+  <div id="log1" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Step 2 — Run auto-matcher</h3>
+  <button class="btn outline" onclick="step2()">🔍 Auto-match</button>
+  <div id="log2" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Step 3 — Review section by section</h3>
+  <div class="muted" style="font-size:12px;color:#6b7280;margin-bottom:8px">Recommended: do the small sections first (Low → New → Med). Exact and High are usually fine — review last.</div>
+  <div id="sectionButtons" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+  <div class="controls">
+    <label>Confidence: <select id="fFilter" onchange="PAGE=1; renderTable()">
+      <option value="all">All</option>
+      <option value="exact">Exact match only</option>
+      <option value="high">High confidence</option>
+      <option value="med">Medium</option>
+      <option value="low">Low / needs eye</option>
+      <option value="new">No match (new items)</option>
+    </select></label>
+    <label>Category: <select id="fCat" onchange="PAGE=1; renderTable()"><option value="all">All categories</option></select></label>
+    <label>Status: <select id="fStatus" onchange="PAGE=1; renderTable()">
+      <option value="pending" selected>⏳ Pending only</option>
+      <option value="approved">✓ Approved only</option>
+      <option value="all">All</option>
+    </select></label>
+    <label>Sort: <select id="fSort" onchange="PAGE=1; renderTable()">
+      <option value="similar" selected>🔗 Similar items together</option>
+      <option value="name">A-Z by item name</option>
+      <option value="farmer">By farmer (default)</option>
+    </select></label>
+    <label>Search: <input id="fSearch" type="text" placeholder="item name…" oninput="PAGE=1; renderTable()" style="width:160px"></label>
+    <span id="reviewStats" style="margin-left:auto;font-size:12px;color:#444"></span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;padding:8px;background:#fffbf4;border:1px dashed #e8e0d0;border-radius:8px">
+    <span style="font-size:11.5px;color:#7a3010;align-self:center;margin-right:6px"><b>Bulk on all visible rows:</b></span>
+    <button class="btn outline" onclick="bulkAccept()" style="padding:5px 11px;font-size:12px">✅ Accept suggestion</button>
+    <button class="btn outline" onclick="bulkNew()" style="padding:5px 11px;font-size:12px">✨ Mark all as NEW (→ અન્ય)</button>
+    <span id="bulkStat" style="font-size:11px;color:#7a7a7a;align-self:center;margin-left:auto"></span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;padding:8px;background:#f0f9f4;border:1px dashed #a7d6c2;border-radius:8px">
+    <span style="font-size:11.5px;color:#2d6a4f;align-self:center;margin-right:6px"><b>Bulk on SELECTED rows only:</b></span>
+    <button class="btn outline" onclick="bulkAcceptSelected()" style="padding:5px 11px;font-size:12px">✅ Accept selected</button>
+    <button class="btn outline" onclick="bulkNewSelected()" style="padding:5px 11px;font-size:12px">✨ Mark selected as NEW</button>
+    <button class="btn outline" onclick="clearSelection()" style="padding:5px 11px;font-size:12px">⟲ Clear selection</button>
+    <span id="selStat" style="font-size:11px;color:#7a7a7a;align-self:center;margin-left:auto"></span>
+  </div>
+  <div class="scroll">
+    <table id="reviewTable"></table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Step 4 — Apply (writes corrected names to <code>weekly/493/submissions/*/items[].name</code>)</h3>
+  <button class="btn danger" onclick="step4()" id="applyBtn" disabled>▶ Apply chosen mappings</button>
+  <div id="log4" class="log" style="display:none"></div>
+</div>
+
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+const FB_CONFIG = {
+  apiKey:"AIzaSyCd0jU_rtG3Us3E4au4rntN5N8tbciHWY0",
+  authDomain:"prakrutik-kheti-c0a89.firebaseapp.com",
+  databaseURL:"https://prakrutik-kheti-c0a89-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"prakrutik-kheti-c0a89",
+  storageBucket:"prakrutik-kheti-c0a89.firebasestorage.app",
+  messagingSenderId:"269627097742",
+  appId:"1:269627097742:web:2d82d97f0621db87133fdf",
+};
+firebase.initializeApp(FB_CONFIG);
+const db = firebase.database();
+const NS = 'prakrutik_kheti';
+const fbRef = p => db.ref(NS+(p?'/'+p:''));
+
+let CANONICAL = [];       // [{name, cat, unit}] — unique by name from week 492
+let WEEK493 = [];         // [{farmerId, farmerName, itemIdx, name, price, unit, cat, suggested:{canonical, score, level}}]
+let WEEK492_SUBS = {};
+let WEEK493_SUBS = {};
+let FARMERS = {};
+
+function esc(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function logTo(id, msg, cls){
+  const el = document.getElementById(id);
+  el.style.display='block';
+  if(cls==='reset'){ el.textContent=''; el.className='log'; return; }
+  el.className='log '+(cls||'');
+  el.textContent += (el.textContent?'\n':'')+msg;
+  el.scrollTop = el.scrollHeight;
+}
+function norm(s){
+  return String(s||'').trim().replace(/\s+/g,' ').toLowerCase();
+}
+function levenshtein(a, b){
+  if(a===b) return 0;
+  const m=a.length, n=b.length;
+  if(!m) return n; if(!n) return m;
+  const prev = Array(n+1).fill(0).map((_,i)=>i);
+  for(let i=1;i<=m;i++){
+    let curr=[i];
+    for(let j=1;j<=n;j++){
+      const cost = a[i-1]===b[j-1] ? 0 : 1;
+      curr[j] = Math.min(curr[j-1]+1, prev[j]+1, prev[j-1]+cost);
+    }
+    for(let j=0;j<=n;j++) prev[j]=curr[j];
+  }
+  return prev[n];
+}
+function similarity(a, b){
+  if(!a || !b) return 0;
+  const na = norm(a), nb = norm(b);
+  if(na === nb) return 1;
+  const maxLen = Math.max(na.length, nb.length);
+  if(!maxLen) return 0;
+  const dist = levenshtein(na, nb);
+  return 1 - dist/maxLen;
+}
+
+function bestMatch(name, cat){
+  let best = null, bestScore = 0;
+  for(const c of CANONICAL){
+    const na = norm(name), nc = norm(c.name);
+    let s = similarity(na, nc);
+    // Containment bump — but ONLY if lengths are similar.
+    // "બટાકાની વેફર" contains "બટાકા" but is a different product.
+    if(na && nc && (na.includes(nc) || nc.includes(na))){
+      const lenRatio = Math.max(na.length, nc.length) / Math.min(na.length, nc.length);
+      if(lenRatio < 1.5)      s = Math.max(s, 0.90);  // near-same length → strong
+      else if(lenRatio < 2.0) s = Math.max(s, 0.68);  // moderate diff → medium
+      else                    s = Math.max(s, 0.50);  // big diff (વેફર vs બટાકા) → low
+    }
+    if(cat && c.cat && cat === c.cat) s += 0.03;
+    if(s > bestScore){ bestScore = s; best = c; }
+  }
+  let level = 'new';
+  if(bestScore >= 0.999) level = 'exact';
+  else if(bestScore >= 0.85) level = 'high';
+  else if(bestScore >= 0.70) level = 'med';
+  else if(bestScore >= 0.55) level = 'low';
+  return { canonical: best, score: bestScore, level };
+}
+
+function photoKeyOf(name){
+  try{ return 'p_'+btoa(unescape(encodeURIComponent(String(name||'')))).replace(/[^a-zA-Z0-9]/g,'').slice(0,100); }
+  catch(e){ return 'p_'+String(name||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,100); }
+}
+
+let SAVED_PROGRESS = {};   // key "fid|idx" -> { chosen, approved, ts }
+async function step1(){
+  logTo('log1','','reset');
+  logTo('log1','Reading both weeks + farmers + photoMap + progress …');
+  try {
+    const [s492, s493, fSnap, pmSnap, progSnap] = await Promise.all([
+      fbRef('weekly/492/submissions').once('value'),
+      fbRef('weekly/493/submissions').once('value'),
+      fbRef('marketFarmers').once('value'),
+      fbRef('productPhotoMap').once('value'),
+      fbRef('mappingProgress/493').once('value'),
+    ]);
+    SAVED_PROGRESS = progSnap.val() || {};
+    WEEK492_SUBS = s492.val()||{};
+    WEEK493_SUBS = s493.val()||{};
+    FARMERS = fSnap.val()||{};
+    const photoMap = pmSnap.val() || {};   // photoKey -> cellKey (variants share a cellKey)
+
+    // Build canonical from week 492 — DEDUPED by cellKey when productPhotoMap groups them.
+    // For each variant group, keep the first name seen as the canonical label.
+    const byGroup = new Map();     // groupKey -> { name, cat, unit, count }
+    Object.values(WEEK492_SUBS).forEach(sub => {
+      (sub.items||[]).forEach(it => {
+        const name = (it.name||'').trim();
+        if(!name) return;
+        const pk = photoKeyOf(name);
+        const group = photoMap[pk] || pk;   // fall back to per-name group when no mapping
+        if(!byGroup.has(group)){
+          byGroup.set(group, {name, cat: it.cat||'', unit: it.unit||'', count:1});
+        } else {
+          byGroup.get(group).count++;
+        }
+      });
+    });
+    CANONICAL = [...byGroup.values()].sort((a,b)=>(a.cat||'').localeCompare(b.cat||'','gu') || a.name.localeCompare(b.name,'gu'));
+
+    logTo('log1', `✓ week 492 submissions: ${Object.keys(WEEK492_SUBS).length}`, 'ok');
+    logTo('log1', `✓ photoPhotoMap entries: ${Object.keys(photoMap).length}`, 'ok');
+    logTo('log1', `✓ canonical items (deduped): ${CANONICAL.length}`, 'ok');
+    logTo('log1', `✓ week 493 submissions: ${Object.keys(WEEK493_SUBS).length}`, 'ok');
+    logTo('log1', `✓ farmers: ${Object.keys(FARMERS).length}`, 'ok');
+    logTo('log1', `✓ saved progress entries: ${Object.keys(SAVED_PROGRESS).length}`, 'ok');
+  } catch(e){ logTo('log1', '✗ '+e.message, 'err'); }
+}
+
+function step2(){
+  logTo('log2','','reset');
+  if(!CANONICAL.length){ logTo('log2', '✗ Run Step 1 first.', 'err'); return; }
+  logTo('log2', 'Matching '+Object.keys(WEEK493_SUBS).length+' farmer submissions …');
+  WEEK493 = [];
+  for(const [fid, sub] of Object.entries(WEEK493_SUBS)){
+    const farmer = FARMERS[fid] || {};
+    (sub.items||[]).forEach((it, idx) => {
+      const sug = bestMatch(it.name, it.cat);
+      const progKey = `${fid}|${idx}`;
+      const saved = SAVED_PROGRESS[progKey];
+      WEEK493.push({
+        farmerId: fid,
+        farmerName: farmer.name || sub.farmerName || '?',
+        itemIdx: idx,
+        name: it.name, price: it.price, unit: it.unit, cat: it.cat,
+        suggested: sug,
+        chosen: saved?.chosen || (sug.canonical ? sug.canonical.name : '__NEW__'),
+        approved: !!saved?.approved,   // restored from Firebase if previously saved
+      });
+    });
+  }
+  const counts = WEEK493.reduce((m,r)=>{ m[r.suggested.level]=(m[r.suggested.level]||0)+1; return m; }, {});
+  logTo('log2', `✓ ${WEEK493.length} items processed`, 'ok');
+  Object.entries(counts).forEach(([k,n])=>logTo('log2', `  ${k}: ${n}`));
+  document.getElementById('applyBtn').disabled = false;
+  renderSectionButtons(counts);
+  renderTable();
+}
+
+function renderSectionButtons(counts){
+  const order = [
+    {key:'low',  label:'🔍 Low — needs eye',   cls:'low'},
+    {key:'new',  label:'✨ No match (new)',    cls:'new'},
+    {key:'med',  label:'👀 Medium',             cls:'med'},
+    {key:'high', label:'👍 High',                cls:'high'},
+    {key:'exact',label:'✅ Exact',               cls:'exact'},
+    {key:'all',  label:'📋 All',                 cls:''},
+  ];
+  document.getElementById('sectionButtons').innerHTML = order.map(o => {
+    const n = o.key==='all' ? WEEK493.length : (counts[o.key]||0);
+    return `<button class="btn outline" onclick="jumpTo('${o.key}')" style="padding:6px 11px;font-size:12px">${o.label} <span class="tag ${o.cls}" style="margin-left:5px">${n}</span></button>`;
+  }).join('');
+}
+window.jumpTo = (level) => {
+  document.getElementById('fFilter').value = level;
+  document.getElementById('fSearch').value = '';
+  renderTable();
+  document.getElementById('reviewTable').scrollIntoView({behavior:'smooth', block:'start'});
+};
+
+function populateCatFilter(){
+  const sel = document.getElementById('fCat');
+  if(!sel || sel.options.length > 1) return;  // already done
+  const cats = [...new Set(WEEK493.map(r=>r.cat).filter(Boolean))].sort();
+  cats.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; sel.appendChild(o); });
+}
+
+let PAGE = 1;
+let PAGE_SIZE = 10;
+window.setPageSize = (v) => { PAGE_SIZE = parseInt(v,10)||10; PAGE = 1; renderTable(); };
+window.goPage = (n) => { PAGE = Math.max(1, n); renderTable(); };
+
+function renderTable(){
+  if(!WEEK493.length){ document.getElementById('reviewTable').innerHTML=''; return; }
+  populateCatFilter();
+  const filt = document.getElementById('fFilter').value;
+  const catFilt = document.getElementById('fCat').value;
+  const q = norm(document.getElementById('fSearch').value);
+  const statusFilt = document.getElementById('fStatus')?.value || 'pending';
+  const sortMode = document.getElementById('fSort')?.value || 'similar';
+  const filtered = WEEK493.filter(r=>{
+    if(statusFilt === 'pending' && r.approved) return false;
+    if(statusFilt === 'approved' && !r.approved) return false;
+    if(filt!=='all' && r.suggested.level!==filt) return false;
+    if(catFilt!=='all' && r.cat !== catFilt) return false;
+    if(q && !norm(r.name).includes(q) && !norm(r.farmerName).includes(q)) return false;
+    return true;
+  });
+  // Sorting
+  if(sortMode === 'similar'){
+    // Group by suggested canonical (so all variants of "ગીલોડા" cluster), then by item name
+    filtered.sort((a,b)=>{
+      const ca = a.suggested.canonical?.name || ('~~'+a.name);   // unmatched go after matched
+      const cb = b.suggested.canonical?.name || ('~~'+b.name);
+      return ca.localeCompare(cb,'gu') || a.name.localeCompare(b.name,'gu');
+    });
+  } else if(sortMode === 'name'){
+    filtered.sort((a,b)=>a.name.localeCompare(b.name,'gu'));
+  }
+  // 'farmer' = no sort (already in farmer order)
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  if(PAGE > totalPages) PAGE = totalPages;
+  const startIdx = (PAGE-1) * PAGE_SIZE;
+  const rows = filtered.slice(startIdx, startIdx + PAGE_SIZE);
+
+  const approvedTotal = WEEK493.filter(r => r.approved).length;
+  document.getElementById('reviewStats').innerHTML =
+    `<span class="stat" style="background:#d8f3dc">✓ ${approvedTotal} approved</span>` +
+    `<span class="stat warn">${WEEK493.length - approvedTotal} pending</span>` +
+    `<span class="stat" style="background:#f0eadd;color:#3a2a10">${filtered.length} shown</span>` +
+    `<select onchange="setPageSize(this.value)" style="margin-left:8px;padding:2px 6px;font-size:11px;border:1px solid #ccc;border-radius:5px">
+       ${[10,25,50,100,500].map(n=>`<option value="${n}" ${n===PAGE_SIZE?'selected':''}>${n}/page</option>`).join('')}
+     </select>` +
+    `<span style="margin-left:8px;font-size:11.5px">page ${PAGE} of ${totalPages}</span>` +
+    `<button onclick="goPage(${PAGE-1})" ${PAGE<=1?'disabled':''} style="margin-left:6px;padding:2px 8px;font-size:11px;border:1px solid #ccc;border-radius:5px;cursor:pointer">‹ Prev</button>` +
+    `<button onclick="goPage(${PAGE+1})" ${PAGE>=totalPages?'disabled':''} style="margin-left:4px;padding:2px 8px;font-size:11px;border:1px solid #ccc;border-radius:5px;cursor:pointer">Next ›</button>`;
+
+  // Build dropdown HTML — grouped by category for easier navigation
+  const byCat = {};
+  CANONICAL.forEach(c => { const k = c.cat || '(no category)'; (byCat[k] ||= []).push(c); });
+  const catOrder = ["શાકભાજી","ભાજી","ફળ","ડેરી","દાળ/કઠોળ","અનાજ/લોટ","મસાલા","તેલ","ગોળ/ખાંડ","ફરસાણ","પ્રવાહી","તૈયાર ભોજન","અન્ય","(no category)"];
+  const cats = Object.keys(byCat).sort((a,b) => {
+    const ia = catOrder.indexOf(a), ib = catOrder.indexOf(b);
+    return (ia<0?99:ia) - (ib<0?99:ib);
+  });
+  const opts = cats.map(cat => {
+    const items = byCat[cat].sort((a,b)=>a.name.localeCompare(b.name,'gu'));
+    return `<optgroup label="${esc(cat)} (${items.length})">${items.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('')}</optgroup>`;
+  }).join('');
+  const newOpt = `<option value="__NEW__">— New / no match —</option>`;
+
+  document.getElementById('reviewTable').innerHTML = `
+    <thead>
+      <tr>
+        <th style="width:34px"><input type="checkbox" id="selectAllCb" onclick="toggleSelectAll(this)" title="Select all visible"></th>
+        <th>#</th>
+        <th>Farmer's item</th>
+        <th>Price · unit · cat</th>
+        <th>Score</th>
+        <th>Map to ↓</th>
+        <th>Add to<br>catalogue</th>
+        <th>Farmer</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map((r,i)=>{
+        const idx = WEEK493.indexOf(r);
+        const bg = r.approved ? '#d8f3dc' : (r.selected ? '#e8f5ec' : '');
+        const borderLeft = r.approved ? 'border-left:3px solid #2d6a4f' : '';
+        return `
+        <tr style="${bg?'background:'+bg+';':''}${borderLeft}">
+          <td><input type="checkbox" class="row-cb" data-row="${idx}" onclick="toggleRow(this)" ${r.selected?'checked':''}></td>
+          <td>${i+1+(PAGE-1)*PAGE_SIZE}${r.approved?' <span style="color:#2d6a4f;font-weight:700">✓</span>':''}</td>
+          <td><b>${esc(r.name)}</b></td>
+          <td>${esc(r.price)} · ${esc(r.unit)} · <span style="color:#7a7a7a">${esc(r.cat||'-')}</span></td>
+          <td><span class="tag ${r.suggested.level}">${r.suggested.level}</span> ${(r.suggested.score*100).toFixed(0)}%</td>
+          <td>
+            <select class="match-select" data-row="${idx}" onchange="setChosen(this)">
+              ${newOpt}
+              ${opts}
+            </select>
+          </td>
+          <td><button onclick="addAsCanonical(${idx})" title="Add this item to catalogue as a new canonical product" style="padding:3px 7px;font-size:10.5px;border:1px solid #2d6a4f;color:#2d6a4f;background:#fff;border-radius:5px;cursor:pointer;white-space:nowrap">+ Add</button></td>
+          <td><span class="farmer-name">${esc(r.farmerName)}</span></td>
+        </tr>
+      `}).join('')}
+    </tbody>
+  `;
+  updateSelStat();
+  // Set initial selections after table renders
+  rows.forEach(r => {
+    const sel = document.querySelector(`select[data-row="${WEEK493.indexOf(r)}"]`);
+    if(sel) sel.value = r.chosen;
+  });
+}
+// Persist approval/choice to Firebase so it survives reloads and colleague sees it.
+// Batched: pass an array of rows.
+function saveProgress(rows){
+  if(!rows || !rows.length) return;
+  const updates = {};
+  const ts = Date.now();
+  rows.forEach(r => {
+    const key = `${r.farmerId}|${r.itemIdx}`;
+    updates[`mappingProgress/493/${key}`] = { chosen: r.chosen, approved: !!r.approved, ts };
+  });
+  fbRef('').update(updates).catch(e => console.error('saveProgress failed', e));
+}
+
+window.setChosen = (sel) => {
+  const idx = parseInt(sel.dataset.row, 10);
+  if(WEEK493[idx]){
+    WEEK493[idx].chosen = sel.value;
+    WEEK493[idx].approved = true;
+    saveProgress([WEEK493[idx]]);
+    renderTable();
+  }
+};
+
+function visibleRows(){
+  const filt = document.getElementById('fFilter').value;
+  const catFilt = document.getElementById('fCat').value;
+  const statusFilt = document.getElementById('fStatus')?.value || 'pending';
+  const q = norm(document.getElementById('fSearch').value);
+  return WEEK493.filter(r => {
+    if(statusFilt === 'pending' && r.approved) return false;
+    if(statusFilt === 'approved' && !r.approved) return false;
+    if(filt!=='all' && r.suggested.level!==filt) return false;
+    if(catFilt!=='all' && r.cat !== catFilt) return false;
+    if(q && !norm(r.name).includes(q) && !norm(r.farmerName).includes(q)) return false;
+    return true;
+  });
+}
+
+window.bulkAccept = () => {
+  const rows = visibleRows();
+  if(!rows.length){ document.getElementById('bulkStat').textContent = 'No visible rows.'; return; }
+  if(!confirm(`Approve the auto-matched canonical name for all ${rows.length} visible rows?`)) return;
+  let touched = 0, leftAsNew = 0;
+  rows.forEach(r => {
+    if(r.suggested.canonical){
+      r.chosen = r.suggested.canonical.name;
+      r.approved = true;
+      touched++;
+    } else {
+      r.chosen = '__NEW__';
+      r.approved = true;
+      leftAsNew++;
+    }
+  });
+  saveProgress(rows);
+  document.getElementById('bulkStat').textContent = `✓ ${touched} approved${leftAsNew?` · ${leftAsNew} approved as new`:''}`;
+  renderTable();
+};
+
+window.bulkNew = () => {
+  const rows = visibleRows();
+  if(!rows.length){ document.getElementById('bulkStat').textContent = 'No visible rows.'; return; }
+  if(!confirm(`Mark all ${rows.length} visible rows as NEW (their cat will become અન્ય on Apply)?`)) return;
+  rows.forEach(r => { r.chosen = '__NEW__'; r.approved = true; });
+  saveProgress(rows);
+  document.getElementById('bulkStat').textContent = `✓ ${rows.length} approved as NEW`;
+  renderTable();
+};
+
+window.toggleRow = (cb) => {
+  const idx = parseInt(cb.dataset.row, 10);
+  if(WEEK493[idx]) WEEK493[idx].selected = cb.checked;
+  if(cb.closest('tr')) cb.closest('tr').style.background = cb.checked ? '#e8f5ec' : '';
+  updateSelStat();
+};
+window.toggleSelectAll = (cb) => {
+  visibleRows().forEach(r => { r.selected = cb.checked; });
+  renderTable();
+};
+window.clearSelection = () => {
+  WEEK493.forEach(r => r.selected = false);
+  renderTable();
+};
+function selectedRows(){ return WEEK493.filter(r => r.selected); }
+function updateSelStat(){
+  const el = document.getElementById('selStat'); if(!el) return;
+  const n = selectedRows().length;
+  el.textContent = n ? `${n} selected` : '';
+}
+
+window.bulkAcceptSelected = () => {
+  const rows = selectedRows();
+  if(!rows.length){ document.getElementById('selStat').textContent = 'Nothing selected.'; return; }
+  if(!confirm(`Approve the auto-matched canonical for ${rows.length} selected rows?`)) return;
+  let touched = 0, leftAsNew = 0;
+  rows.forEach(r => {
+    if(r.suggested.canonical){ r.chosen = r.suggested.canonical.name; r.approved = true; touched++; }
+    else { r.chosen = '__NEW__'; r.approved = true; leftAsNew++; }
+  });
+  saveProgress(rows);
+  document.getElementById('selStat').textContent = `✓ ${touched} approved${leftAsNew?` · ${leftAsNew} approved as new`:''}`;
+  renderTable();
+};
+window.addAsCanonical = (idx) => {
+  const r = WEEK493[idx]; if(!r) return;
+  const CATS = ['શાકભાજી','ભાજી','ફળ','ડેરી','દાળ/કઠોળ','અનાજ/લોટ','મસાલા','તેલ','ગોળ/ખાંડ','ફરસાણ','પ્રવાહી','તૈયાર ભોજન','અન્ય'];
+  const name = prompt(`Add to catalogue — name (Gujarati):`, r.name);
+  if(!name) return;
+  const cleaned = name.trim(); if(!cleaned) return;
+  const catList = CATS.map((c,i)=>`${i+1}. ${c}`).join('\n');
+  const choice = prompt(`Pick category number for "${cleaned}":\n\n${catList}\n\n(Default: 13 = અન્ય)`, r.cat ? String(CATS.indexOf(r.cat)+1 || 13) : '13');
+  if(choice === null) return;
+  const ci = parseInt(choice,10) - 1;
+  if(isNaN(ci) || ci < 0 || ci >= CATS.length){ alert('Invalid category'); return; }
+  const cat = CATS[ci];
+  // Avoid dupes
+  if(CANONICAL.some(c => norm(c.name) === norm(cleaned))){
+    alert(`"${cleaned}" already exists in catalogue.`);
+    r.chosen = cleaned;
+    renderTable();
+    return;
+  }
+  CANONICAL.push({ name: cleaned, cat, unit: r.unit || '' });
+  CANONICAL.sort((a,b)=>(a.cat||'').localeCompare(b.cat||'','gu') || a.name.localeCompare(b.name,'gu'));
+  r.chosen = cleaned;
+  r.approved = true;
+  saveProgress([r]);
+  renderTable();
+  alert(`✓ Added "${cleaned}" to catalogue under ${cat}.\nThis row now maps to it. Other rows can now pick it from the dropdown too.`);
+};
+
+window.bulkNewSelected = () => {
+  const rows = selectedRows();
+  if(!rows.length){ document.getElementById('selStat').textContent = 'Nothing selected.'; return; }
+  if(!confirm(`Mark ${rows.length} selected rows as NEW (cat → અન્ય on Apply)?`)) return;
+  rows.forEach(r => { r.chosen = '__NEW__'; r.approved = true; });
+  saveProgress(rows);
+  document.getElementById('selStat').textContent = `✓ ${rows.length} approved as NEW`;
+  renderTable();
+};
+
+async function step4(){
+  logTo('log4','','reset');
+  const approvedRows = WEEK493.filter(r => r.approved);
+  const skipCount = WEEK493.length - approvedRows.length;
+  if(!approvedRows.length){
+    logTo('log4', '✗ Nothing to apply — no rows have been approved yet. Use Accept buttons or pick from dropdown.', 'err');
+    return;
+  }
+  if(!confirm(`Apply ${approvedRows.length} approved mappings?\n\n${skipCount} unreviewed items will NOT be touched (they stay as the farmer wrote them).`)) return;
+  logTo('log4', `Writing ${approvedRows.length} approved mappings …`);
+  // Group updates by submission
+  const subItems = {};   // fid -> items array (copy of original)
+  for(const fid of Object.keys(WEEK493_SUBS)){
+    subItems[fid] = (WEEK493_SUBS[fid].items||[]).map(it => ({...it}));
+  }
+  let changed = 0, kept = 0, newCount = 0, newCatFixed = 0;
+  for(const r of approvedRows){
+    const arr = subItems[r.farmerId];
+    if(!arr || !arr[r.itemIdx]) continue;
+    if(r.chosen === '__NEW__'){
+      // Approved-as-new → force cat to 'અન્ય' so they show under Other in catalog
+      if(arr[r.itemIdx].cat !== 'અન્ય'){
+        arr[r.itemIdx].cat = 'અન્ય';
+        newCatFixed++;
+      }
+      newCount++;
+      continue;
+    }
+    if(arr[r.itemIdx].name !== r.chosen){
+      arr[r.itemIdx].name = r.chosen;
+      // Also align cat to canonical if found
+      const canon = CANONICAL.find(c=>c.name===r.chosen);
+      if(canon && canon.cat) arr[r.itemIdx].cat = canon.cat;
+      changed++;
+    } else {
+      kept++;
+    }
+  }
+  const updates = {};
+  for(const [fid, arr] of Object.entries(subItems)){
+    updates[`weekly/493/submissions/${fid}/items`] = arr;
+  }
+  try {
+    await fbRef('').update(updates);
+    logTo('log4', `✓ items renamed (mapped to canonical): ${changed}`, 'ok');
+    logTo('log4', `✓ items kept as-is (already canonical): ${kept}`, 'ok');
+    logTo('log4', `✓ items left as new: ${newCount}  (of these, ${newCatFixed} had their cat forced to "અન્ય")`, 'ok');
+    logTo('log4', `\nDone.`, 'ok');
+  } catch(e){ logTo('log4', '✗ '+e.message, 'err'); }
+}
+</script>
+</body>
+</html>

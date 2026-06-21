@@ -125,9 +125,22 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 .fade-in{animation:fadeUp .25s ease both}
+/* a11y: respect motion preferences (35% of population sensitive to vestibular triggers) */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+}
+/* a11y: visible keyboard focus ring */
+button:focus-visible,a:focus-visible,input:focus-visible,[role="button"]:focus-visible,[tabindex="0"]:focus-visible{outline:2px solid var(--green3);outline-offset:2px;border-radius:6px}
 </style>
 </head>
 <body>
+<noscript>
+  <div style="background:#fff0e0;border:2px solid #e36414;border-radius:10px;padding:18px;margin:24px auto;max-width:420px;text-align:center;font-family:'Noto Sans Gujarati',sans-serif;color:#7a3010">
+    <div style="font-size:32px;margin-bottom:8px">⚠️</div>
+    <div style="font-size:16px;font-weight:700;margin-bottom:6px">JavaScript જરૂરી છે</div>
+    <div style="font-size:13px;line-height:1.5">આ catalog ચલાવવા Chrome / Safari ખોલો અને JavaScript ઑન કરો.</div>
+  </div>
+</noscript>
 <div class="wrap" id="wrap"></div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -400,7 +413,7 @@ function render(){
 
   $('#wrap').innerHTML = `
     <div class="hero">
-      <img class="hero-img" src="hero.jpg" alt="" loading="eager">
+      <img class="hero-img" src="hero.jpg" alt="ખેડૂત હાટ બજાર — ગ્રાહકો અને ખેડૂતો સાથે" loading="eager">
       <div class="hero-overlay"></div>
       <div class="hero-logos">
         <div class="hero-logo"><img src="krsf-logo.png" alt="KRSF" loading="eager"></div>
@@ -410,10 +423,10 @@ function render(){
         <div class="hero-title">સૃષ્ટિ ખેડૂત હાટ</div>
         <div class="hero-sub">ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી</div>
         <div class="hero-chips">
-          <span class="hero-chip" onclick="showAllLocs()" style="cursor:pointer" title="બધા સ્થળ જુઓ">📍 12 સ્થળે</span>
-          ${farmerCount?`<span class="hero-chip" onclick="scrollToList('farmers')" style="cursor:pointer" title="ખેડૂત જુઓ">🌾 ${farmerCount} ખેડૂત</span>`:''}
-          ${itemCount?`<span class="hero-chip" onclick="scrollToList('items')" style="cursor:pointer" title="વસ્તુ જુઓ">📦 ${itemCount} પ્રોડક્ટ્સ</span>`:''}
-          <span class="hero-chip">🛍️ થેલી લઈ આવજો</span>
+          <button class="hero-chip" onclick="showAllLocs()" style="cursor:pointer;border:1px solid rgba(255,255,255,.3);font-family:inherit" aria-label="બધા 12 સ્થળ જુઓ">📍 12 સ્થળે</button>
+          ${farmerCount?`<button class="hero-chip" onclick="scrollToList('farmers')" style="cursor:pointer;border:1px solid rgba(255,255,255,.3);font-family:inherit" aria-label="${farmerCount} ખેડૂત જુઓ">🌾 ${farmerCount} ખેડૂત</button>`:''}
+          ${itemCount?`<button class="hero-chip" onclick="scrollToList('items')" style="cursor:pointer;border:1px solid rgba(255,255,255,.3);font-family:inherit" aria-label="${itemCount} પ્રોડક્ટ્સ જુઓ">📦 ${itemCount} પ્રોડક્ટ્સ</button>`:''}
+          <span class="hero-chip" role="note">🛍️ થેલી લઈ આવજો</span>
         </div>
       </div>
     </div>
@@ -432,9 +445,9 @@ function render(){
       </div>
     </div>
 
-    <div class="tabs">
-      <button class="tab ${TAB==='items'?'active':''}" onclick="setTab('items')">🛒 વસ્તુઓ</button>
-      <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')">🌾 ખેડૂત</button>
+    <div class="tabs" role="tablist" aria-label="Catalog view">
+      <button class="tab ${TAB==='items'?'active':''}" onclick="setTab('items')" role="tab" aria-selected="${TAB==='items'}" aria-controls="catalog-body">🛒 વસ્તુઓ</button>
+      <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')" role="tab" aria-selected="${TAB==='farmers'}" aria-controls="catalog-body">🌾 ખેડૂત</button>
     </div>
 
     <div class="controls">
@@ -622,13 +635,23 @@ window.openProductSheet = (productKey) => {
       `}
     </div>
   `;
+  // a11y: dialog semantics + body-scroll lock so catalog doesn't scroll behind the sheet
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', it.name + ' — ' + enriched.length + ' ખેડૂત');
+  document.body.style.overflow = 'hidden';
   document.body.appendChild(overlay);
   if(!isSmall){
     overlay.onclick = e => { if(e.target === overlay) closeProductSheet(); };
   }
+  // Esc key closes the sheet
+  document.addEventListener('keydown', function escClose(e){
+    if(e.key === 'Escape'){ document.removeEventListener('keydown', escClose); closeProductSheet(); }
+  });
 };
 window.closeProductSheet = () => {
   document.getElementById('productSheetOverlay')?.remove();
+  document.body.style.overflow = '';
 };
 
 function renderFarmers(){

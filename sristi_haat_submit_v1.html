@@ -86,7 +86,13 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .input-wrap{display:flex;align-items:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:0 6px;transition:.15s}
 .input-wrap.has-val{background:#fff;border-color:var(--green2)}
 .input-wrap .pfx{font-size:12px;color:var(--muted);font-weight:600;padding-right:2px}
-.input-wrap input{width:42px;border:none;background:none;outline:none;font-family:inherit;font-size:14px;font-weight:600;padding:7px 0;color:var(--text);text-align:center;-moz-appearance:textfield}
+.input-wrap input{width:48px;min-height:44px;border:none;background:none;outline:none;font-family:inherit;font-size:14px;font-weight:600;padding:7px 0;color:var(--text);text-align:center;-moz-appearance:textfield;touch-action:manipulation}
+.input-wrap:focus-within{outline:2px solid var(--green2);outline-offset:1px}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+}
+/* Visible keyboard focus ring (default browser ring is removed elsewhere) */
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--green2);outline-offset:2px;border-radius:6px}
 .input-wrap input::-webkit-outer-spin-button,
 .input-wrap input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .input-wrap .sfx{font-size:10.5px;color:var(--muted);padding-left:3px;font-weight:500}
@@ -129,8 +135,15 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 </style>
 </head>
 <body>
+<noscript>
+  <div style="background:#fff0e0;border:2px solid #e36414;border-radius:10px;padding:18px;margin:24px auto;max-width:420px;text-align:center;font-family:'Noto Sans Gujarati',sans-serif;color:#7a3010">
+    <div style="font-size:32px;margin-bottom:8px">⚠️</div>
+    <div style="font-size:16px;font-weight:700;margin-bottom:6px">JavaScript જરૂરી છે</div>
+    <div style="font-size:13px;line-height:1.5">આ app ચલાવવા Chrome / Safari ખોલો અને JavaScript ઑન કરો.</div>
+  </div>
+</noscript>
 <div class="wrap" id="wrap"></div>
-<div class="toast-wrap" id="toasts"></div>
+<div class="toast-wrap" id="toasts" aria-live="polite" aria-atomic="false"></div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -222,6 +235,9 @@ function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{f
 function toast(msg, kind=""){
   const w=$('#toasts');const t=document.createElement('div');
   t.className='toast '+(kind||"");t.textContent=msg;
+  // a11y: announce errors assertively, success politely (screen readers pick this up)
+  t.setAttribute('role', kind==='err' ? 'alert' : 'status');
+  t.setAttribute('aria-live', kind==='err' ? 'assertive' : 'polite');
   t.style.cursor='pointer';
   t.title='ટેપ કરી બંધ કરો';
   w.appendChild(t);
@@ -229,6 +245,53 @@ function toast(msg, kind=""){
   t.addEventListener('click', dismiss);
   // Older farmers may take time to read — 5s instead of 2.2s
   setTimeout(dismiss, 5000);
+}
+
+// Replace native confirm() with a Promise-based styled dialog that matches the app
+function asyncConfirm(msg, okLabel='OK', cancelLabel='Cancel'){
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'acTitle');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:18px;animation:fadeUp .2s ease';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:14px;max-width:340px;width:100%;padding:18px 18px 14px;box-shadow:0 12px 36px rgba(0,0,0,.25)">
+        <div id="acTitle" style="font-size:14px;line-height:1.55;color:#1a1a1a;white-space:pre-line">${esc(msg)}</div>
+        <div style="display:flex;gap:9px;margin-top:16px">
+          <button class="btn-mini" data-act="cancel" style="flex:1">${esc(cancelLabel)}</button>
+          <button class="btn-mini primary" data-act="ok" autofocus style="flex:1">${esc(okLabel)}</button>
+        </div>
+      </div>
+    `;
+    const close = ok => { overlay.remove(); document.body.style.overflow=''; resolve(ok); };
+    overlay.addEventListener('click', e => {
+      const act = e.target?.dataset?.act;
+      if(act) close(act === 'ok');
+      else if(e.target === overlay) close(false);
+    });
+    document.addEventListener('keydown', function esc(e){
+      if(e.key === 'Escape'){ document.removeEventListener('keydown', esc); close(false); }
+    });
+    document.body.style.overflow = 'hidden';
+    document.body.appendChild(overlay);
+  });
+}
+
+// Before re-rendering the form mid-session, flush every input's value to ENTRIES
+// and remember which element had focus so we can restore after re-render.
+function flushInputsBeforeRerender(){
+  document.querySelectorAll('.item input[type="number"]').forEach(inp => {
+    inp.dispatchEvent(new Event('input', {bubbles:true}));
+  });
+  return document.activeElement?.id || null;
+}
+function preserveAndRender(){
+  const focusId = flushInputsBeforeRerender();
+  renderForm();
+  if(focusId){
+    setTimeout(()=>{ document.getElementById(focusId)?.focus(); }, 0);
+  }
 }
 
 /* keyed by item name; values: {price, qty, unit, cat, emoji, custom?} */
@@ -580,7 +643,8 @@ function activeCount(){ let n=0; ENTRIES.forEach(e=>{ if(+e.price>0) n++; }); re
 
 let LAST_WK_OPEN = false;
 let OFFICE_NOTE_COLLAPSED = false;
-window.toggleOfficeNote = () => { OFFICE_NOTE_COLLAPSED = !OFFICE_NOTE_COLLAPSED; renderForm(); };
+// A2 fix: preserve in-progress typing across re-renders
+window.toggleOfficeNote = () => { OFFICE_NOTE_COLLAPSED = !OFFICE_NOTE_COLLAPSED; preserveAndRender(); };
 
 function renderLastWeekAccordion(){
   if(!LAST_WK_SUBMISSION) return '';
@@ -612,7 +676,7 @@ function renderLastWeekAccordion(){
 }
 window.toggleLastWk = () => {
   LAST_WK_OPEN = !LAST_WK_OPEN;
-  renderForm();
+  preserveAndRender();
 };
 
 function renderForm(){
@@ -967,7 +1031,7 @@ function levenshtein(a, b){
   }
   return dp[m][n];
 }
-window.saveCustom = () => {
+window.saveCustom = async () => {
   let nm   = document.getElementById('cuNm').value.trim();
   let u    = document.getElementById('cuU').value;
   let c    = document.getElementById('cuC').value;
@@ -980,10 +1044,12 @@ window.saveCustom = () => {
     return d > 0 && d <= 2;
   });
   if(similar){
-    const useCanonical = confirm(
+    const useCanonical = await asyncConfirm(
       `'${nm}' '${similar.n}' જેવું લાગે છે — typo હોઈ શકે?\n\n` +
-      `OK દબાવી '${similar.n}' (યાદીમાં છે) નો ઉપયોગ કરો\n` +
-      `Cancel દબાવી '${nm}' ને નવી custom વસ્તુ તરીકે ઉમેરો`
+      `'${similar.n}' વાપરો = યાદીમાંથી પસંદ કરો\n` +
+      `'${nm}' નવું ઉમેરો = custom item તરીકે જશે`,
+      `'${similar.n}' વાપરો`,
+      `'${nm}' નવું ઉમેરો`
     );
     if(useCanonical){
       // Swap to the canonical product — uses its category/unit/emoji

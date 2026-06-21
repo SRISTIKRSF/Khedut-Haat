@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sristi Haat — Roster from WhatsApp messages</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Noto Sans Gujarati","DM Sans",-apple-system,sans-serif;background:#fffbf4;color:#1a1a1a;padding:18px;min-height:100vh}
+.wrap{max-width:1500px;margin:0 auto}
+h1{font-size:22px;font-weight:800;color:#1b4332;margin-bottom:6px}
+.sub{font-size:13.5px;color:#6b7280;margin-bottom:16px}
+.card{background:#fff;border:1px solid #e8e0d0;border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.03)}
+h3{font-size:14px;font-weight:700;color:#1b4332;margin-bottom:6px}
+.btn{background:#2d6a4f;color:#fff;border:none;border-radius:9px;padding:9px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-right:6px;margin-bottom:6px}
+.btn:hover{background:#1b4332}
+.btn:disabled{background:#aaa;cursor:not-allowed}
+.btn.outline{background:#fff;color:#2d6a4f;border:1.5px solid #2d6a4f}
+.btn.danger{background:#c1121f}
+.log{background:#1f2937;color:#e5e7eb;border-radius:9px;padding:12px;font-family:"JetBrains Mono",monospace;font-size:11.5px;line-height:1.55;max-height:320px;overflow:auto;white-space:pre-wrap;margin-top:10px}
+.warn{background:#fff0e0;color:#7a3010;padding:8px 11px;border-radius:7px;border-left:4px solid #e36414;font-size:12px;margin-bottom:10px;line-height:1.45}
+.danger{background:#ffe0e0;color:#7a1010;padding:8px 11px;border-radius:7px;border-left:4px solid #c1121f;font-size:12px;margin-bottom:10px;line-height:1.45}
+code{background:#1f2937;color:#e5e7eb;border-radius:5px;padding:1px 5px;font-family:"JetBrains Mono",monospace;font-size:11px}
+.stat{display:inline-block;background:#d8f3dc;color:#2d6a4f;padding:2px 8px;border-radius:11px;font-size:11.5px;font-weight:700;margin-right:5px}
+.stat.warn{background:#fff0e0;color:#7a3010}
+.stat.danger{background:#ffe0e0;color:#7a1010}
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th,td{border:1px solid #e8e0d0;padding:4px 6px;text-align:left;vertical-align:top}
+th{background:#f0eadd;font-weight:700;position:sticky;top:0;z-index:1}
+.tag{display:inline-block;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600;margin:1px}
+.tag.farmer{background:#d8f3dc;color:#2d6a4f}
+.tag.ent{background:#fde2c8;color:#7a3010}
+.tag.group{background:#dbeafe;color:#1e40af}
+.tag.haat{background:#e8e0d0;color:#3a2a10}
+.warn-cell{background:#fff0e0}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;font-size:12px}
+.controls select,.controls input{padding:5px 8px;border:1px solid #ccc;border-radius:6px;font-family:inherit;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>📋 Roster from WhatsApp (14/06/2026 batch)</h1>
+<div class="sub">Parsed from 10 messages: AMD Sun-AM (495) · BAOU (73) · Vastrapur (6) · Palodia · Gandhinagar (in 495) · VVN (134) · Vadodara (37) · Himmatnagar (76) · Modasa (11) · Nadiad (5) · Sristi-Thu (493). Deduped by phone.</div>
+
+<div class="warn">
+  <b>Review carefully.</b> Rows with <span class="warn-cell">orange district cell</span> are best-guess and need your eye. Notes column flags ambiguity.
+</div>
+
+<div class="card">
+  <h3>Stats</h3>
+  <div id="stats">…</div>
+</div>
+
+<div class="card">
+  <h3>Controls</h3>
+  <div class="controls">
+    <label>Type: <select id="fType" onchange="renderTable()"><option value="">All</option><option value="farmer">Farmer (ખેડૂત)</option><option value="entrepreneur">Entrepreneur (ઉદ્યમી)</option><option value="group">Group/Sangathan</option></select></label>
+    <label>District: <select id="fDist" onchange="renderTable()"><option value="">All</option></select></label>
+    <label>Haat: <select id="fHaat" onchange="renderTable()"><option value="">All</option></select></label>
+    <label>Search: <input id="fSearch" type="text" placeholder="નામ / phone / village" oninput="renderTable()" style="width:160px"></label>
+    <button class="btn outline" onclick="downloadJson()">⬇ Download JSON</button>
+  </div>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden">
+  <div style="max-height:65vh;overflow:auto">
+    <table id="rosterTable"></table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Phase 2 — Assign Application Numbers + Haat Enrollment IDs</h3>
+  <div style="font-size:12.5px;color:#6b7280;margin-bottom:8px">Per district, sort vendors by name, assign sequence starting at 1. <code>A-GJ-{DD}-{NNNNN}</code> and <code>H-GJ-{DD}-{NNNNN}</code> (same sequence for now since all are already enrolled).</div>
+  <button class="btn outline" onclick="phase2Assign()">🔢 Assign numbers (preview only)</button>
+  <div id="log2" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Phase 3 — Write to <code>e9194/farmers_master/</code></h3>
+  <div class="danger" style="margin-bottom:8px">
+    <b>Writes to prakrutik-kheti-e9194 (production).</b> Creates one record per vendor under <code>farmers_master/{A-number}</code>. Old <code>c0a89/marketFarmers/</code> is untouched (still there as backup). Updates <code>counters/farmerApp/{DD}</code> and <code>counters/haatEnroll/{DD}</code>.
+  </div>
+  <button class="btn danger" onclick="phase3Write()" id="btnPhase3" disabled>▶ Write to Firebase</button>
+  <div id="log3" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Phase 4 — Verify</h3>
+  <button class="btn outline" onclick="phase4Verify()" id="btnPhase4" disabled>✓ Read back + spot-check</button>
+  <div id="log4" class="log" style="display:none"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+// ============================================================================
+// CANONICAL ROSTER — extracted from WhatsApp messages, deduped by phone.
+// Each vendor: { type, name (Gu), phone, phone2?, farm?, village?, taluka?, districtCode, haats[], notes? }
+// Haat codes: AM-BAOU, AM-SOLA, AM-PAL, AM-NAV, AM-VS, AM-SRI, GN-KAD, AN-VVN, KH-NDD, VD-MSU, SK-HMT, AR-MDS
+// ============================================================================
+const ROSTER = [
+  // ─── ARAVALLI (AR) ───
+  { type:'farmer', name:'કેતન જસુભાઈ પટેલ', phone:'9427370388', farm:'દેવર્ષિ જૈવિક ફાર્મ', village:'વાવકંપા', taluka:'મેઘરજ', districtCode:'AR', haats:['AM-NAV','AM-SRI','SK-HMT','AR-MDS'] },
+  { type:'farmer', name:'મનીષાબેન ઘનશ્યામભાઈ પટેલ', phone:'6355228447', phone2:'9879437637', farm:'પ્રાણનાથ પ્રાકૃતિક ફાર્મ', village:'રાજપુર કંપા', taluka:'ધનસુરા', districtCode:'AR', haats:['AM-NAV','AM-SOLA','AM-PAL','AM-BAOU','AM-SRI','SK-HMT'] },
+
+  // ─── SABARKANTHA (SK) ───
+  { type:'farmer', name:'ભરતભાઇ પટેલ', phone:'9510737428', farm:'ઉમિયા ફાર્મ', village:'જાંબુડી', taluka:'હિંમતનગર', districtCode:'SK', haats:['SK-HMT','AM-SRI'] },
+  { type:'farmer', name:'સંકેતભાઈ ચૌધરી', phone:'9913396895', phone2:'7984038050', farm:'નિર પ્રાકૃતિક ફાર્મ', village:'ચિત્રોડી', taluka:'ઇડર', districtCode:'SK', haats:['SK-HMT','AM-NAV','AM-SRI'] },
+  { type:'farmer', name:'હરેશકુમાર જેઠાભાઈ પટેલ', phone:'9913970170', farm:'શિવ લીલા પ્રાકૃતિક ફ્રુટ પાર્ક ફાર્મ', village:'કેશરગંજ', taluka:'વડાલી', districtCode:'SK', haats:['AM-NAV','AM-SRI'] },
+  { type:'farmer', name:'નરસિંહભાઈ પટેલ', phone:'9429748978', farm:'શિવ પ્રાકૃતિક ફાર્મ', village:'ઝીંઝવા', districtCode:'SK', haats:['SK-HMT'], notes:'district guess — Zinzva' },
+
+  // ─── BHAVNAGAR (BN) ───
+  { type:'group',  name:'મીઠીવીરડી-મહુવા જૂથ (નિલેશ દિહોર · અશોક કાંબડ · અશ્વિન દિહોરા)', phone:'9016810831', phone2:'9824829869', farm:'મીઠીવિરડી જૂથ', village:'મીઠીવિરડી', taluka:'મહુવા', districtCode:'BN', haats:['AM-NAV','AM-SOLA','AM-PAL','AM-BAOU','AM-VS','AM-SRI'] },
+  { type:'farmer', name:'નરોત્તમભાઈ જીવણભાઈ જાદવ', phone:'9687257381', farm:'વરદાયિની પ્રાકૃતિક ફાર્મ', village:'નાગનેશ', taluka:'રાણપુર', districtCode:'BN', haats:['AM-NAV','AM-SOLA'], notes:'Ranpur is in Botad now; treating as BN per source' },
+  { type:'farmer', name:'હમીરભાઈ બારૈયા', phone:'9723443623', farm:'વસુંધરા મસાલા', village:'અકવાડા', districtCode:'BN', haats:['AM-NAV','AM-SOLA','AM-SRI','AN-VVN','KH-NDD'] },
+  { type:'farmer', name:'હરદેવસિંહ ગોહિલ', phone:'6355976667', farm:'શ્રી મોરલી ગોકૃષિ ફાર્મ', village:'મોરચંદ', taluka:'ઘોઘા', districtCode:'BN', haats:['AM-NAV','AM-SRI'], notes:'mango premium grade' },
+  { type:'farmer', name:'સોલંકી વિજયભાઈ મંગાભાઈ', phone:'9978457896', farm:'વીર વચ્છરાજ પ્રાકૃતિક ફાર્મ', village:'કરેડા', taluka:'ઘોઘા', districtCode:'BN', haats:['AM-NAV','AM-BAOU','AM-SRI'] },
+  { type:'farmer', name:'સોલંકી કાળુભાઈ આણંદભાઈ', phone:'9824943615', phone2:'9313388353', farm:'આનંદ પ્રાકૃતિ ફાર્મ', village:'કરેડા', taluka:'ઘોઘા', districtCode:'BN', haats:['AM-VS','AM-NAV','AM-SRI'] },
+  { type:'farmer', name:'જગતભાઈ ભટ્ટ · જય કુકડીયા', phone:'6355300933', farm:'પુરાણ પ્રાકૃતિક ફાર્મ', village:'મણાર', taluka:'તળાજા', districtCode:'BN', haats:['AM-NAV','AM-SOLA','AM-SRI'] },
+  { type:'farmer', name:'ધીરૂભાઈ હરજીભાઈ કાલીયા', phone:'9824885973', phone2:'9510030933', village:'અણીયાળી કસ્બાતી', taluka:'રાણપુર', districtCode:'BN', haats:['AM-SOLA'], notes:'Ranpur may belong to Botad' },
+
+  // ─── BOTAD (BT) ───
+  { type:'farmer', name:'વિરમભાઇ ભવાનભાઈ સાકરીયા', phone:'6352329278', farm:'મંગલમ્ ફાર્મ', village:'ધારપીપળા', taluka:'રાણપુર', districtCode:'BT', haats:['AM-BAOU'] },
+
+  // ─── ANAND (AN) ───
+  { type:'farmer', name:'બંટુભાઈ (સેજલભાઈ)', phone:'9898516073', village:'બોરીઆવી', districtCode:'AN', haats:['AM-NAV','AM-SOLA','AN-VVN','KH-NDD','AM-SRI'] },
+  { type:'farmer', name:'નરેશભાઈ સોમાભાઈ સોલંકી', phone:'9979224410', phone2:'7435864174', farm:'મંગલમ્ પ્રાકૃતિક ફાર્મ', village:'બોરીઆવી', districtCode:'AN', haats:['AM-NAV','AN-VVN','KH-NDD','AM-SRI'] },
+  { type:'farmer', name:'દેવેશ પટેલ', phone:'9824506878', farm:'સત્વ ઓર્ગેનિક', village:'બોરીઆવી', districtCode:'AN', haats:['AN-VVN','KH-NDD'] },
+  { type:'farmer', name:'અમિત પ્રેમસુખભાઈ પટેલ', phone:'9979079134', farm:'વડિલ પ્રાકૃતિક ફાર્મ', village:'પલોલ', taluka:'સોજીત્રા', districtCode:'AN', haats:['AM-VS','VD-MSU'] },
+  { type:'farmer', name:'ભાવેશભાઈ પટેલ', phone:'9974873800', farm:'યોગી ઓર્ગેનિક ફાર્મ', village:'તારાપુર', taluka:'તારાપુર', districtCode:'AN', haats:['AN-VVN','KH-NDD'] },
+  { type:'entrepreneur', name:'યજ્ઞેશભાઈ પટેલ', phone:'9824377778', farm:'Me 2 Millet', village:'મોગર', districtCode:'AN', haats:['AN-VVN'] },
+  { type:'entrepreneur', name:'યુગ રાકેશ પટેલ', phone:'9909647926', districtCode:'AN', haats:['AN-VVN'], notes:'limbu vendor — Anand assumed' },
+
+  // ─── KHEDA (KH) ───
+  { type:'farmer', name:'મનહરભાઈ ઠાકોરભાઈ વાઘેલા', phone:'9998105044', farm:'રામદેવ પ્રાકૃતિક ફાર્મ', village:'ચકલાસી', taluka:'નડિયાદ', districtCode:'KH', haats:['AM-NAV','AN-VVN','KH-NDD'] },
+  { type:'farmer', name:'ઉમેશગીરી શૈલેષગીરી ગોસ્વામી', phone:'9909078344', farm:'ગીરી ફાર્મ', village:'નરસંડા', taluka:'નડિયાદ', districtCode:'KH', haats:['AN-VVN','KH-NDD'] },
+  { type:'farmer', name:'પ્રવીણભાઈ · પાવન', phone:'9825938951', phone2:'8000140888', farm:'રણછોડકાકા ઓર્ગેનિક ફાર્મ', village:'ભાનેર', taluka:'કઠલાલ', districtCode:'KH', haats:['AM-NAV','AM-SRI'] },
+
+  // ─── GANDHINAGAR (GN) ───
+  { type:'farmer', name:'શ્રીકાંત & ચાર્મી માલદે', phone:'9409601399', phone2:'9328154142', farm:'ગૌનિતી ફાર્મ', village:'અંબાપુર', districtCode:'GN', haats:['AM-NAV','AM-SOLA','GN-KAD','AM-BAOU','AM-SRI'], notes:'BAOU listing showed alt phone 9403891985 — same family' },
+  { type:'farmer', name:'રાવળ વિષ્ણુભાઈ', phone:'7698101315', farm:'ગ્રામભારતી અમરાપુર', taluka:'માણસા', districtCode:'GN', haats:['AM-NAV','AM-SRI'] },
+  { type:'farmer', name:'રાવળ બળદેવભાઈ મંગાભાઈ', phone:'9313974178', phone2:'7203834241', village:'લીંબોદરા', taluka:'માણસા', districtCode:'GN', haats:['AM-NAV'] },
+  { type:'farmer', name:'વિપુલભાઈ (ગ્રામભારતી)', phone:'7990469815', farm:'ગ્રામભારતી', districtCode:'GN', haats:['AM-NAV','AM-SOLA','AM-SRI'], notes:'Gram Bharti / Ambapur area' },
+  { type:'farmer', name:'ભુપતભાઈ મકવાણા / સંગીતાબેન', phone:'9638535033', farm:'સહયોગ ઓર્ગેનિક ફાર્મ', village:'અલુવા', districtCode:'GN', haats:['AM-NAV','AM-SOLA','AM-SRI'], notes:'near Grambharti circle, Aluva — GN assumed' },
+
+  // ─── VADODARA (VD) ───
+  { type:'farmer', name:'પટેલ અશ્વિનકુમાર ચુનીલાલ', phone:'8160966126', farm:'નીલકંઠ પ્રાકૃતિક ફાર્મ', village:'અવાખલ', taluka:'સિનોર', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'પટેલ રમણભાઈ ભાઈલાલ', phone:'9925776808', farm:'અવંતી ફાર્મ', village:'અવાખલ', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'અનુજ પટેલ', phone:'9099002214', farm:'મધુવન ફાર્મ', village:'સિંધરોટ', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'પટેલ વિજયભાઈ ભઈલાલભાઈ', phone:'6355630602', farm:'શ્રેયાંક્ષ નેચરલ', village:'વ્યારા', taluka:'વાઘોડિયા', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'આનંદસિંહ રામસિંહ વાઘેલા', phone:'9924086687', village:'જાસપુર', taluka:'પાદરા', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'પટેલ ધર્મેશ કુમાર કનુભાઈ', phone:'9428582582', farm:'ચંદન ફાર્મ', village:'વાંકાનેર', taluka:'સાવલી', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'મિહિર સી અમીન', phone:'9834710892', farm:'સત્ય સાઈ નેચરલ ફોર્મ', districtCode:'VD', haats:['VD-MSU'], notes:'address not in msg — VD assumed' },
+  { type:'farmer', name:'પરેશ પટેલ (નાયબ સુબેદાર નિવૃત્ત)', phone:'9327260577', farm:'પ્રાકૃતિક કૃષિવન એકાંત', village:'વ્યારા', taluka:'વાઘોડિયા', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'બિરજુ પટેલ / સિદ્ધિ પટેલ', phone:'9825069907', phone2:'9428305962', farm:'જશોદા ગીર ગૌશાળા', village:'તાજપુરા', taluka:'પાદરા', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'અજય કુમાર સુરેશભાઈ પટેલ', phone:'9979041416', farm:'ભૂમિપુત્ર પ્રાકૃતિક ખેતી ફાર્મ', village:'મુવાલ', taluka:'પાદરા', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'ગિરીશભાઈ જાદવ', phone:'9737797413', farm:'ધરતી પુત્ર પ્રાકૃતિક ખેતી ફાર્મ', village:'ગણપતપુરા', taluka:'પાદરા', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'રોહિતભાઈ એસ પટેલ', phone:'9904858882', farm:'લક્ષ્મી ઓર્ગેનિક ફાર્મ', village:'ધાવટ', taluka:'કરજણ', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'અમરસિંહ પઢિયાર', phone:'9427451390', farm:'નેજાધારી પ્રાકૃતિક ફાર્મ', village:'નરસિહપુરા', taluka:'પાદરા', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'અઝહરુદ્દીન શાહીદઅલી સૈયદ', phone:'9825542828', farm:'JS Organic Farms', village:'સમિયાલા', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'ચૌહાણ વનરાજસિંહ દિલીપસિંહ', phone:'9586339266', farm:'શ્રી ગોરસ ગીર ગૌશાળા', village:'બાવળીયા', taluka:'શિનોર', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'મહેશ ભગવાનભાઇ પરમાર', phone:'6354004230', farm:'શિવ શક્તિ પ્રાકૃતિક ખેતી ફાર્મ', village:'વિશ્રામપુરા', taluka:'પાદરા', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'ભૂમિર દરજી / સિદ્ધાર્થ ગાંધી', phone:'9429295971', farm:'ભૂતારબ્ધ ઓર્ગેનિક', districtCode:'VD', haats:['VD-MSU'] },
+  { type:'farmer', name:'શ્રી રેવા ગૌશાળા', phone:'9574400088', village:'નર્મદા', districtCode:'NR', haats:['VD-MSU'], notes:'Narmada district — sells at Vadodara haat' },
+
+  // ─── AHMEDABAD (AM) ───
+  { type:'farmer', name:'પટેલ ગૌતમ', phone:'9974143634', farm:'વૃક્ષિકા પ્રાકૃતિક ફાર્મ', village:'ભુવાલડી', taluka:'દશક્રોઇ', districtCode:'AM', haats:['AM-SOLA'] },
+  { type:'farmer', name:'વજેસિંહ હેમાજી ડાભી', phone:'9913235292', farm:'ભગવતી પ્રાકૃતિક વાડી', village:'વડોદ', taluka:'દસકોઈ', districtCode:'AM', haats:['AM-NAV','AM-VS','AM-SRI'], notes:'Sristi-Thu msg listed alt 9912235292 — same farmer' },
+
+  // ─── DAHOD (DH) ───
+  { type:'farmer', name:'ચૌહાણ દિનુબેન નરેન્દ્રભાઈ', phone:'9510810068', phone2:'9712322054', farm:'સત્યનામ પ્રાકૃતિક ફાર્મ', village:'લીમડિયા/મેધરી', taluka:'ધાનપુર', districtCode:'DH', haats:['AM-NAV','AM-SOLA','AM-SRI'] },
+
+  // ─── SURENDRANAGAR (SN) ───
+  { type:'farmer', name:'વર્ષાબેન વીરમભાઈ જાડા', phone:'6354442547', farm:'મધુર ફિંડલા જયુસ', village:'ધારૈઈ', taluka:'ચોટીલા', districtCode:'SN', haats:['AM-NAV','AM-SOLA','AM-SRI'] },
+  { type:'farmer', name:'પટેલ આશિષ નરોત્તમભાઈ', phone:'9313147379', farm:'ઉપવન પ્રાકૃતિક ફાર્મ', village:'બજાણા', taluka:'દસાડા', districtCode:'SN', haats:['AM-NAV','AM-SRI'] },
+
+  // ─── BANASKANTHA (BK) ───
+  { type:'farmer', name:'વીરજીભાઈ ઠાકોર', phone:'9979904931', farm:'ગૌલભ્ય ગૌ શાળા & નેચરલ ફાર્મ', village:'વાસણ (ધા)', taluka:'પાલનપુર', districtCode:'BK', haats:['AM-NAV','AM-SOLA','AM-SRI'] },
+
+  // ─── GIR SOMNATH (GS) ───
+  { type:'farmer', name:'કાર્તિક કુમાર રામજીભાઈ ગઢીયા', phone:'9824053060', farm:'નેચરલ મેંગો ફાર્મ', village:'જામવાળા ગીર', taluka:'ગીર ગઢડા', districtCode:'GS', haats:['AM-NAV','AM-SRI'], notes:'Kesar mango premium' },
+
+  // ─── KACHCHH (KT) ───
+  { type:'farmer', name:'ભુપેન્દ્રસિંહ મેઘરાજજી જાડેજા', phone:'9428240769', farm:'શ્રી રાજેશ્વરી ફાર્મ & નર્સરી', village:'મૌ મોટી', districtCode:'KT', haats:['AM-NAV','AM-SOLA','AM-SRI'] },
+
+  // ─── ENTREPRENEURS (mostly AM-based or unstated) ───
+  { type:'entrepreneur', name:'સરિતા મોઢા', phone:'9429029840', farm:'દ્રોણાગીરી હર્બલ', districtCode:'AM', haats:['AM-VS'] },
+  { type:'entrepreneur', name:'પ્રતિભાબેન મઠવારા', phone:'8160030897', farm:'કેપ્સ કેર (સૃષ્ટિ ઇન્કયૂબેટી)', districtCode:'AM', haats:['AM-VS','AM-SRI'] },
+  { type:'entrepreneur', name:'અનેરી શાહ', phone:'9027394032', farm:'પ્રાચીન જડીબુટી', districtCode:'AM', haats:['AM-VS'], notes:'phone area code suggests outside GJ — verify' },
+  { type:'entrepreneur', name:'KrishiMool', phone:'7046380116', districtCode:'AM', haats:['AM-VS'] },
+  { type:'entrepreneur', name:'નીલેશ રામજીભાઈ ગોહિલ', phone:'7265876207', farm:'H-MOTIVE FOODS', districtCode:'AM', haats:['AM-VS'] },
+  { type:'entrepreneur', name:'વંદના પારેખ', phone:'9979963554', farm:'ગો નિરંતર / EarthaShastra', districtCode:'AM', haats:['AM-VS'] },
+  { type:'entrepreneur', name:'Sweet Morsels', phone:'7742507929', districtCode:'AM', haats:['AM-VS'] },
+  { type:'entrepreneur', name:'Amisha Rawal — Kanhai Organics', phone:'9898177771', village:'અમદાવાદ', districtCode:'AM', haats:['AM-VS'] },
+  { type:'entrepreneur', name:'Minal Dahiya — The Thrifty Store', phone:'7600844140', districtCode:'AM', haats:['AM-VS'] },
+  { type:'entrepreneur', name:'પ્રવીણ લક્ષ્મણભાઈ રાઠોડ', phone:'9537868627', farm:'યુનિક વાયર આટૅ', village:'પાલડી', districtCode:'AM', haats:['AM-VS','AM-SRI'] },
+  { type:'entrepreneur', name:'યશ ભટ્ટ — વૃક્ષસેતુ ફાઉન્ડેશન', phone:'8980200305', phone2:'9130883496', districtCode:'AM', haats:['AM-VS','AN-VVN','VD-MSU','AM-SRI'], notes:'Largest entrepreneur catalog (74+ items)' },
+  { type:'entrepreneur', name:'કિરીટભાઈ પટેલ', phone:'9328704574', farm:'સાત્વિક પ્રસાદમ (ice cream)', districtCode:'AM', haats:['AM-NAV','AM-SRI'] },
+  { type:'entrepreneur', name:'અંજનાબેન રાજેશભાઈ કુંભાણી', phone:'7265987938', districtCode:'AM', haats:['AM-SRI'], notes:'snacks/thepla' },
+  { type:'entrepreneur', name:'મન પટેલ', phone:'9409227355', districtCode:'AM', haats:['SK-HMT'], notes:'youth/student startup' },
+  { type:'entrepreneur', name:'સોનલ જતીન સોની — NutMill', phone:'9924455776', districtCode:'AM', haats:['AM-SRI'] },
+  { type:'entrepreneur', name:'Dr. Priyanka Sharma — Radiomheal', phone:'9899917717', phone2:'9560365556', districtCode:'AM', haats:['AM-SRI'], notes:'non-GJ phone — Delhi-based likely' },
+  { type:'entrepreneur', name:'Harsh Jethwani — Organic Bites', phone:'9429776865', village:'મોટેરા', districtCode:'AM', haats:['AM-SRI'] },
+  { type:'entrepreneur', name:'Arunbhai Kalwani — Rumra', phone:'9924365551', phone2:'9924365552', village:'શ્યામલ', districtCode:'AM', haats:['AM-SRI'] },
+  { type:'entrepreneur', name:'Yogeshree — GreenDeli Microgreens', phone:'7383526691', districtCode:'AM', haats:['AM-SRI'] },
+  { type:'entrepreneur', name:'Kuldip Sharma — Neti Neti', phone:'6355209222', districtCode:'AM', haats:['AM-SRI'] },
+
+  // ─── Anand / mixed (VVN-only entrepreneurs) ───
+  { type:'entrepreneur', name:'Dr. Ankita Bhavsar — Satva Saundaryya', phone:'', village:'આણંદ', districtCode:'AN', haats:['AN-VVN'], notes:'phone not in source — capture later' },
+
+  // ─── Sodha Parmar (Sanali) — district uncertain ───
+  { type:'farmer', name:'સોઢા પરમાર પરબતસિંહ દલપતસિંહ', phone:'6352243612', farm:'શ્રી જાનકી ગીર / પ્રાકૃતિક ફાર્મ', village:'સણાલી', districtCode:'PT', haats:['AN-VVN','KH-NDD','AM-SRI'], notes:'Sanali village — best guess Patan; verify' },
+
+  // ─── Shri Om Organic (Bedva) ───
+  { type:'farmer', name:'કાંતિભાઈ પરમાર', phone:'9428033759', farm:'શ્રી ૐ ઓર્ગેનિક ફાર્મ', village:'બેડવા', districtCode:'AN', haats:['AN-VVN','KH-NDD'], notes:'Bedva — likely Anand; verify' },
+];
+
+// ── Render ──────────────────────────────────────────────────────────────
+const DISTRICTS = {
+  AM:'અમદાવાદ', AL:'અમરેલી', AN:'આણંદ', AR:'અરવલ્લી', BK:'બનાસકાંઠા', BR:'ભરૂચ',
+  BN:'ભાવનગર', BT:'બોટાદ', CU:'છોટા ઉદેપુર', DH:'દાહોદ', DG:'ડાંગ', DW:'દેવભૂમિ દ્વારકા',
+  GN:'ગાંધીનગર', GS:'ગીર સોમનાથ', JM:'જામનગર', JG:'જૂનાગઢ', KT:'કચ્છ', KH:'ખેડા',
+  MH:'મહિસાગર', MS:'મહેસાણા', MR:'મોરબી', NR:'નર્મદા', NV:'નવસારી', PN:'પંચમહાલ',
+  PT:'પાટણ', PB:'પોરબંદર', RJ:'રાજકોટ', SK:'સાબરકાંઠા', SR:'સુરત', SN:'સુરેન્દ્રનગર',
+  TP:'તાપી', VD:'વડોદરા', VL:'વલસાડ',
+};
+const HAATS = {
+  'AM-BAOU':'BAOU છારોડી','AM-SOLA':'સોલા ભાગવત','AM-PAL':'પલોડિયા','AM-NAV':'નવજીવન',
+  'AM-VS':'વસ્ત્રાપુર','AM-SRI':'સૃષ્ટિ ગુરુ','GN-KAD':'ગાંધીનગર કડી','AN-VVN':'વલ્લભ વિદ્યાનગર',
+  'KH-NDD':'નડિયાદ','VD-MSU':'વડોદરા MSU','SK-HMT':'હિંમતનગર','AR-MDS':'મોડાસા',
+};
+
+function esc(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function fillFilters(){
+  const fd = document.getElementById('fDist');
+  const used = [...new Set(ROSTER.map(r=>r.districtCode))].sort();
+  used.forEach(d => { const o=document.createElement('option'); o.value=d; o.textContent=`${DISTRICTS[d]||d} (${d})`; fd.appendChild(o); });
+  const fh = document.getElementById('fHaat');
+  Object.keys(HAATS).forEach(h => { const o=document.createElement('option'); o.value=h; o.textContent=`${HAATS[h]} (${h})`; fh.appendChild(o); });
+}
+
+function filtered(){
+  const t = document.getElementById('fType').value;
+  const d = document.getElementById('fDist').value;
+  const h = document.getElementById('fHaat').value;
+  const q = (document.getElementById('fSearch').value||'').trim().toLowerCase();
+  return ROSTER.filter(r => {
+    if (t && r.type !== t) return false;
+    if (d && r.districtCode !== d) return false;
+    if (h && !(r.haats||[]).includes(h)) return false;
+    if (q) {
+      const hay = `${r.name||''} ${r.phone||''} ${r.phone2||''} ${r.village||''} ${r.taluka||''} ${r.farm||''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderStats(){
+  const total = ROSTER.length;
+  const farmers = ROSTER.filter(r=>r.type==='farmer').length;
+  const ents = ROSTER.filter(r=>r.type==='entrepreneur').length;
+  const groups = ROSTER.filter(r=>r.type==='group').length;
+  const withNotes = ROSTER.filter(r=>r.notes).length;
+  const noPhone = ROSTER.filter(r=>!r.phone).length;
+  const byDistrict = {};
+  ROSTER.forEach(r => byDistrict[r.districtCode] = (byDistrict[r.districtCode]||0)+1);
+  const distSummary = Object.entries(byDistrict).sort((a,b)=>b[1]-a[1]).map(([d,n])=>`${d}:${n}`).join(' · ');
+  document.getElementById('stats').innerHTML = `
+    <span class="stat">${total} total</span>
+    <span class="stat">${farmers} farmers</span>
+    <span class="stat">${groups} groups</span>
+    <span class="stat">${ents} entrepreneurs</span>
+    <span class="stat warn">${withNotes} flagged in notes</span>
+    <span class="stat danger">${noPhone} missing phone</span>
+    <div style="margin-top:8px;font-size:12px;color:#6b7280">By district: ${distSummary}</div>
+  `;
+}
+
+function renderTable(){
+  const rows = filtered();
+  const tbl = document.getElementById('rosterTable');
+  tbl.innerHTML = `
+    <thead>
+      <tr>
+        <th>#</th><th>Type</th><th>નામ</th><th>Phone</th><th>Farm</th><th>Village / Taluka</th><th>District</th><th>Haats</th><th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map((r,i) => `
+        <tr>
+          <td>${i+1}</td>
+          <td><span class="tag ${r.type==='farmer'?'farmer':r.type==='group'?'group':'ent'}">${r.type}</span></td>
+          <td><b>${esc(r.name)}</b></td>
+          <td>${esc(r.phone||'')}${r.phone2?'<br><small>'+esc(r.phone2)+'</small>':''}</td>
+          <td>${esc(r.farm||'')}</td>
+          <td>${esc(r.village||'')}${r.taluka?' · '+esc(r.taluka):''}</td>
+          <td class="${r.notes?'warn-cell':''}">${esc(r.districtCode)}<br><small>${esc(DISTRICTS[r.districtCode]||'')}</small></td>
+          <td>${(r.haats||[]).map(h=>`<span class="tag haat" title="${esc(HAATS[h]||'')}">${h}</span>`).join('')}</td>
+          <td style="max-width:180px;font-size:10.5px;color:#7a3010">${esc(r.notes||'')}</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  `;
+}
+
+function downloadJson(){
+  const blob = new Blob([JSON.stringify(ROSTER, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'sristi_roster_'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();
+}
+
+fillFilters();
+renderStats();
+renderTable();
+
+// ============================================================================
+// Phase 2 / 3 / 4 — Firebase init + assignment + write
+// ============================================================================
+const FB_CONFIG_DEST = {
+  apiKey:        "AIzaSyCvU5_U8keTQ_kZAYxaV30drKytIXiw7kQ",
+  authDomain:    "prakrutik-kheti-e9194.firebaseapp.com",
+  databaseURL:   "https://prakrutik-kheti-e9194-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:     "prakrutik-kheti-e9194",
+  storageBucket: "prakrutik-kheti-e9194.firebasestorage.app",
+  messagingSenderId: "711481160967",
+  appId:         "1:269627097742:web:2d82d97f0621db87133fdf",
+};
+const NS = 'prakrutik_kheti';
+firebase.initializeApp(FB_CONFIG_DEST);
+const db = firebase.database();
+const refTo = p => db.ref(NS + (p?'/'+p:''));
+
+// Mutable copy of ROSTER with assignment fields filled in.
+let ASSIGNED = [];
+
+function logTo(id, msg, cls){
+  const el = document.getElementById(id);
+  el.style.display='block';
+  if (cls === 'reset') { el.textContent = ''; el.className = 'log'; return; }
+  el.className = 'log ' + (cls||'');
+  el.textContent += (el.textContent?'\n':'') + msg;
+  el.scrollTop = el.scrollHeight;
+}
+
+function phase2Assign(){
+  logTo('log2', '', 'reset');
+  logTo('log2', 'Assigning A-numbers + H-numbers per district (farmers + groups only) …');
+  // Entrepreneurs skipped — they're vendors, not farmers. Will be handled separately later.
+  const eligible = ROSTER.filter(r => r.type !== 'entrepreneur');
+  const skippedEnt = ROSTER.length - eligible.length;
+  if (skippedEnt) logTo('log2', `  (skipping ${skippedEnt} entrepreneurs)`);
+  // Sort each district group by name (Gujarati locale) for stable ordering
+  const byDist = {};
+  eligible.forEach(r => { (byDist[r.districtCode] ||= []).push(r); });
+  Object.values(byDist).forEach(arr => arr.sort((a,b) => (a.name||'').localeCompare(b.name||'','gu')));
+
+  ASSIGNED = [];
+  const counters = {}; // dd -> next n
+  for (const dd of Object.keys(byDist).sort()) {
+    let n = 0;
+    for (const r of byDist[dd]) {
+      n++;
+      const seq = String(n).padStart(5,'0');
+      const applicationNo = `A-GJ-${dd}-${seq}`;
+      const haatEnrollmentId = `H-GJ-${dd}-${seq}`;
+      ASSIGNED.push({...r, applicationNo, haatEnrollmentId, _seqInDist: n});
+    }
+    counters[dd] = n;
+  }
+  // Log distribution
+  Object.entries(counters).sort().forEach(([dd, n]) => logTo('log2', `  ${dd}: ${n} → A-GJ-${dd}-00001 … A-GJ-${dd}-${String(n).padStart(5,'0')}`, 'ok'));
+  logTo('log2', `\n✓ ${ASSIGNED.length} vendors assigned. First 3:`, 'ok');
+  ASSIGNED.slice(0,3).forEach(r => logTo('log2', `  ${r.name}  →  ${r.applicationNo}  ·  ${r.haatEnrollmentId}`));
+  document.getElementById('btnPhase3').disabled = false;
+}
+
+function phase3Write(){
+  logTo('log3', '', 'reset');
+  if (!ASSIGNED.length) { logTo('log3', '✗ Run Phase 2 first', 'err'); return; }
+  if (!confirm(`Write ${ASSIGNED.length} vendors to e9194/farmers_master/ ?  This is a production write.`)) return;
+  logTo('log3', `Writing ${ASSIGNED.length} records to farmers_master + counters …`);
+  const updates = {};
+  const now = Date.now();
+  const counters = {};
+  for (const r of ASSIGNED) {
+    const record = {
+      applicationNo:     r.applicationNo,
+      haatEnrollmentId:  r.haatEnrollmentId,
+      type:              r.type,
+      name:              r.name || '',
+      phone:             r.phone || '',
+      phone2:            r.phone2 || '',
+      farm:              r.farm || '',
+      village:           r.village || '',
+      taluka:            r.taluka || '',
+      district:          DISTRICTS[r.districtCode] || '',
+      districtCode:      r.districtCode,
+      state:             'Gujarat',
+      stateCode:         'GJ',
+      haats:             r.haats || [],
+      status:            'enrolled',
+      notes:             r.notes || '',
+      source:            'whatsapp_2026-06-14',
+      createdAt:         now,
+      _seqInDist:        r._seqInDist,
+    };
+    updates[`${NS}/farmers_master/${r.applicationNo}`] = record;
+    counters[r.districtCode] = Math.max(counters[r.districtCode] || 0, r._seqInDist);
+  }
+  for (const [dd, n] of Object.entries(counters)) {
+    updates[`${NS}/counters/farmerApp/${dd}`] = n;
+    updates[`${NS}/counters/haatEnroll/${dd}`] = n;
+  }
+  db.ref().update(updates)
+    .then(() => {
+      logTo('log3', `✓ wrote ${ASSIGNED.length} farmer_master records`, 'ok');
+      logTo('log3', `✓ updated ${Object.keys(counters).length} district counters (farmerApp + haatEnroll)`, 'ok');
+      logTo('log3', `✓ done. Verify with Phase 4.`, 'ok');
+      document.getElementById('btnPhase4').disabled = false;
+    })
+    .catch(e => logTo('log3', `✗ ${e.message}`, 'err'));
+}
+
+async function phase4Verify(){
+  logTo('log4', '', 'reset');
+  logTo('log4', 'Reading back from e9194/farmers_master …');
+  try {
+    const [fmSnap, ca, ch] = await Promise.all([
+      refTo('farmers_master').once('value'),
+      refTo('counters/farmerApp').once('value'),
+      refTo('counters/haatEnroll').once('value'),
+    ]);
+    const fm = fmSnap.val() || {};
+    const ids = Object.keys(fm);
+    logTo('log4', `farmers_master count: ${ids.length}`, 'ok');
+    logTo('log4', `counters/farmerApp:  ${JSON.stringify(ca.val()||{})}`, 'ok');
+    logTo('log4', `counters/haatEnroll: ${JSON.stringify(ch.val()||{})}`, 'ok');
+    logTo('log4', `\n3 samples:`);
+    ids.slice(0,3).forEach(id => {
+      const r = fm[id];
+      logTo('log4', `  ${id}  ·  ${r.name}  ·  ${r.haats?.length||0} haats  ·  ${r.phone||'no phone'}`);
+    });
+  } catch (e) {
+    logTo('log4', `✗ ${e.message}`, 'err');
+  }
+}
+</script>
+</body>
+</html>

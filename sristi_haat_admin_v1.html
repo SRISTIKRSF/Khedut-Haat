@@ -155,6 +155,12 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .toast{background:var(--text);color:#fff;padding:10px 18px;border-radius:24px;font-size:13.5px;font-weight:500;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:80%;text-align:center;animation:toastIn .25s ease-out}
 .toast.ok{background:var(--green2)}.toast.err{background:var(--red)}
 @keyframes toastIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+/* a11y: respect motion preferences (vestibular safety) */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+}
+/* a11y: visible keyboard focus ring */
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--green2);outline-offset:2px;border-radius:6px}
 
 .alert{background:var(--orange-pale);border-left:4px solid var(--orange);padding:11px 14px;border-radius:6px;font-size:12.5px;color:#7a3010;margin-bottom:14px;line-height:1.55}
 .alert b{font-weight:700}
@@ -171,9 +177,16 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 </style>
 </head>
 <body>
+<noscript>
+  <div style="background:#fff0e0;border:2px solid #e36414;border-radius:10px;padding:18px;margin:24px auto;max-width:420px;text-align:center;font-family:'Noto Sans Gujarati',sans-serif;color:#7a3010">
+    <div style="font-size:32px;margin-bottom:8px">⚠️</div>
+    <div style="font-size:16px;font-weight:700;margin-bottom:6px">JavaScript જરૂરી છે</div>
+    <div style="font-size:13px;line-height:1.5">Admin panel ચલાવવા Chrome / Safari ખોલો અને JavaScript ઑન કરો.</div>
+  </div>
+</noscript>
 <div class="wrap" id="wrap"></div>
-<div class="toast-wrap" id="toasts"></div>
-<div class="modal-bg" id="modalBg"><div class="modal" id="modal"></div></div>
+<div class="toast-wrap" id="toasts" aria-live="polite" aria-atomic="false"></div>
+<div class="modal-bg" id="modalBg"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -240,9 +253,45 @@ function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{f
 
 function toast(msg, kind=""){
   const w=$('#toasts');const t=document.createElement('div');
-  t.className='toast '+(kind||"");t.textContent=msg;w.appendChild(t);
+  t.className='toast '+(kind||"");t.textContent=msg;
+  // a11y: announce errors assertively, success politely
+  t.setAttribute('role', kind==='err' ? 'alert' : 'status');
+  t.setAttribute('aria-live', kind==='err' ? 'assertive' : 'polite');
+  w.appendChild(t);
   setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';},2400);
   setTimeout(()=>t.remove(),2900);
+}
+
+// Promise-based confirm that matches the app's design (vs jarring native confirm())
+function asyncConfirm(msg, okLabel='OK', cancelLabel='Cancel', danger=false){
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'acTitle');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:18px';
+    const okBg = danger ? '#c1121f' : 'var(--green2)';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:14px;max-width:380px;width:100%;padding:20px 20px 16px;box-shadow:0 12px 36px rgba(0,0,0,.25)">
+        <div id="acTitle" style="font-size:14px;line-height:1.6;color:#1a1a1a;white-space:pre-line">${esc(msg)}</div>
+        <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end">
+          <button class="btn-sm" data-act="cancel">${esc(cancelLabel)}</button>
+          <button class="btn-sm" data-act="ok" autofocus style="background:${okBg};color:#fff;border-color:${okBg}">${esc(okLabel)}</button>
+        </div>
+      </div>
+    `;
+    const close = ok => { overlay.remove(); document.body.style.overflow=''; resolve(ok); };
+    overlay.addEventListener('click', e => {
+      const act = e.target?.dataset?.act;
+      if(act) close(act === 'ok');
+      else if(e.target === overlay) close(false);
+    });
+    document.addEventListener('keydown', function esc(e){
+      if(e.key === 'Escape'){ document.removeEventListener('keydown', esc); close(false); }
+    });
+    document.body.style.overflow = 'hidden';
+    document.body.appendChild(overlay);
+  });
 }
 function modal(html){
   $('#modal').innerHTML=html;$('#modalBg').classList.add('open');
@@ -692,17 +741,17 @@ function render(){
     </div>
 
     <div class="tab-loading" id="tabLoading"></div>
-    <div class="tabs" style="gap:0;align-items:center">
-      <div style="padding:0 8px 0 12px;font-size:9.5px;color:#888;font-weight:700;letter-spacing:.6px;text-transform:uppercase;flex-shrink:0">આ અઠવાડિયું</div>
-      <button class="tab ${TAB==='dashboard'?'active':''}" onclick="setTab('dashboard')">📊 ડેશબોર્ડ</button>
-      <button class="tab ${TAB==='review'?'active':''}" onclick="setTab('review')">✅ સમીક્ષા ${pendingReviewCount()>0?`<span class="badge">${pendingReviewCount()}</span>`:''}</button>
-      <button class="tab ${TAB==='summary'?'active':''}" onclick="setTab('summary')">📊 સારાંશ</button>
-      <div style="width:1px;height:22px;background:#e8e0d0;margin:0 8px;flex-shrink:0"></div>
-      <div style="padding:0 8px;font-size:9.5px;color:#888;font-weight:700;letter-spacing:.6px;text-transform:uppercase;flex-shrink:0">મેનેજ</div>
-      <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')">🌾 ખેડૂત <span class="badge">${pendingTab}</span></button>
-      <button class="tab ${TAB==='products'?'active':''}" onclick="setTab('products')">📦 પ્રોડક્ટ</button>
-      <div style="width:1px;height:22px;background:#e8e0d0;margin:0 8px;flex-shrink:0"></div>
-      <button class="tab ${TAB==='guide'?'active':''}" onclick="setTab('guide')">📖 માર્ગદર્શન</button>
+    <div class="tabs" style="gap:0;align-items:center" role="tablist" aria-label="Admin sections">
+      <div style="padding:0 8px 0 12px;font-size:9.5px;color:#888;font-weight:700;letter-spacing:.6px;text-transform:uppercase;flex-shrink:0" aria-hidden="true">આ અઠવાડિયું</div>
+      <button class="tab ${TAB==='dashboard'?'active':''}" onclick="setTab('dashboard')" role="tab" aria-selected="${TAB==='dashboard'}" aria-controls="tabBody">📊 ડેશબોર્ડ</button>
+      <button class="tab ${TAB==='review'?'active':''}" onclick="setTab('review')" role="tab" aria-selected="${TAB==='review'}" aria-controls="tabBody">✅ સમીક્ષા ${pendingReviewCount()>0?`<span class="badge">${pendingReviewCount()}</span>`:''}</button>
+      <button class="tab ${TAB==='summary'?'active':''}" onclick="setTab('summary')" role="tab" aria-selected="${TAB==='summary'}" aria-controls="tabBody">📊 સારાંશ</button>
+      <div style="width:1px;height:22px;background:#e8e0d0;margin:0 8px;flex-shrink:0" aria-hidden="true"></div>
+      <div style="padding:0 8px;font-size:9.5px;color:#888;font-weight:700;letter-spacing:.6px;text-transform:uppercase;flex-shrink:0" aria-hidden="true">મેનેજ</div>
+      <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')" role="tab" aria-selected="${TAB==='farmers'}" aria-controls="tabBody">🌾 ખેડૂત <span class="badge">${pendingTab}</span></button>
+      <button class="tab ${TAB==='products'?'active':''}" onclick="setTab('products')" role="tab" aria-selected="${TAB==='products'}" aria-controls="tabBody">📦 પ્રોડક્ટ</button>
+      <div style="width:1px;height:22px;background:#e8e0d0;margin:0 8px;flex-shrink:0" aria-hidden="true"></div>
+      <button class="tab ${TAB==='guide'?'active':''}" onclick="setTab('guide')" role="tab" aria-selected="${TAB==='guide'}" aria-controls="tabBody">📖 માર્ગદર્શન</button>
     </div>
 
     <div class="body tab-fade" id="tabBody">${renderTab()}</div>
@@ -1388,7 +1437,7 @@ window.approveSubmission = async (fid) => {
 window.approveAllPending = async () => {
   const pending = Object.keys(SUBS).filter(fid => SUBS[fid]?.status === 'pending');
   if(!pending.length) return toast("કંઈ pending નથી","err");
-  if(!confirm(`બધી ${pending.length} pending submissions approve કરવી છે?`)) return;
+  if(!(await asyncConfirm(`બધી ${pending.length} pending submissions approve કરવી છે?`, 'હા, બધી approve કરો', 'રદ'))) return;
   const updates = {};
   pending.forEach(fid => {
     updates[`weekly/${WK}/submissions/${fid}/status`] = 'approved';
@@ -1511,7 +1560,7 @@ window.saveNote = async (fid) => {
   }catch(e){ console.error(e); toast("Save નિષ્ફળ","err"); }
 };
 window.clearNote = async (fid) => {
-  if(!confirm("Note હટાવવો છે?")) return;
+  if(!(await asyncConfirm("Note હટાવવો છે?", 'હા, હટાવો', 'રદ', true))) return;
   try{
     await fbRef('weekly/'+WK+'/submissions/'+fid).update({noteToFarmer: null});
     if(SUBS[fid]) delete SUBS[fid].noteToFarmer;
@@ -2332,7 +2381,7 @@ window.saveMasterProduct = async (existingId) => {
 };
 
 window.deleteMasterProduct = async (id) => {
-  if(!confirm("આ માસ્ટર પ્રોડક્ટ delete કરવી છે? Customer catalog માંથી પણ દૂર થશે.")) return;
+  if(!(await asyncConfirm("આ માસ્ટર પ્રોડક્ટ delete કરવી છે? Customer catalog માંથી પણ દૂર થશે.", 'હા, delete કરો', 'રદ', true))) return;
   try{
     await fbRef('masterProducts/'+id).set(null);
     delete MASTER_PRODUCTS[id];
@@ -2416,7 +2465,7 @@ window.pickPhoto = (key, name) => {
   inp.click();
 };
 window.removePhoto = async (key, name) => {
-  if(!confirm(`"${name}" નો ફોટો હટાવવો છે?`)) return;
+  if(!(await asyncConfirm(`"${name}" નો ફોટો હટાવવો છે?`, 'હા, હટાવો', 'રદ', true))) return;
   try{
     await fbRef('productPhotos/'+key).set(null);
     delete PRODUCT_PHOTOS[key];
@@ -3126,7 +3175,7 @@ window.saveProduct = async (existingId) => {
 window.deleteProduct = async (id) => {
   const p = PRODUCTS_DB[id];
   if(!p) return;
-  if(!confirm(`"${p.name}" delete કરવી છે? Farmer submit form માંથી પણ દૂર થશે, અને history sync માં પણ ફરી ઉમેરાશે નહિ.`)) return;
+  if(!(await asyncConfirm(`"${p.name}" delete કરવી છે? Farmer submit form માંથી પણ દૂર થશે, અને history sync માં પણ ફરી ઉમેરાશે નહિ.`, 'હા, delete કરો', 'રદ', true))) return;
   try{
     const updates = {};
     updates['products/'+id] = null;
@@ -3355,17 +3404,17 @@ ${submitUrl}
       ${hasPub ? '<span class="badge-parsed">✓ Published</span>'
         : (hasSub ? '<span class="badge-yes">✓ Submitted</span>'
                   : '<span class="badge-no">⏳ Pending</span>')}
-      ${hasSub ? `<button class="preview-btn" onclick="previewSub('${esc(f.id).replace(/'/g,"\\'")}')">👁️</button>` : ''}
-      ${waUrl ? `<a class="preview-btn" href="${waUrl}" target="_blank" rel="noopener" style="text-decoration:none;background:#25d366;color:#fff;border-color:#25d366">WA</a>` : ''}
-      <button class="preview-btn" onclick="openEditFarmer('${esc(f.id).replace(/'/g,"\\'")}')" title="ખેડૂત edit કરો — હાટ બદલો, નામ સુધારો">✏️</button>
-      ${f.phone ? `<button class="preview-btn" style="background:#fff8d6;color:#7a5a00;border-color:#f7c800" onclick="resetFarmerPwd('${esc(f.id).replace(/'/g,"\\'")}','${esc(f.name||'').replace(/'/g,"\\'")}','${esc(String(f.phone).replace(/[^0-9]/g,'')).replace(/'/g,"\\'")}')" title="પાસવર્ડ reset કરો">🔑</button>` : ''}
-      <button class="preview-btn" style="background:var(--red-pale);color:var(--red);border-color:#f5c4c4" onclick="removeFarmer('${esc(f.id).replace(/'/g,"\\'")}','${esc(f.name||'').replace(/'/g,"\\'")}')" title="આ યાદીમાંથી દૂર કરો">🗑️</button>
+      ${hasSub ? `<button class="preview-btn" onclick="previewSub('${esc(f.id).replace(/'/g,"\\'")}')" aria-label="${esc(f.name||'ખેડૂત')} ની submission preview કરો" title="Submission preview કરો">👁️</button>` : ''}
+      ${waUrl ? `<a class="preview-btn" href="${waUrl}" target="_blank" rel="noopener" style="text-decoration:none;background:#25d366;color:#fff;border-color:#25d366" aria-label="${esc(f.name||'ખેડૂત')} ને WhatsApp">WA</a>` : ''}
+      <button class="preview-btn" onclick="openEditFarmer('${esc(f.id).replace(/'/g,"\\'")}')" aria-label="${esc(f.name||'ખેડૂત')} ને edit કરો" title="ખેડૂત edit કરો — હાટ બદલો, નામ સુધારો">✏️</button>
+      ${f.phone ? `<button class="preview-btn" style="background:#fff8d6;color:#7a5a00;border-color:#f7c800" onclick="resetFarmerPwd('${esc(f.id).replace(/'/g,"\\'")}','${esc(f.name||'').replace(/'/g,"\\'")}','${esc(String(f.phone).replace(/[^0-9]/g,'')).replace(/'/g,"\\'")}')" aria-label="${esc(f.name||'ખેડૂત')} નો પાસવર્ડ reset કરો" title="પાસવર્ડ reset કરો">🔑</button>` : ''}
+      <button class="preview-btn" style="background:var(--red-pale);color:var(--red);border-color:#f5c4c4" onclick="removeFarmer('${esc(f.id).replace(/'/g,"\\'")}','${esc(f.name||'').replace(/'/g,"\\'")}')" aria-label="${esc(f.name||'ખેડૂત')} ને દૂર કરો" title="આ યાદીમાંથી દૂર કરો">🗑️</button>
     </div>
   `;
 }
 
 window.removeFarmer = async (fid, name) => {
-  if(!confirm(`"${name}" ને સક્રિય યાદીમાંથી દૂર કરવા છો? Tracker માં તેમનું record રહેશે — અહીંથી જ દૂર થશે.`)) return;
+  if(!(await asyncConfirm(`"${name}" ને સક્રિય યાદીમાંથી દૂર કરવા છો? Tracker માં તેમનું record રહેશે — અહીંથી જ દૂર થશે.`, 'હા, દૂર કરો', 'રદ', true))) return;
   try{
     await fbRef('marketFarmers/'+fid).set(null);
     toast("દૂર થયો","ok"); await loadAll();
@@ -3375,13 +3424,15 @@ window.removeFarmer = async (fid, name) => {
 window.resetFarmerPwd = async (fid, name, phoneClean) => {
   const me = adminIdentity();
   const last4 = String(phoneClean).slice(-4);
-  if(!confirm(
+  if(!(await asyncConfirm(
     `"${name}" નો પાસવર્ડ reset કરવો છે?\n\n` +
     `તેમના નવા login માટે:\n` +
     `   📱 મોબાઈલ: ${phoneClean}\n` +
     `   🔑 પાસવર્ડ: ${last4} (છેલ્લા 4 અંક)\n\n` +
-    `Login કરતી વખતે પોતાનો નવો પાસવર્ડ બનાવવા કહેવાશે.`
-  )) return;
+    `Login કરતી વખતે પોતાનો નવો પાસવર્ડ બનાવવા કહેવાશે.`,
+    '🔑 Reset password',
+    'રદ'
+  ))) return;
   try{
     // Delete the custom-password record — default (last 4 of phone) becomes valid;
     // farmer's next login triggers the force-change-pwd flow.

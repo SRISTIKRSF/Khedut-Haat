@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sristi Haat — Seed Haats + Geo Codes</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Noto Sans Gujarati","DM Sans",-apple-system,sans-serif;background:#fffbf4;color:#1a1a1a;padding:24px;min-height:100vh}
+.wrap{max-width:820px;margin:0 auto}
+h1{font-size:22px;font-weight:800;color:#1b4332;margin-bottom:6px}
+.sub{font-size:13.5px;color:#6b7280;margin-bottom:20px}
+.card{background:#fff;border:1px solid #e8e0d0;border-radius:12px;padding:18px;margin-bottom:14px;box-shadow:0 2px 10px rgba(0,0,0,.03)}
+h3{font-size:15px;font-weight:700;color:#1b4332;margin-bottom:8px}
+.muted{font-size:12.5px;color:#6b7280;margin-bottom:12px;line-height:1.55}
+.btn{background:#2d6a4f;color:#fff;border:none;border-radius:9px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-right:8px;margin-bottom:8px}
+.btn:hover{background:#1b4332}
+.btn:disabled{background:#aaa;cursor:not-allowed}
+.btn.outline{background:#fff;color:#2d6a4f;border:1.5px solid #2d6a4f}
+.log{background:#1f2937;color:#e5e7eb;border-radius:9px;padding:14px;font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.6;max-height:340px;overflow:auto;white-space:pre-wrap;margin-top:14px}
+.log.ok{border-left:4px solid #2d6a4f}
+.log.err{border-left:4px solid #c1121f}
+.preview{background:#fffbf4;border:1px solid #e8e0d0;border-radius:9px;padding:12px;font-size:12.5px;max-height:380px;overflow:auto;margin-top:10px;line-height:1.55}
+.preview b{color:#1b4332}
+.stat{display:inline-block;background:#d8f3dc;color:#2d6a4f;padding:3px 10px;border-radius:14px;font-size:12px;font-weight:700;margin-right:6px}
+.warn{background:#fff0e0;color:#7a3010;padding:10px 12px;border-radius:8px;border-left:4px solid #e36414;font-size:12.5px;margin-bottom:14px;line-height:1.55}
+code{background:#1f2937;color:#e5e7eb;border-radius:5px;padding:1px 6px;font-family:"JetBrains Mono",monospace;font-size:11.5px}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+th,td{border:1px solid #e8e0d0;padding:5px 7px;text-align:left;vertical-align:top}
+th{background:#f0eadd;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>🌱 Sristi Haat — Seed Haats + Geo Codes</h1>
+<div class="sub">One-time data load. Writes the 12 active haat venues and the state/district reference list to Firebase. Idempotent — safe to re-run.</div>
+
+<div class="warn">
+  <b>⚠️ Production database</b><br>
+  Writes to <code>prakrutik-kheti-c0a89</code> under namespace <code>prakrutik_kheti</code>. Does NOT touch <code>marketFarmers</code> or any submission data. Only sets <code>haats/*</code> and <code>geo/*</code>.
+</div>
+
+<div class="card">
+  <h3>Step 1 — Preview what will be written</h3>
+  <div class="muted">Review the haats and geo codes below before committing.</div>
+  <button class="btn outline" onclick="step1()">👁️ Show preview</button>
+  <div id="preview1"></div>
+</div>
+
+<div class="card">
+  <h3>Step 2 — Write to Firebase</h3>
+  <div class="muted">
+    Writes <code>haats/&lt;code&gt;</code> for all 12 haats, plus <code>geo/states/GJ</code> and <code>geo/districts/&lt;code&gt;</code> for 22 districts. Overwrites existing entries at the same keys (re-running updates them).
+  </div>
+  <button class="btn" onclick="step2()">▶ Write all</button>
+  <div id="log2" class="log" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h3>Step 3 — Verify</h3>
+  <div class="muted">Reads back the counts.</div>
+  <button class="btn outline" onclick="step3()">✓ Verify</button>
+  <div id="log3" class="log" style="display:none"></div>
+</div>
+
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+const FB_CONFIG = {
+  apiKey:"AIzaSyCd0jU_rtG3Us3E4au4rntN5N8tbciHWY0",
+  authDomain:"prakrutik-kheti-c0a89.firebaseapp.com",
+  databaseURL:"https://prakrutik-kheti-c0a89-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"prakrutik-kheti-c0a89",
+  storageBucket:"prakrutik-kheti-c0a89.firebasestorage.app",
+  messagingSenderId:"269627097742",
+  appId:"1:269627097742:web:2d82d97f0621db87133fdf",
+};
+firebase.initializeApp(FB_CONFIG);
+const db = firebase.database();
+const NS = 'prakrutik_kheti';
+
+const STATES = {
+  GJ: { code:'GJ', name:'Gujarat', nameGu:'ગુજરાત' }
+};
+
+// All 33 Gujarat districts — 2-letter codes
+const DISTRICTS = {
+  AM: { code:'AM', state:'GJ', name:'Ahmedabad',       nameGu:'અમદાવાદ' },
+  AL: { code:'AL', state:'GJ', name:'Amreli',          nameGu:'અમરેલી' },
+  AN: { code:'AN', state:'GJ', name:'Anand',           nameGu:'આણંદ' },
+  AR: { code:'AR', state:'GJ', name:'Aravalli',        nameGu:'અરવલ્લી' },
+  BK: { code:'BK', state:'GJ', name:'Banaskantha',     nameGu:'બનાસકાંઠા' },
+  BR: { code:'BR', state:'GJ', name:'Bharuch',         nameGu:'ભરૂચ' },
+  BN: { code:'BN', state:'GJ', name:'Bhavnagar',       nameGu:'ભાવનગર' },
+  BT: { code:'BT', state:'GJ', name:'Botad',           nameGu:'બોટાદ' },
+  CU: { code:'CU', state:'GJ', name:'Chhota Udaipur',  nameGu:'છોટા ઉદેપુર' },
+  DH: { code:'DH', state:'GJ', name:'Dahod',           nameGu:'દાહોદ' },
+  DG: { code:'DG', state:'GJ', name:'Dang',            nameGu:'ડાંગ' },
+  DW: { code:'DW', state:'GJ', name:'Devbhumi Dwarka', nameGu:'દેવભૂમિ દ્વારકા' },
+  GN: { code:'GN', state:'GJ', name:'Gandhinagar',     nameGu:'ગાંધીનગર' },
+  GS: { code:'GS', state:'GJ', name:'Gir Somnath',     nameGu:'ગીર સોમનાથ' },
+  JM: { code:'JM', state:'GJ', name:'Jamnagar',        nameGu:'જામનગર' },
+  JG: { code:'JG', state:'GJ', name:'Junagadh',        nameGu:'જૂનાગઢ' },
+  KT: { code:'KT', state:'GJ', name:'Kachchh',         nameGu:'કચ્છ' },
+  KH: { code:'KH', state:'GJ', name:'Kheda',           nameGu:'ખેડા' },
+  MH: { code:'MH', state:'GJ', name:'Mahisagar',       nameGu:'મહિસાગર' },
+  MS: { code:'MS', state:'GJ', name:'Mehsana',         nameGu:'મહેસાણા' },
+  MR: { code:'MR', state:'GJ', name:'Morbi',           nameGu:'મોરબી' },
+  NR: { code:'NR', state:'GJ', name:'Narmada',         nameGu:'નર્મદા' },
+  NV: { code:'NV', state:'GJ', name:'Navsari',         nameGu:'નવસારી' },
+  PN: { code:'PN', state:'GJ', name:'Panchmahal',      nameGu:'પંચમહાલ' },
+  PT: { code:'PT', state:'GJ', name:'Patan',           nameGu:'પાટણ' },
+  PB: { code:'PB', state:'GJ', name:'Porbandar',       nameGu:'પોરબંદર' },
+  RJ: { code:'RJ', state:'GJ', name:'Rajkot',          nameGu:'રાજકોટ' },
+  SK: { code:'SK', state:'GJ', name:'Sabarkantha',     nameGu:'સાબરકાંઠા' },
+  SR: { code:'SR', state:'GJ', name:'Surat',           nameGu:'સુરત' },
+  SN: { code:'SN', state:'GJ', name:'Surendranagar',   nameGu:'સુરેન્દ્રનગર' },
+  TP: { code:'TP', state:'GJ', name:'Tapi',            nameGu:'તાપી' },
+  VD: { code:'VD', state:'GJ', name:'Vadodara',        nameGu:'વડોદરા' },
+  VL: { code:'VL', state:'GJ', name:'Valsad',          nameGu:'વલસાડ' },
+};
+
+const HAATS = {
+  'AM-BAOU': {
+    code:'AM-BAOU', district:'AM', state:'GJ',
+    name:'BAOU Charodi',          nameGu:'BAOU છારોડી',
+    venue:'Dr. Babasaheb Ambedkar Open University, Charodi, SG Highway',
+    venueGu:'ડૉ. બાબાસાહેબ આંબેડકર ઓપન યુનિવર્સિટી, છારોડી',
+    city:'Ahmedabad', cityGu:'અમદાવાદ',
+    days:['Sun'], time:'07:00-10:00',
+    gmaps:'https://maps.app.goo.gl/3PmNvzmFYT7bBkv89',
+    whatsapp:'https://chat.whatsapp.com/Gv3mdomZSut9pCooiCnCkR',
+    active:true, seqOrder:1
+  },
+  'AM-SOLA': {
+    code:'AM-SOLA', district:'AM', state:'GJ',
+    name:'Sola Bhagvat',          nameGu:'સોલા ભાગવત',
+    venue:'Shri Bhagvat Vidyapith, Sola, SG Highway',
+    venueGu:'શ્રી ભાગવત વિદ્યાપીઠ, સોલા',
+    city:'Ahmedabad', cityGu:'અમદાવાદ',
+    days:['Sun'], time:'07:00-10:00',
+    gmaps:'https://maps.app.goo.gl/S6L6q6JugLYsMqAc8',
+    whatsapp:'https://chat.whatsapp.com/JHQwYfFW3Rt7ANHdoymihY',
+    active:true, seqOrder:2
+  },
+  'AM-PAL': {
+    code:'AM-PAL', district:'AM', state:'GJ',
+    name:'Palodia (Atmavikas)',   nameGu:'પલોડિયા (આત્મ વિકાસ)',
+    venue:'Atmavikas Parisar, Palodia',
+    venueGu:'આત્મ વિકાસ પરિસર, પલોડિયા',
+    city:'Ahmedabad', cityGu:'અમદાવાદ',
+    days:['Sun'], time:'07:00-10:00',
+    gmaps:'https://maps.app.goo.gl/rHV9bT6FkDaagZHp7',
+    whatsapp:'https://chat.whatsapp.com/FFXx78rsSK89O2OwcDpbHN',
+    active:true, seqOrder:3
+  },
+  'AM-NAV': {
+    code:'AM-NAV', district:'AM', state:'GJ',
+    name:'Navjivan (Ashram Rd)',  nameGu:'નવજીવન (આશ્રમ રોડ)',
+    venue:'Navjivan Trust, behind Gujarat Vidyapith, Ashram Road',
+    venueGu:'નવજીવન ટ્રસ્ટ, ગૂજરાત વિદ્યાપીઠ પાછળ, આશ્રમ રોડ',
+    city:'Ahmedabad', cityGu:'અમદાવાદ',
+    days:['Sun'], time:'07:00-10:00',
+    gmaps:'https://maps.app.goo.gl/opaWPCiT9VocZrVf6',
+    whatsapp:'https://chat.whatsapp.com/DptccFSwXnAKJiWdrYg2Is',
+    active:true, seqOrder:4
+  },
+  'AM-VS': {
+    code:'AM-VS', district:'AM', state:'GJ',
+    name:'Vastrapur (AMC Plot)',  nameGu:'વસ્ત્રાપુર (AMC પ્લોટ)',
+    venue:'AMC Plot, opposite Gate 1, Vastrapur Lake',
+    venueGu:'વસ્ત્રાપુર તળાવ, ગેટ નં 1 સામે, AMC પ્લોટ',
+    city:'Ahmedabad', cityGu:'અમદાવાદ',
+    days:['Sun'], time:'07:00-09:30',
+    gmaps:'https://maps.app.goo.gl/3AKiFjbcEXE8fxzN8',
+    whatsapp:'https://chat.whatsapp.com/DlGd1DmcCtt4PX6IRSFlPY',
+    active:true, seqOrder:5
+  },
+  'AM-SRI': {
+    code:'AM-SRI', district:'AM', state:'GJ',
+    name:'Sristi Campus (Thu)',   nameGu:'સૃષ્ટિ પરિસર (ગુરુવાર)',
+    venue:'Sristi Parisar, beside AES Sports Ground, near Gujarat University',
+    venueGu:'સૃષ્ટિ પરિસર, AES સ્પોર્ટ્સ ગ્રાઉન્ડ ની બાજુ માં, ગુજરાત યુનિવર્સિટી નજીક',
+    city:'Ahmedabad', cityGu:'અમદાવાદ',
+    days:['Thu'], time:'07:00-10:00',
+    gmaps:'https://g.co/kgs/xM53taj',
+    whatsapp:'https://chat.whatsapp.com/Edd5AQK6zRsJ2qVaJawILb',
+    active:true, seqOrder:6
+  },
+  'GN-KAD': {
+    code:'GN-KAD', district:'GN', state:'GJ',
+    name:'Gandhinagar (Kadi Campus)', nameGu:'ગાંધીનગર (કડી કેમ્પસ)',
+    venue:'Sarva Vidyalaya Kelvani Mandal, Pharmacy Campus, Gh-6 Circle',
+    venueGu:'સર્વ વિદ્યાલય કેળવણી મંડળ, ફાર્મસી પરિસર, ઘ 6 સર્કલ',
+    city:'Gandhinagar', cityGu:'ગાંધીનગર',
+    days:['Sun'], time:'07:00-10:00',
+    gmaps:'https://maps.app.goo.gl/ELVbCJr9cWA2YHUj9',
+    whatsapp:'https://chat.whatsapp.com/KtgtoW0LD5aFSaHxR333v2',
+    active:true, seqOrder:7
+  },
+  'AN-VVN': {
+    code:'AN-VVN', district:'AN', state:'GJ',
+    name:'Vallabh Vidyanagar (SPU)', nameGu:'વલ્લભ વિદ્યાનગર (SPU)',
+    venue:'Sardar Patel University, Bhaikaka Library Parking, opposite Shastri Maidan',
+    venueGu:'સરદાર પટેલ યુનિવર્સિટી, ભાઈકાકા લાઈબ્રેરી પાર્કિંગ, શાસ્ત્રી મેદાન સામે',
+    city:'Vallabh Vidyanagar', cityGu:'વલ્લભ વિદ્યાનગર',
+    days:['Sun'], time:'16:00-18:00',
+    gmaps:'https://maps.app.goo.gl/AMutfxUVpVdypVFQ8',
+    whatsapp:'https://chat.whatsapp.com/IK7LIZkwEst8lRLTp3Tjyu',
+    active:true, seqOrder:8
+  },
+  'KH-NDD': {
+    code:'KH-NDD', district:'KH', state:'GJ',
+    name:'Nadiad (Chetak Petrol Pump)', nameGu:'નડિયાદ (ચેતક પેટ્રોલ પંપ)',
+    venue:'Chetak Petrol Pump premises, Santram Road',
+    venueGu:'ચેતક પેટ્રોલ પંપ પરિસર, સંતરામ રોડ',
+    city:'Nadiad', cityGu:'નડિયાદ',
+    days:['Thu'], time:'17:00-18:00',
+    gmaps:'https://maps.app.goo.gl/itkmde2uFir4j5Zm9',
+    whatsapp:'https://chat.whatsapp.com/FSfOtuo5PrT4p2uCgNObnN',
+    active:true, seqOrder:9
+  },
+  'VD-MSU': {
+    code:'VD-MSU', district:'VD', state:'GJ',
+    name:'Vadodara (MSU Faculty of Commerce)', nameGu:'વડોદરા (MSU ફેકલ્ટી ઓફ કોમર્સ)',
+    venue:'Faculty of Commerce, MS University, Main Building, near Kala Ghoda, Sayajigunj',
+    venueGu:'ફેકલ્ટી ઓફ કોમર્સ, એમ.એસ. યુનિવર્સિટી, મેઇન બિલ્ડિંગ, કાલાઘોડા પાસે, સયાજીગંજ',
+    city:'Vadodara', cityGu:'વડોદરા',
+    days:['Sun'], time:'16:00-18:00',
+    gmaps:'https://maps.app.goo.gl/uaxh7SrzCjVusFw59',
+    whatsapp:'https://chat.whatsapp.com/IuJO9l6YwgXD7srrtHA7r2',
+    active:true, seqOrder:10
+  },
+  'SK-HMT': {
+    code:'SK-HMT', district:'SK', state:'GJ',
+    name:'Himmatnagar (Kanal Front Food Court)', nameGu:'હિંમતનગર (કેનાલ ફ્રન્ટ ફુડ કોર્ટ)',
+    venue:'Kanal Front Food Court, opposite Keshav Municipal Market, Namaste Circle, Mahavirnagar',
+    venueGu:'કેનાલ ફ્રન્ટ ફુડ કોર્ટ, કેશવ મ્યુનિસીપલ માર્કેટ સામેનો ગેટ, નમસ્તે સર્કલ, મહાવીરનગર',
+    city:'Himmatnagar', cityGu:'હિંમતનગર',
+    days:['Sun','Thu'], time:'15:00-18:00',
+    gmaps:'https://maps.app.goo.gl/KSu1P2qixM4oHnbR7',
+    whatsapp:'https://chat.whatsapp.com/HKBx75ZizTvC1C9yFqw7Qa',
+    active:true, seqOrder:11
+  },
+  'AR-MDS': {
+    code:'AR-MDS', district:'AR', state:'GJ',
+    name:'Modasa (Annapurna Trust)', nameGu:'મોડાસા (અન્નપૂર્ણા ટ્રસ્ટ)',
+    venue:'Annapurna Trust / Bhojanalaya, Malpur Road',
+    venueGu:'અન્નપૂર્ણા ટ્રસ્ટ / ભોજનાલય, માલપુર રોડ',
+    city:'Modasa', cityGu:'મોડાસા',
+    days:['Sun'], time:'16:00-18:00',
+    gmaps:'https://maps.app.goo.gl/xAguJZtChUodXA3E9',
+    whatsapp:'https://chat.whatsapp.com/KLtqBcsja79ANBZ7PRISoJ',
+    active:true, seqOrder:12
+  },
+};
+
+function logTo(id, msg, cls){
+  const el = document.getElementById(id);
+  el.style.display='block';
+  el.className = 'log ' + (cls||'');
+  el.textContent += (el.textContent?'\n':'') + msg;
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog(id){ const el=document.getElementById(id); el.textContent=''; el.className='log'; }
+
+function step1(){
+  const haatRows = Object.values(HAATS).sort((a,b)=>a.seqOrder-b.seqOrder).map(h => `
+    <tr>
+      <td><code>${h.code}</code></td>
+      <td>${h.nameGu}<br><span style="color:#6b7280;font-size:11px">${h.name}</span></td>
+      <td>${h.cityGu} (${h.district})</td>
+      <td>${h.days.join(', ')}<br><span style="color:#6b7280">${h.time}</span></td>
+    </tr>`).join('');
+  const distRows = Object.values(DISTRICTS).map(d => `
+    <tr><td><code>${d.code}</code></td><td>${d.nameGu}</td><td>${d.name}</td><td>${d.state}</td></tr>`).join('');
+  document.getElementById('preview1').innerHTML = `
+    <div class="preview">
+      <div style="margin-bottom:6px"><span class="stat">${Object.keys(HAATS).length} haats</span><span class="stat">${Object.keys(DISTRICTS).length} districts</span><span class="stat">${Object.keys(STATES).length} state</span></div>
+      <b>Haats → <code>haats/{code}</code>:</b>
+      <table><tr><th>Code</th><th>Name</th><th>City (District)</th><th>Schedule</th></tr>${haatRows}</table>
+      <br><b>Districts → <code>geo/districts/{code}</code>:</b>
+      <table><tr><th>Code</th><th>નામ</th><th>Name</th><th>State</th></tr>${distRows}</table>
+      <br><b>States → <code>geo/states/{code}</code>:</b>
+      <table><tr><th>Code</th><th>નામ</th><th>Name</th></tr>${Object.values(STATES).map(s=>`<tr><td><code>${s.code}</code></td><td>${s.nameGu}</td><td>${s.name}</td></tr>`).join('')}</table>
+    </div>`;
+}
+
+async function step2(){
+  clearLog('log2');
+  logTo('log2', `Writing to ${NS}/haats and ${NS}/geo …`);
+  try {
+    const updates = {};
+    // States
+    for (const k of Object.keys(STATES)) updates[`${NS}/geo/states/${k}`] = STATES[k];
+    // Districts
+    for (const k of Object.keys(DISTRICTS)) updates[`${NS}/geo/districts/${k}`] = DISTRICTS[k];
+    // Haats
+    for (const k of Object.keys(HAATS)) updates[`${NS}/haats/${k}`] = HAATS[k];
+    await db.ref().update(updates);
+    logTo('log2', `✓ wrote ${Object.keys(STATES).length} states`, 'ok');
+    logTo('log2', `✓ wrote ${Object.keys(DISTRICTS).length} districts`, 'ok');
+    logTo('log2', `✓ wrote ${Object.keys(HAATS).length} haats`, 'ok');
+    logTo('log2', `✓ done. Verify with Step 3.`, 'ok');
+  } catch (e) {
+    logTo('log2', `✗ error: ${e.message}`, 'err');
+  }
+}
+
+async function step3(){
+  clearLog('log3');
+  logTo('log3', `Reading back …`);
+  try {
+    const [states, districts, haats] = await Promise.all([
+      db.ref(`${NS}/geo/states`).once('value').then(s=>s.val()||{}),
+      db.ref(`${NS}/geo/districts`).once('value').then(s=>s.val()||{}),
+      db.ref(`${NS}/haats`).once('value').then(s=>s.val()||{}),
+    ]);
+    logTo('log3', `states: ${Object.keys(states).length} → ${Object.keys(states).join(', ')}`, 'ok');
+    logTo('log3', `districts: ${Object.keys(districts).length} → ${Object.keys(districts).join(', ')}`, 'ok');
+    logTo('log3', `haats: ${Object.keys(haats).length} → ${Object.keys(haats).join(', ')}`, 'ok');
+  } catch (e) {
+    logTo('log3', `✗ error: ${e.message}`, 'err');
+  }
+}
+</script>
+</body>
+</html>
