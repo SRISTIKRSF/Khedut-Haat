@@ -295,7 +295,18 @@ function preserveAndRender(){
 }
 
 /* keyed by item name; values: {price, qty, unit, cat, emoji, custom?} */
+/* V11 (2026-06-22) bugfixes:
+   • subFid(): submission key never resolves to "undefined" (defensive — all records have id today)
+   • Double-submit guard (_submitting) on submitAll
+   • Offline check + 20s write timeout on submit
+   • Non-blocking notice when priced items have no qty (qty is optional by design)
+   • Login/session capture the RTDB record key via Object.entries */
 let WK=null, WK_META={}, FARMER=null, ENTRIES=new Map(), SUBMITTED_AT=null;
+let _submitting=false;   // V11: double-submit guard
+function subFid(){
+  if(!FARMER) return null;
+  return FARMER.id || FARMER._key || String(FARMER.phone||'').replace(/[^0-9]/g,'').slice(-10) || null;
+}
 let ROUTINE_ITEMS=new Map();  // item names from last week's submission — shown at top, unchecked by default
 let HAATS_ALL={};             // haats map { code -> {code, nameGu, open, weekDateLabel, ...} }
 let OPEN_HAATS=[];            // haat codes from this farmer's attended list that are currently OPEN
@@ -345,10 +356,12 @@ async function init(){
 async function resumeSession(phoneClean){
   const fSnap = await fbRef('marketFarmers').get();
   const all = fSnap.val()||{};
-  const match = Object.values(all).find(f =>
+  const _entry = Object.entries(all).find(([k,f]) =>
     f && f.active!==false &&
     String(f.phone||'').replace(/[^0-9]/g,'').slice(-10) === String(phoneClean).slice(-10)
   );
+  const match = _entry ? _entry[1] : null;
+  if(match) match._key = _entry[0];   // V11: capture RTDB key for safe submission fid
   if(!match){
     try{ sessionStorage.removeItem(AUTH_KEY); }catch{}
     throw new Error("Farmer record missing");
@@ -431,13 +444,14 @@ window.doLogin = async () => {
 async function loginByPhone(phone, pwd, silent){
   const fSnap = await fbRef('marketFarmers').get();
   const all = fSnap.val()||{};
-  const arr = Object.values(all);
   // exact last-10 match (was: endsWith — overly permissive)
   const entered10 = String(phone).replace(/[^0-9]/g,'').slice(-10);
-  const match = arr.find(f =>
+  const _entry = Object.entries(all).find(([k,f]) =>
     f && f.active!==false &&
     String(f.phone||'').replace(/[^0-9]/g,'').slice(-10) === entered10
   );
+  const match = _entry ? _entry[1] : null;
+  if(match) match._key = _entry[0];   // V11: capture RTDB key for safe submission fid
   if(!match) throw new Error("આ નંબર નોંધાયેલો નથી. કૃપા કરી ઑફિસ સંપર્ક કરો.");
   const phoneClean = String(match.phone||'').replace(/[^0-9]/g,'');
   const defaultPwd = phoneClean.slice(-4);
@@ -592,7 +606,7 @@ async function loadSubmission(){
   CUR_STATUS = '';
 
   // Load current week's submission first — if it exists, it becomes both ENTRIES (with prices) AND ROUTINE_ITEMS (shown at top)
-  const curSub = await fbRef('weekly/'+WK+'/submissions/'+FARMER.id).get();
+  const curSub = await fbRef('weekly/'+WK+'/submissions/'+subFid()).get();
   if(curSub.exists()){
     const v = curSub.val();
     SUBMITTED_AT = v.submittedAt || null;
@@ -612,7 +626,7 @@ async function loadSubmission(){
   const lastWk = (typeof WK==='number'?WK:parseInt(WK,10))-1;
   if(lastWk>0){
     try{
-      const lastSub = await fbRef('weekly/'+lastWk+'/submissions/'+FARMER.id).get();
+      const lastSub = await fbRef('weekly/'+lastWk+'/submissions/'+subFid()).get();
       if(lastSub.exists()){
         const v = lastSub.val();
         LAST_WK_SUBMISSION = {
@@ -1083,6 +1097,9 @@ window.saveCustom = async () => {
 
 /* ════════ SUBMIT ════════ */
 window.submitAll = async () => {
+  if(_submitting) return;            // V11: block double-tap / double-submit
+  _submitting = true;
+  try {
   // CRITICAL: force-read every visible input from the DOM before submit.
   // Without this, an unfocused input's last keystroke can be lost if the
   // user taps "મોકલો" before the input fires its 'input' event.
@@ -1121,10 +1138,13 @@ window.submitAll = async () => {
     items.push(it);
   });
   if(!items.length) return toast("ઓછામાં ઓછી 1 વસ્તુનો ભાવ ભરો","err");
+  if(navigator.onLine === false) return toast("ઇન્ટરનેટ નથી — કનેક્શન તપાસી ફરી મોકલો","err");
+  const noQty = items.filter(it => it.qty == null).length;
+  if(noQty > 0) toast(noQty + " વસ્તુ માં જથ્થો ભર્યો નથી — વાંધો નહીં, મોકલાય છે", "");
   const btn = $('#btnSubmit'); btn.disabled = true; btn.textContent = "મોકલાય છે...";
   try{
     // Check if we're re-editing a previously approved submission (so admin sees a flag)
-    const curSnap = await fbRef('weekly/'+WK+'/submissions/'+FARMER.id).get();
+    const curSnap = await fbRef('weekly/'+WK+'/submissions/'+subFid()).get();
     const cur = curSnap.val() || {};
     const reEdited = cur.status === 'approved';
     // Use only currently-open haats from the farmer's attended list (set by admin)
@@ -1132,7 +1152,7 @@ window.submitAll = async () => {
       ? OPEN_HAATS.map(c => HAATS_ALL[c]?.nameGu || HAATS_ALL[c]?.name || c).join(', ')
       : (FARMER.haat || "");
     const payload = {
-      farmerId: FARMER.id,
+      farmerId: subFid(),
       farmerName: FARMER.name||"",
       farmerPhone: String(FARMER.phone||"").replace(/[^0-9]/g,""),
       farmerVillage: FARMER.village||"",
@@ -1150,7 +1170,10 @@ window.submitAll = async () => {
       payload.previousApprovedAt = cur.approvedAt || null;
       payload._reEdited = true;
     }
-    await fbRef('weekly/'+WK+'/submissions/'+FARMER.id).set(payload);
+    await Promise.race([
+      fbRef('weekly/'+WK+'/submissions/'+subFid()).set(payload),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), 20000))
+    ]);
     showState("✅","ધન્યવાદ!",
       `તમારી પેદાશ હાટ #${WK} માટે મોકલાઈ ગઈ છે.<br><br>
        <b>${items.length} વસ્તુ</b><br><br>
@@ -1161,6 +1184,9 @@ window.submitAll = async () => {
     console.error(e);
     toast("મોકલવામાં ભૂલ. ફરી પ્રયત્ન કરો.","err");
     btn.disabled = false; btn.textContent = "મોકલો ✓";
+  }
+  } finally {
+    _submitting = false;             // V11: always release the guard
   }
 };
 

@@ -1241,7 +1241,7 @@ function reviewNotYetList(ids){
 
 window.setReviewFilter = (f) => {
   REVIEW_FILTER = f;
-  document.getElementById('tabBody').innerHTML = renderTab();
+  setTabBodyHtml();
   twe();
 };
 
@@ -1405,6 +1405,8 @@ function renderReviewCard(fid){
   `;
 }
 
+// V11: null-guarded tab-body re-render (was throwing on re-render races)
+function setTabBodyHtml(){ const el = document.getElementById('tabBody'); if(el) el.innerHTML = renderTab(); }
 function formatAgo(ts){
   if(!ts) return "";
   const m = Math.round((Date.now()-ts)/60000);
@@ -1416,6 +1418,7 @@ function formatAgo(ts){
 }
 
 window.approveSubmission = async (fid) => {
+  if(_busy) return; _busy = true;
   try{
     await fbRef('weekly/'+WK+'/submissions/'+fid).update({
       status: 'approved',
@@ -1432,12 +1435,14 @@ window.approveSubmission = async (fid) => {
     toast("✓ Approved — catalog માં લાઈવ","ok");
     render();
   }catch(e){ console.error(e); toast("Approve નિષ્ફળ: "+(e.message||e),"err"); }
+  finally{ _busy = false; }
 };
 
 window.approveAllPending = async () => {
   const pending = Object.keys(SUBS).filter(fid => SUBS[fid]?.status === 'pending');
   if(!pending.length) return toast("કંઈ pending નથી","err");
   if(!(await asyncConfirm(`બધી ${pending.length} pending submissions approve કરવી છે?`, 'હા, બધી approve કરો', 'રદ'))) return;
+  if(_busy) return; _busy = true;
   const updates = {};
   pending.forEach(fid => {
     updates[`weekly/${WK}/submissions/${fid}/status`] = 'approved';
@@ -1451,6 +1456,7 @@ window.approveAllPending = async () => {
     toast(`✓ ${pending.length} submissions approved`,"ok");
     render();
   }catch(e){ console.error(e); toast("Bulk approve નિષ્ફળ","err"); }
+  finally{ _busy = false; }
 };
 
 window.sendBackSubmission = (fid) => {
@@ -1476,6 +1482,7 @@ window.sendBackSubmission = (fid) => {
 window.confirmSendBack = async (fid) => {
   const reason = $('#sbReason')?.value?.trim() || '';
   if(!reason) return toast("કારણ ભરો — ખેડૂતને ખબર પડે કે શું સુધારવું","err");
+  if(_busy) return; _busy = true;
   const me = adminIdentity();
   try{
     await fbRef('weekly/'+WK+'/submissions/'+fid).update({
@@ -1492,6 +1499,7 @@ window.confirmSendBack = async (fid) => {
     toast("🔄 Sent back — ખેડૂતને edit કરવા કહેવાશે","ok");
     render();
   }catch(e){ console.error(e); toast("Send back નિષ્ફળ: "+(e.message||e),"err"); }
+  finally{ _busy = false; }
 };
 
 window.rejectSubmission = (fid) => {
@@ -1515,16 +1523,20 @@ window.rejectSubmission = (fid) => {
   `);
 };
 window.confirmReject = async (fid) => {
+  if(_busy) return; _busy = true;
   const reason = $('#rejReason')?.value?.trim() || '';
+  const me = adminIdentity();
   try{
     await fbRef('weekly/'+WK+'/submissions/'+fid).update({
       status: 'rejected',
       rejectedAt: firebase.database.ServerValue.TIMESTAMP,
+      rejectedBy: me?.username || 'unknown',
       rejectReason: reason || null,
     });
     if(SUBS[fid]){ SUBS[fid].status = 'rejected'; SUBS[fid].rejectReason = reason; }
     closeModal(); toast("Rejected","ok"); render();
   }catch(e){ console.error(e); toast("Reject નિષ્ફળ","err"); }
+  finally{ _busy = false; }
 };
 
 window.openNote = (fid) => {
@@ -1602,9 +1614,9 @@ function renderEditModal(){
         `).join('')}
       </div>
     </div>
-    <div class="modal-foot">
-      <button class="btn-secondary" onclick="closeModal()">રદ</button>
-      <button class="btn-primary" onclick="saveEditAndApprove()" style="background:var(--green2)">✓ Save & Approve</button>
+    <div style="display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--border)">
+      <button class="btn-sm" onclick="closeModal()" style="flex:1">રદ</button>
+      <button class="btn-sm primary" onclick="saveEditAndApprove()" style="flex:1">✓ Save & Approve</button>
     </div>
   `;
 }
@@ -1614,6 +1626,7 @@ window.saveEditAndApprove = async () => {
   const {fid, items} = EDIT_STATE;
   const valid = items.filter(it => it.name && +it.price > 0);
   if(!valid.length) return toast("ઓછામાં ઓછી એક item જરૂરી","err");
+  if(_busy) return; _busy = true;
   try{
     await fbRef('weekly/'+WK+'/submissions/'+fid).update({
       items: valid,
@@ -1631,6 +1644,7 @@ window.saveEditAndApprove = async () => {
     }
     closeModal(); toast("✓ Saved & approved — catalog માં લાઈવ","ok"); render();
   }catch(e){ console.error(e); toast("Save નિષ્ફળ","err"); }
+  finally{ _busy = false; }
 };
 
 /* ════════ TAB 2c: SUMMARY (NEW — haat-wise analytics) ════════ */
@@ -1671,7 +1685,7 @@ function aggregateByVenue(){
   const venueMap = {}; // venue name -> { farmers: Set, items: {...} }
   Object.keys(SUBS).forEach(fid => {
     const sub = SUBS[fid];
-    if(sub.status === 'pending' || sub.status === 'rejected') return;
+    if(sub.status === 'pending' || sub.status === 'rejected' || sub.status === 'sent_back') return;
 
     // Prefer new farmerHaatCodes (per-haat qty possible) — fall back to legacy farmerHaat string
     let venueList; // [{name, code|null}]
@@ -2039,7 +2053,7 @@ function renderProductSummaryCard(p, d){
 window.toggleSummaryShowAll = (key) => {
   if(SUMMARY_SHOW_ALL_KEY.has(key)) SUMMARY_SHOW_ALL_KEY.delete(key);
   else SUMMARY_SHOW_ALL_KEY.add(key);
-  document.getElementById('tabBody').innerHTML = renderTab();
+  setTabBodyHtml();
   twe();
 };
 
@@ -2166,11 +2180,11 @@ function renderIndicatorCards(L){
   `;
 }
 
-window.setSummaryVenue = v => { SUMMARY_VENUE_FILTER = v; document.getElementById('tabBody').innerHTML = renderTab(); twe(); };
+window.setSummaryVenue = v => { SUMMARY_VENUE_FILTER = v; setTabBodyHtml(); twe(); };
 window.toggleSummaryCategory = c => {
   if(SUMMARY_EXPANDED.has(c)) SUMMARY_EXPANDED.delete(c);
   else SUMMARY_EXPANDED.add(c);
-  document.getElementById('tabBody').innerHTML = renderTab(); twe();
+  setTabBodyHtml(); twe();
 };
 
 /* ════════ TAB 2d: PHOTOS (unified — all-weeks + master products) ════════ */
@@ -2276,8 +2290,8 @@ function renderPhotoCard(it, cfgOK){
     </div>
   `;
 }
-window.setPhotoSearch = v => { PHOTO_SEARCH = v; document.getElementById('tabBody').innerHTML = renderTab(); };
-window.setPhotoFilter = f => { PHOTO_FILTER = f; document.getElementById('tabBody').innerHTML = renderTab(); };
+window.setPhotoSearch = v => { PHOTO_SEARCH = v; setTabBodyHtml(); };
+window.setPhotoFilter = f => { PHOTO_FILTER = f; setTabBodyHtml(); };
 
 /* ════════ Master Products CRUD ════════ */
 function slugifyName(s){
@@ -2376,7 +2390,7 @@ window.saveMasterProduct = async (existingId) => {
     MASTER_PRODUCTS[id] = data;
     toast(`✓ "${nm}" save થયું`,"ok");
     closeModal();
-    document.getElementById('tabBody').innerHTML = renderTab();
+    setTabBodyHtml();
   }catch(e){ console.error(e); toast("Save નિષ્ફળ","err"); }
 };
 
@@ -2387,7 +2401,7 @@ window.deleteMasterProduct = async (id) => {
     delete MASTER_PRODUCTS[id];
     toast("Delete થયું","ok");
     closeModal();
-    document.getElementById('tabBody').innerHTML = renderTab();
+    setTabBodyHtml();
   }catch(e){ toast("Delete નિષ્ફળ","err"); }
 };
 
@@ -2433,7 +2447,7 @@ window.saveCloudinary = async () => {
     CLOUDINARY_CFG = {cloudName, uploadPreset};
     closeModal();
     toast("✓ Cloudinary સાચવાયું — હવે photo upload કરી શકો","ok");
-    document.getElementById('tabBody').innerHTML = renderTab();
+    setTabBodyHtml();
   }catch(e){ toast("Save નિષ્ફળ","err"); }
 };
 
@@ -2459,7 +2473,7 @@ window.pickPhoto = (key, name) => {
       await fbRef('productPhotos/'+key).set(url);
       PRODUCT_PHOTOS[key] = url;
       toast(`✓ "${name}" નો ફોટો સાચવાયો`,"ok");
-      document.getElementById('tabBody').innerHTML = renderTab();
+      setTabBodyHtml();
     }catch(e){ console.error(e); toast("Upload નિષ્ફળ: "+(e.message||e),"err"); }
   };
   inp.click();
@@ -2470,7 +2484,7 @@ window.removePhoto = async (key, name) => {
     await fbRef('productPhotos/'+key).set(null);
     delete PRODUCT_PHOTOS[key];
     toast("હટાવ્યો","ok");
-    document.getElementById('tabBody').innerHTML = renderTab();
+    setTabBodyHtml();
   }catch(e){ toast("Error","err"); }
 };
 function resizePhoto(file, maxDim, q){
@@ -2582,7 +2596,7 @@ function renderOrder(){
 window.toggleOrderCategory = key => {
   if(ORDER_OPEN.has(key)) ORDER_OPEN.delete(key);
   else ORDER_OPEN.add(key);
-  document.getElementById('tabBody').innerHTML = renderTab();
+  setTabBodyHtml();
   twe();
 };
 
@@ -2771,7 +2785,7 @@ function renderGuideFlowchart(){
     </div>
   `;
 }
-window.setGuideSection = s => { GUIDE_SECTION = s; document.getElementById('tabBody').innerHTML = renderTab(); twe(); };
+window.setGuideSection = s => { GUIDE_SECTION = s; setTabBodyHtml(); twe(); };
 
 function guideStep(n, title, body){
   return `
@@ -2801,7 +2815,7 @@ function renderGuideAdmin(){
 
       ${guideStep(2, 'સોમવાર — ખેડૂતોને submit link મોકલો', `
         જે ખેડૂત તે હાટ માટે આવવાના છે તેમને WhatsApp માં link મોકલો:
-        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-top:6px;font-family:JetBrains Mono,monospace;font-size:12px;word-break:break-all">https://prakrutik-kheti-e9194.web.app/submit</div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-top:6px;font-family:JetBrains Mono,monospace;font-size:12px;word-break:break-all">https://prakrutik-kheti-c0a89.web.app/submit</div>
         <div style="margin-top:8px;font-size:12.5px;color:var(--muted)">Username = તેમનો ફોન નંબર · Password = ફોનના છેલ્લા 4 અંકો (default)</div>
         <br>
         💡 <b>WhatsApp message copy</b> — તેમની ભાષામાં મોકલવા માટે અહીંથી copy કરો:
@@ -2809,7 +2823,7 @@ function renderGuideAdmin(){
           નમસ્તે!<br>
           આ અઠવાડિયે <b>[હાટનું નામ + તારીખ]</b> હાટ માટે તમારી પેદાશની યાદી મોકલવાનો સમય આવી ગયો છે. 🌱<br><br>
           નીચે link ખોલો:<br>
-          https://prakrutik-kheti-e9194.web.app/submit<br><br>
+          https://prakrutik-kheti-c0a89.web.app/submit<br><br>
           Username: તમારો ફોન<br>
           Password: ફોનના છેલ્લા 4 અંકો
         </div>
@@ -2866,7 +2880,7 @@ function renderGuideFarmer(){
 
       ${guideStep(1, 'Login કરો', `
         Browser માં link ખોલો:
-        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-top:6px;font-family:JetBrains Mono,monospace;font-size:12px;word-break:break-all">https://prakrutik-kheti-e9194.web.app/submit</div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-top:6px;font-family:JetBrains Mono,monospace;font-size:12px;word-break:break-all">https://prakrutik-kheti-c0a89.web.app/submit</div>
         <br>
         <b>મોબાઈલ નંબર</b> ભરો (દાખલા: 9825061139)<br>
         <b>પાસવર્ડ</b>: તમારા ફોનના છેલ્લા 4 અંકો (દાખલા: 1139)<br>
@@ -2921,7 +2935,7 @@ function renderGuideCustomer(){
 
       ${guideStep(1, 'Catalog ખોલો', `
         Browser કે WhatsApp link દ્વારા ખોલો:
-        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-top:6px;font-family:JetBrains Mono,monospace;font-size:12px;word-break:break-all">https://prakrutik-kheti-e9194.web.app</div>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-top:6px;font-family:JetBrains Mono,monospace;font-size:12px;word-break:break-all">https://prakrutik-kheti-c0a89.web.app</div>
         <br>
         Login જરૂરી નથી — સીધો catalog દેખાશે.
       `)}
@@ -2960,7 +2974,7 @@ function renderGuideCustomer(){
         ✨ સીધા ખેડૂત પાસેથી<br>
         🌱 100% રસાયણ મુક્ત<br>
         💰 વાજબી ભાવ<br><br>
-        👉 catalog જુઓ: https://prakrutik-kheti-e9194.web.app<br><br>
+        👉 catalog જુઓ: https://prakrutik-kheti-c0a89.web.app<br><br>
         હાટ ની તારીખ + સ્થળ ઉપર website માં દેખાશે. તમારી નજીકનું હાટ પસંદ કરો અને મળો. 🤝
       </div>
     </div>
@@ -3031,7 +3045,7 @@ function renderProductRow(p, idx){
 window.toggleProductCat = key => {
   if(PRODUCTS_OPEN_CATS.has(key)) PRODUCTS_OPEN_CATS.delete(key);
   else PRODUCTS_OPEN_CATS.add(key);
-  document.getElementById('tabBody').innerHTML = renderTab();
+  setTabBodyHtml();
   twe();
 };
 
@@ -3168,7 +3182,7 @@ window.saveProduct = async (existingId) => {
     toast(`✓ "${nm}" save થયું`,"ok");
     closeModal();
     PRODUCTS_OPEN_CATS.add(categoryKeyOf({cat})); // open the category so user sees it
-    document.getElementById('tabBody').innerHTML = renderTab();
+    setTabBodyHtml();
   }catch(e){ console.error(e); toast("Save નિષ્ફળ","err"); }
 };
 
@@ -3185,7 +3199,7 @@ window.deleteProduct = async (id) => {
     DELETED_PRODUCT_IDS.add(id);
     toast("Delete થયું — હવે પાછું નહીં આવે","ok");
     closeModal();
-    document.getElementById('tabBody').innerHTML = renderTab();
+    setTabBodyHtml();
   }catch(e){ toast("Delete નિષ્ફળ","err"); }
 };
 
@@ -3299,6 +3313,12 @@ function renderJsonPreview(parsed){
 
 window.doPublish = async () => {
   if(!PARSED || !PARSED.submissions) return toast("પહેલા valid JSON paste કરો","err");
+  // V11: warn before overwriting farmers who already have a submission this week (approved/pending included)
+  const overwrites = Object.keys(PARSED.submissions).filter(fid => SUBS[fid] && (SUBS[fid].items || SUBS[fid].status));
+  if(overwrites.length && !(await asyncConfirm(
+    `${overwrites.length} ખેડૂત ની હાલની submission overwrite થશે (approved/pending સહિત). આગળ વધવું?`,
+    'હા, publish કરો', 'રદ'))) return;
+  if(_busy) return; _busy = true;
   const btn = document.getElementById('btnPublish');
   btn.disabled = true; btn.textContent = "Publishing...";
   let wrote=0, errs=0;
@@ -3306,13 +3326,19 @@ window.doPublish = async () => {
   Object.keys(PARSED.submissions).forEach(fid=>{
     const sub = PARSED.submissions[fid];
     if(!sub || !Array.isArray(sub.items)) return;
-    const norm = sub.items.map(it=>({
-      name: String(it.name||"").trim(),
-      price: +it.price||0,
-      unit: String(it.unit||"kg").trim(),
-      cat: String(it.cat||"અન્ય").trim(),
-      available: true,
-    })).filter(it=>it.name && it.price>0);
+    const norm = sub.items.map(it=>{
+      const o = {
+        name: String(it.name||"").trim(),
+        price: +it.price||0,
+        unit: String(it.unit||"kg").trim(),
+        cat: String(it.cat||"અન્ય").trim(),
+        available: true,
+      };
+      // V11: preserve quantity data if the parsed item carries it (was being dropped)
+      if(it.qty != null && it.qty !== "" && +it.qty > 0) o.qty = +it.qty;
+      if(it.qtyByHaat && typeof it.qtyByHaat === 'object') o.qtyByHaat = it.qtyByHaat;
+      return o;
+    }).filter(it=>it.name && it.price>0);
     updates['weekly/'+WK+'/submissions/'+fid+'/items'] = norm;
     updates['weekly/'+WK+'/submissions/'+fid+'/parsedAt'] = firebase.database.ServerValue.TIMESTAMP;
     updates['weekly/'+WK+'/submissions/'+fid+'/status'] = 'approved';
@@ -3327,7 +3353,22 @@ window.doPublish = async () => {
     console.error(e); toast("Publish નિષ્ફળ: "+(e.message||e),"err");
     btn.disabled=false; btn.textContent="🚀 પ્રકાશિત કરો"; btn.style.background='var(--green2)';
   }
+  finally{ _busy = false; }
 };
+
+/* V11 (2026-06-22) admin bugfixes:
+   • Edit-&-Approve modal footer rebuilt with real classes (.modal-foot/.btn-secondary didn't exist)
+   • Submit/catalog WhatsApp links: e9194 → c0a89 (e9194 is now dead)
+   • confirmReject now writes rejectedBy (activity log showed "admin")
+   • _busy guard blocks double-tap double-writes on approve/reject/sendBack/approveAll/saveEdit/doPublish
+   • doPublish: confirm before overwriting existing submissions + preserves qty/qtyByHaat
+   • Phone clash check uses explicit last-10 === (was endsWith)
+   • sent_back excluded from Summary aggregation
+   • tabBody re-renders null-guarded (setTabBodyHtml)
+   NOTE: status writes kept as update() (leaf-atomic). Full-node transactions were
+   evaluated and intentionally NOT used — they wouldn't prevent the only real race
+   (approving a fresh re-submit) and add ServerValue-in-transaction risk. */
+let _busy = false;   // V11: in-flight guard shared by all submission write handlers
 
 /* ════════ TAB 4: FARMERS ════════ */
 let FILTER_Q = "";
@@ -3367,8 +3408,8 @@ function renderFarmers(){
     </div>
   `;
 }
-window.setFarmerQ = q => { FILTER_Q = q; document.getElementById('tabBody').innerHTML = renderTab(); document.querySelector('.frm-search')?.focus(); };
-window.setFarmerKind = k => { FILTER_KIND = k; document.getElementById('tabBody').innerHTML = renderTab(); };
+window.setFarmerQ = q => { FILTER_Q = q; setTabBodyHtml(); document.querySelector('.frm-search')?.focus(); };
+window.setFarmerKind = k => { FILTER_KIND = k; setTabBodyHtml(); };
 
 function renderFarmerRow(f, num){
   const sub = SUBS[f.id];
@@ -3542,7 +3583,7 @@ window.saveEditFarmer = async (fid) => {
   if(!nm) return toast("નામ ભરો","err");
   if(ph.length < 10) return toast("મોબાઈલ 10 અંકનો જોઈએ","err");
   // Phone clash check (excluding self)
-  const phoneClash = FARMERS.find(x => x.id !== fid && String(x.phone||'').replace(/[^0-9]/g,'').endsWith(ph));
+  const phoneClash = FARMERS.find(x => x.id !== fid && String(x.phone||'').replace(/[^0-9]/g,'').slice(-10) === ph.slice(-10));
   if(phoneClash) return toast("આ phone પહેલેથી છે: "+phoneClash.name,"err");
   const haatNamesGu = haatCodes.map(c => HAATS[c]?.nameGu || c).join(', ');
   try{
@@ -3639,7 +3680,7 @@ window.addManualFarmer = async () => {
   if(!dc) return toast("જિલ્લો પસંદ કરો","err");
   const id = 'MF_'+ph;
   if(FARMERS.find(f=>f.id===id)) return toast("આ ID પહેલેથી છે","err");
-  const phoneClash = FARMERS.find(f=>String(f.phone||'').replace(/[^0-9]/g,'').endsWith(ph));
+  const phoneClash = FARMERS.find(f=>String(f.phone||'').replace(/[^0-9]/g,'').slice(-10) === ph.slice(-10));
   if(phoneClash) return toast("આ phone પહેલેથી છે: "+phoneClash.name,"err");
 
   try{
@@ -3774,7 +3815,7 @@ function buildCustomerMessage(){
   const haatLines = openHaats.length
     ? openHaats.map(h => `📍 ${h.nameGu || h.name}${h.weekDateLabel ? ' — '+h.weekDateLabel : ''}${h.time ? ' • '+h.time : ''}`)
     : ['(કોઈ હાટ હાલ ઓપન નથી — 📍 હાટ બટન થી ઓપન કરો)'];
-  const catalogUrl = location.origin.replace('localhost:8746','prakrutik-kheti-e9194.web.app');
+  const catalogUrl = location.origin.replace('localhost:8746','prakrutik-kheti-c0a89.web.app');
   return [
     '🌿 *સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ*',
     '',
@@ -3841,7 +3882,7 @@ window.shareCustomerMessageWA = () => {
 
 function buildFarmerMessage(){
   const openHaats = Object.values(HAATS).filter(h => h.open);
-  const submitUrl = location.origin.replace('localhost:8746','prakrutik-kheti-e9194.web.app').replace(/\/sristi_haat_admin_v1\.html$/,'') + '/submit';
+  const submitUrl = location.origin.replace('localhost:8746','prakrutik-kheti-c0a89.web.app').replace(/\/sristi_haat_admin_v1\.html$/,'') + '/submit';
   const haatLines = openHaats.length
     ? openHaats.map(h => `📍 ${h.nameGu || h.name}${h.weekDateLabel ? ' — '+h.weekDateLabel : ''}${h.time ? ' • '+h.time : ''}`)
     : ['(કોઈ હાટ હાલ ઓપન નથી — 📍 હાટ બટન થી ઓપન કરો)'];

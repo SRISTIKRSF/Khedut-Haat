@@ -124,6 +124,7 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .wa-fab:active{transform:scale(.96)}
 
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .fade-in{animation:fadeUp .25s ease both}
 /* a11y: respect motion preferences (35% of population sensitive to vestibular triggers) */
 @media (prefers-reduced-motion: reduce){
@@ -151,6 +152,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,[role="button"]:focus-v
    Matches uploaded mock: 2 tabs (Items/Farmers), filter chips,
    farmer accordion, WA share FAB, map links for venues.
    No "haat not open" empty page — always renders the shell.
+   ──────────────────────────────────────────────────────────────────
+   V11 (2026-06-22) bugfixes:
+   • Product sheet: farmer lookup by fid (was by name → same-name collisions)
+   • Product sheet: Escape handler stored + removed on close (was leaking listeners)
+   • Venue map URLs escaped via esc()
+   • Search debounced (160ms) — was a full re-render per keystroke
+   • Added slideUp keyframe (was referenced but undefined → no animation)
+   • hero.jpg onerror fallback
    ══════════════════════════════════════════════════════════════════ */
 
 const FB_CONFIG = {
@@ -220,6 +229,8 @@ function cloudinaryThumb(url, w){
   return url;
 }
 let TAB='items';   // 'items' | 'farmers'
+let _sheetEsc=null;   // V11: ref to product-sheet Escape handler (was leaking across opens)
+let _qTimer=null;     // V11: search debounce timer
 let CAT='all', VENUE='all', Q='';
 let OPEN_FARMERS = new Set();
 
@@ -318,7 +329,7 @@ function buildLists(){
     const items = (sub.items||[]).filter(it=>it.available!==false);
     if(!items.length) return;
     items.forEach((it, idx)=>{
-      allRaw.push({...it, farmerName: f.name || sub.farmerName || "ખેડૂત", venues});
+      allRaw.push({...it, farmerName: f.name || sub.farmerName || "ખેડૂત", farmerFid: fid, venues});
     });
     FARMER_LIST.push({
       id:fid, name:f.name||sub.farmerName||"ખેડૂત", farm:f.farm||"",
@@ -353,7 +364,7 @@ function buildLists(){
     if(p > 0) agg.prices.push(p);
     if(it.qty != null && it.qty !== "" && +it.qty > 0) agg.totalQty += +it.qty;
     (it.venues || []).forEach(v => agg.venueSet.add(v));
-    agg.farmers.push({name:it.farmerName, originalItemName:trimmed, unit:u, price:p, qty:+it.qty||0});
+    agg.farmers.push({name:it.farmerName, farmerFid:it.farmerFid, originalItemName:trimmed, unit:u, price:p, qty:+it.qty||0});
   });
   // 3. Build ALL_ITEMS — canonical name = shortest; canonical unit = most common
   ALL_ITEMS = [...aggMap.values()].map(agg => {
@@ -413,7 +424,7 @@ function render(){
 
   $('#wrap').innerHTML = `
     <div class="hero">
-      <img class="hero-img" src="hero.jpg" alt="ખેડૂત હાટ બજાર — ગ્રાહકો અને ખેડૂતો સાથે" loading="eager">
+      <img class="hero-img" src="hero.jpg" alt="ખેડૂત હાટ બજાર — ગ્રાહકો અને ખેડૂતો સાથે" loading="eager" onerror="this.style.display='none'">
       <div class="hero-overlay"></div>
       <div class="hero-logos">
         <div class="hero-logo"><img src="krsf-logo.png" alt="KRSF" loading="eager"></div>
@@ -436,7 +447,7 @@ function render(){
         ${(activeVenues.length?activeVenues:VENUES).slice(0,3).map(v=>`
           <div class="loc-card">
             <div><div class="loc-name">${esc(v.name)}</div><div class="loc-sub">${esc(v.sub)}</div></div>
-            <a class="loc-link" href="${v.map}" target="_blank" rel="noopener">નક્શો ↗</a>
+            <a class="loc-link" href="${esc(v.map)}" target="_blank" rel="noopener">નક્શો ↗</a>
           </div>
         `).join('')}
         <div class="loc-card" style="justify-content:center;cursor:pointer" onclick="showAllLocs()">
@@ -560,7 +571,7 @@ window.openProductSheet = (productKey) => {
   const cheapest = sorted[0]?.price || 0;
   // Resolve farmer details from FARMERS_MAP
   const enriched = sorted.map(f => {
-    const meta = Object.values(FARMERS_MAP).find(m => m.name === f.name);
+    const meta = (f.farmerFid && FARMERS_MAP[f.farmerFid]) || Object.values(FARMERS_MAP).find(m => m.name === f.name);
     return {
       name: f.name,
       price: f.price,
@@ -644,14 +655,15 @@ window.openProductSheet = (productKey) => {
   if(!isSmall){
     overlay.onclick = e => { if(e.target === overlay) closeProductSheet(); };
   }
-  // Esc key closes the sheet
-  document.addEventListener('keydown', function escClose(e){
-    if(e.key === 'Escape'){ document.removeEventListener('keydown', escClose); closeProductSheet(); }
-  });
+  // Esc key closes the sheet (V11: store ref + remove on close so listeners don't stack across opens)
+  if(_sheetEsc) document.removeEventListener('keydown', _sheetEsc);
+  _sheetEsc = function(e){ if(e.key === 'Escape') closeProductSheet(); };
+  document.addEventListener('keydown', _sheetEsc);
 };
 window.closeProductSheet = () => {
   document.getElementById('productSheetOverlay')?.remove();
   document.body.style.overflow = '';
+  if(_sheetEsc){ document.removeEventListener('keydown', _sheetEsc); _sheetEsc = null; }
 };
 
 function renderFarmers(){
@@ -719,7 +731,7 @@ window.scrollToList = (tab) => {
 };
 window.setVenue = v => { VENUE=v; render(); };
 window.setCat = c => { CAT=c; render(); };
-window.setQ = q => { Q=q; const wasFocus = document.activeElement?.id==='searchInput'; const car = wasFocus?document.activeElement.selectionStart:null; render(); if(wasFocus){ const el=document.getElementById('searchInput'); if(el){el.focus(); if(car!=null) el.setSelectionRange(car,car);}} };
+window.setQ = q => { Q=q; clearTimeout(_qTimer); _qTimer = setTimeout(()=>{ const wasFocus = document.activeElement?.id==='searchInput'; const car = wasFocus?document.activeElement.selectionStart:null; render(); if(wasFocus){ const el=document.getElementById('searchInput'); if(el){el.focus(); if(car!=null) el.setSelectionRange(car,car);}} }, 160); };
 window.resetFilters = () => { Q=''; CAT='all'; VENUE='all'; render(); };
 window.toggleFarmer = id => { if(OPEN_FARMERS.has(id)) OPEN_FARMERS.delete(id); else OPEN_FARMERS.add(id); render(); };
 
@@ -746,7 +758,7 @@ window.showAllLocs = () => {
         ${VENUES.map(v=>`
           <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
             <div style="min-width:0;flex:1"><div style="font-size:13.5px;font-weight:600">${esc(v.name)}</div><div style="font-size:11px;color:var(--muted)">${esc(v.sub)}</div></div>
-            <a href="${v.map}" target="_blank" rel="noopener" style="font-size:11px;font-weight:700;color:var(--green);background:var(--green3);border-radius:20px;padding:4px 12px;text-decoration:none;white-space:nowrap;margin-left:10px">નક્શો ↗</a>
+            <a href="${esc(v.map)}" target="_blank" rel="noopener" style="font-size:11px;font-weight:700;color:var(--green);background:var(--green3);border-radius:20px;padding:4px 12px;text-decoration:none;white-space:nowrap;margin-left:10px">નક્શો ↗</a>
           </div>
         `).join('')}
       </div>
