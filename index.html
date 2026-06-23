@@ -13,7 +13,7 @@
 <meta property="og:image" content="https://prakrutik-kheti-c0a89.web.app/hero.jpg">
 <meta property="og:url" content="https://prakrutik-kheti-c0a89.web.app/">
 <meta name="twitter:card" content="summary_large_image">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,700;0,9..144,900;1,9..144,400&family=Noto+Sans+Gujarati:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
   --green:#1b4332; --green2:#2d6a4f; --green3:#52b788; --green-pale:#d8f3dc;
@@ -21,7 +21,9 @@
   --red:#c1121f; --bg:#fffbf4; --card:#fff; --text:#1a1a1a; --muted:#6b7280; --border:#e8e0d0;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{font-family:"Noto Sans Gujarati","DM Sans",sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.45}
+/* V14 (2026-06-23): Inter for English/Latin + Hind Vadodara for Gujarati — global override (replaces Noto/Fraunces/DM Sans). */
+*,*::before,*::after{font-family:"Inter","Hind Vadodara",sans-serif !important}
+body{font-family:"Inter","Hind Vadodara",sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.45}
 img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;display:inline-block}
 .wrap{max-width:560px;margin:0 auto;background:var(--bg);min-height:100vh}
 

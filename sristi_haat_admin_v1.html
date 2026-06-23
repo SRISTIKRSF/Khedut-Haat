@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>એડમિન — સૃષ્ટિ ખેડૂત હાટ</title>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@700;900&family=Noto+Sans+Gujarati:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
   --green:#1b4332; --green2:#2d6a4f; --green3:#52b788; --green-pale:#d8f3dc;
@@ -13,7 +13,9 @@
   --code:#1f2937; --code-bg:#111827;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{font-family:"Noto Sans Gujarati","DM Sans",sans-serif;background:var(--bg);color:var(--text);font-size:16px;line-height:1.5;min-height:100vh}
+/* V14 (2026-06-23): Inter for English/Latin + Hind Vadodara for Gujarati — global override (replaces Noto/Fraunces/DM Sans/JetBrains Mono). Also: dashboard date sized to match the status text. */
+*,*::before,*::after{font-family:"Inter","Hind Vadodara",sans-serif !important}
+body{font-family:"Inter","Hind Vadodara",sans-serif;background:var(--bg);color:var(--text);font-size:16px;line-height:1.5;min-height:100vh}
 img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;display:inline-block}
 .wrap{max-width:1280px;margin:0 auto;padding-bottom:60px}
 
@@ -725,7 +727,7 @@ function render(){
 
     <div class="week-bar">
       <div class="week-bar-info">
-        <div class="week-num" style="font-size:16px">${weekRange()} <span style="font-size:13px;color:var(--muted);font-weight:400">• ${esc(WK_META.frozen?"❄️ બંધ":"🟢 ખુલ્લી")}</span></div>
+        <div class="week-num" style="font-size:13px;font-weight:400;color:var(--muted)">${weekRange()} • ${esc(WK_META.frozen?"❄️ બંધ":"🟢 ખુલ્લી")}</div>
         <div class="week-stat"><b>${submittedCount}</b>/${totalFarmers} મોકલાઈ &nbsp; • &nbsp; <b>${publishedCount}</b> પ્રકાશિત</div>
       </div>
       <div class="week-bar-actions">
