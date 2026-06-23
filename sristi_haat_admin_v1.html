@@ -725,8 +725,7 @@ function render(){
 
     <div class="week-bar">
       <div class="week-bar-info">
-        <div class="week-num">હાટ #${esc(WK)}</div>
-        <div class="week-date">${esc(WK_META.dateLabel||"તારીખ સેટ નથી")} • ${esc(WK_META.frozen?"❄️ બંધ":"🟢 ખુલ્લી")}</div>
+        <div class="week-num" style="font-size:16px">${weekRange()} <span style="font-size:13px;color:var(--muted);font-weight:400">• ${esc(WK_META.frozen?"❄️ બંધ":"🟢 ખુલ્લી")}</span></div>
         <div class="week-stat"><b>${submittedCount}</b>/${totalFarmers} મોકલાઈ &nbsp; • &nbsp; <b>${publishedCount}</b> પ્રકાશિત</div>
       </div>
       <div class="week-bar-actions">
@@ -1112,6 +1111,38 @@ window.copyText = (text, msg) => {
 };
 
 /* ════════ TAB 2b: REVIEW (NEW — approval gate) ════════ */
+// V13: multi-select haat filters (Review + Farmers tabs) — independent per tab
+let REVIEW_HAATS = new Set();
+let FARMER_HAATS = new Set();
+function fidHaatCodes(fid){
+  const sub = SUBS[fid];
+  if(sub && Array.isArray(sub.farmerHaatCodes) && sub.farmerHaatCodes.length) return sub.farmerHaatCodes;
+  const f = FARMERS.find(x=>x.id===fid);
+  return (f && Array.isArray(f.haatCodes)) ? f.haatCodes : [];
+}
+function filterIdsByHaats(ids, selSet){
+  if(!selSet.size) return ids;
+  return ids.filter(fid => fidHaatCodes(fid).some(c => selSet.has(c)));
+}
+function haatCountsFromIds(ids){
+  const m={}; ids.forEach(fid => fidHaatCodes(fid).forEach(c => { m[c]=(m[c]||0)+1; })); return m;
+}
+function haatFilterRow(selSet, toggleFn, counts){
+  const haats = Object.values(HAATS).filter(h=>h && h.active!==false).sort((a,b)=>(a.seqOrder||999)-(b.seqOrder||999));
+  let chips = `<button class="btn-sm ${selSet.size===0?'primary':''}" onclick="${toggleFn}('__all__')">બધા હાટ</button>`;
+  chips += haats.map(h=>`<button class="btn-sm ${selSet.has(h.code)?'primary':''}" onclick="${toggleFn}('${esc(h.code)}')">${esc(h.nameGu||h.name||h.code)} <span style="opacity:.55;font-size:11px">(${counts[h.code]||0})</span></button>`).join('');
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;align-items:center"><span style="font-size:11px;color:var(--muted);margin-right:2px">હાટ ગાળો:</span>${chips}</div>`;
+}
+window.toggleReviewHaat = (code) => {
+  if(code==='__all__') REVIEW_HAATS.clear();
+  else { REVIEW_HAATS.has(code)?REVIEW_HAATS.delete(code):REVIEW_HAATS.add(code); }
+  setTabBodyHtml(); twe();
+};
+window.toggleFarmerHaat = (code) => {
+  if(code==='__all__') FARMER_HAATS.clear();
+  else { FARMER_HAATS.has(code)?FARMER_HAATS.delete(code):FARMER_HAATS.add(code); }
+  setTabBodyHtml();
+};
 let REVIEW_FILTER = 'pending';
 function renderReview(){
   const subKeys = Object.keys(SUBS);
@@ -1129,6 +1160,10 @@ function renderReview(){
     </div>
   `;
 
+  // V13: per-haat counts for the active status; tiles keep FULL counts, list is haat-filtered
+  const activeFull = REVIEW_FILTER==='approved'?approvedIds:REVIEW_FILTER==='rejected'?rejectedIds:REVIEW_FILTER==='notyet'?notYetIds:pendingIds;
+  const hCounts = haatCountsFromIds(activeFull);
+
   return `
     <div class="dash">
       ${tile('pending','⏳','Pending', pendingIds.length, 'var(--orange-pale)', 'var(--orange)', 'var(--orange)', 'સમીક્ષા બાકી')}
@@ -1137,7 +1172,14 @@ function renderReview(){
       ${tile('notyet','⊘','Not yet', notYetIds.length, '#fff', 'var(--border)', 'var(--text)', 'હજી મોકલી નથી')}
     </div>
 
-    ${renderReviewListByFilter({pendingIds, approvedIds, rejectedIds, notYetIds})}
+    ${haatFilterRow(REVIEW_HAATS, 'toggleReviewHaat', hCounts)}
+
+    ${renderReviewListByFilter({
+      pendingIds: filterIdsByHaats(pendingIds, REVIEW_HAATS),
+      approvedIds: filterIdsByHaats(approvedIds, REVIEW_HAATS),
+      rejectedIds: filterIdsByHaats(rejectedIds, REVIEW_HAATS),
+      notYetIds: filterIdsByHaats(notYetIds, REVIEW_HAATS)
+    })}
   `;
 }
 
@@ -1407,6 +1449,15 @@ function renderReviewCard(fid){
 
 // V11: null-guarded tab-body re-render (was throwing on re-render races)
 function setTabBodyHtml(){ const el = document.getElementById('tabBody'); if(el) el.innerHTML = renderTab(); }
+// V12: live Mon→Sun date range of the current week, formatted DD-MM-YYYY to DD-MM-YYYY
+function weekRange(d){
+  d = d || new Date();
+  const day = (d.getDay()+6)%7;            // 0=Mon … 6=Sun
+  const mon = new Date(d); mon.setDate(d.getDate()-day);
+  const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+  const f = x => String(x.getDate()).padStart(2,'0')+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+x.getFullYear();
+  return f(mon)+' to '+f(sun);
+}
 function formatAgo(ts){
   if(!ts) return "";
   const m = Math.round((Date.now()-ts)/60000);
@@ -1439,7 +1490,8 @@ window.approveSubmission = async (fid) => {
 };
 
 window.approveAllPending = async () => {
-  const pending = Object.keys(SUBS).filter(fid => SUBS[fid]?.status === 'pending');
+  let pending = Object.keys(SUBS).filter(fid => SUBS[fid]?.status === 'pending');
+  if(REVIEW_HAATS.size) pending = pending.filter(fid => fidHaatCodes(fid).some(c=>REVIEW_HAATS.has(c)));  // V13: respect active haat filter
   if(!pending.length) return toast("કંઈ pending નથી","err");
   if(!(await asyncConfirm(`બધી ${pending.length} pending submissions approve કરવી છે?`, 'હા, બધી approve કરો', 'રદ'))) return;
   if(_busy) return; _busy = true;
@@ -3367,7 +3419,12 @@ window.doPublish = async () => {
    • tabBody re-renders null-guarded (setTabBodyHtml)
    NOTE: status writes kept as update() (leaf-atomic). Full-node transactions were
    evaluated and intentionally NOT used — they wouldn't prevent the only real race
-   (approving a fresh re-submit) and add ServerValue-in-transaction risk. */
+   (approving a fresh re-submit) and add ServerValue-in-transaction risk.
+   V12 (2026-06-23): week display shows live Mon-Sun date range (weekRange()) instead of "હાટ #N";
+   new-week popup reworded (data set aside, not deleted) + manual date input removed.
+   V13 (2026-06-23): multi-select haat filter on Review + Farmers tabs (independent per tab, OR logic,
+   all active haats with match counts); approveAllPending respects the Review haat filter.
+   Shipped together as V13 — the V12 label changes were never released on their own. */
 let _busy = false;   // V11: in-flight guard shared by all submission write handlers
 
 /* ════════ TAB 4: FARMERS ════════ */
@@ -3386,6 +3443,10 @@ function renderFarmers(){
     }
     return true;
   });
+  // V13: Farmers haat filter — counts over the search/kind-filtered set, then narrow by selected haats
+  const fCounts = {};
+  rows.forEach(f => (Array.isArray(f.haatCodes)?f.haatCodes:[]).forEach(c=>{ fCounts[c]=(fCounts[c]||0)+1; }));
+  const shown = FARMER_HAATS.size ? rows.filter(f => Array.isArray(f.haatCodes) && f.haatCodes.some(c=>FARMER_HAATS.has(c))) : rows;
   return `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px">
@@ -3402,8 +3463,10 @@ function renderFarmers(){
         <button class="btn-sm ${FILTER_KIND==='pending'?'primary':''}" onclick="setFarmerKind('pending')">⏳ બાકી (${FARMERS.length - Object.keys(SUBS).filter(fid=>SUBS[fid]?.rawText||SUBS[fid]?.items).length})</button>
       </div>
 
+      ${haatFilterRow(FARMER_HAATS, 'toggleFarmerHaat', fCounts)}
+
       <div>
-        ${rows.length?rows.map((f,idx)=>renderFarmerRow(f,idx+1)).join(''):'<div class="state"><div class="state-icon">🔍</div><div class="state-title">કોઈ ખેડૂત મળ્યો નહીં</div></div>'}
+        ${shown.length?shown.map((f,idx)=>renderFarmerRow(f,idx+1)).join(''):'<div class="state"><div class="state-icon">🔍</div><div class="state-title">કોઈ ખેડૂત મળ્યો નહીં</div></div>'}
       </div>
     </div>
   `;
@@ -3780,26 +3843,20 @@ window.openNewWeek = () => {
     </div>
     <div class="modal-body">
       <div class="notice">
-        હાટ #${WK} બંધ થશે અને હાટ #${WK+1} ખુલશે. ખેડૂતો હવેથી નવા હાટ માટે submit કરી શકશે.<br>
-        Catalog આપોઆપ નવા હાટ પર switch થશે.
+        ${weekRange()} બંધ થશે અને નવા અઠવાડિયા માટે સ્ક્રીન ક્લીયર થશે. જૂનો ડેટા સચવાઈ રહેશે. નવા અઠવાડિયા માટેના સબમીશન ચાલુ થશે.
       </div>
       <div class="frm">
-        <div>
-          <label class="frm-label">નવા હાટની તારીખ</label>
-          <input class="frm-in" id="nwDate" placeholder="દા.ત. 21 June 2026">
-        </div>
         <button class="btn-primary" onclick="confirmNewWeek()">✓ નવો અઠવાડિયો ખોલો</button>
       </div>
     </div>
   `);
 };
 window.confirmNewWeek = async () => {
-  const date = $('#nwDate').value.trim();
   await fbRef('weekly/'+WK+'/meta').update({frozen:true});
   const nx = (typeof WK==='number'?WK:parseInt(WK,10))+1;
-  await fbRef('weekly/'+nx+'/meta').set({weekNum:nx, dateLabel:date, timeLabel:"7–10 AM", frozen:false, createdAt:Date.now()});
+  await fbRef('weekly/'+nx+'/meta').set({weekNum:nx, dateLabel:weekRange(), timeLabel:"7–10 AM", frozen:false, createdAt:Date.now()});
   await fbRef('weekly/current').set(nx);
-  closeModal(); toast("હાટ #"+nx+" ખુલ્યો","ok"); await loadAll();
+  closeModal(); toast("નવો અઠવાડિયો ખુલ્યો","ok"); await loadAll();
 };
 
 function buildCustomerMessage(){
