@@ -327,7 +327,11 @@ function buildLists(){
     const sub = SUBMISSIONS[fid];
     if(sub.status === 'pending' || sub.status === 'rejected') return;
     const f = FARMERS_MAP[fid] || {id:fid, name: sub.farmerName || "ખેડૂત"};
-    const venues = farmerVenues(f);
+    // V15: venues come from THIS week's submission (the haat(s) the farmer actually submitted for),
+    // NOT the farmer's full enrollment — so a closed haat doesn't show. Fallback to enrollment for legacy subs.
+    const venues = (sub.farmerHaat && String(sub.farmerHaat).trim())
+      ? String(sub.farmerHaat).split(/[,;|\/]/).map(s=>s.trim()).filter(Boolean)
+      : farmerVenues(f);
     const items = (sub.items||[]).filter(it=>it.available!==false);
     if(!items.length) return;
     items.forEach((it, idx)=>{
