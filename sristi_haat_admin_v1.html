@@ -2639,25 +2639,28 @@ function resizePhoto(file, maxDim, q){
 
 // Cached module handle so the import only happens once per session
 let _bgRemoveLib = null;
+const _BG_CDN = 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/dist/browser/';
 
-// Remove background from a File or Cloudinary URL, composite on white, auto-trim + centre
+// Remove background from a File, data URI or https URL, composite on white, auto-trim + centre
 // on a 512×512 square. Returns a Blob (WebP).
 async function bgRemoveAndProcess(source) {
   if (!_bgRemoveLib) {
-    _bgRemoveLib = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal/dist/browser/index.js');
+    // Use .mjs (ESM) build; publicPath tells the lib where to fetch ONNX model files from CDN
+    _bgRemoveLib = await import(_BG_CDN + 'index.mjs');
   }
   const { removeBackground } = _bgRemoveLib;
 
   let inputBlob;
-  if (typeof source === 'string') {
-    const resp = await fetch(source);
-    inputBlob = await resp.blob();
+  if (source instanceof File || source instanceof Blob) {
+    inputBlob = source;
+  } else if (typeof source === 'string' && source.startsWith('data:')) {
+    const r = await fetch(source); inputBlob = await r.blob();
   } else {
-    inputBlob = source; // File
+    const r = await fetch(source); inputBlob = await r.blob();
   }
 
-  // BG removal → PNG with transparency
-  const noBgBlob = await removeBackground(inputBlob);
+  // BG removal → PNG with transparency; publicPath = where ONNX models live on CDN
+  const noBgBlob = await removeBackground(inputBlob, { publicPath: _BG_CDN });
 
   // Composite on white + auto-trim + pad + square 512×512
   return new Promise((resolve, reject) => {
@@ -3280,8 +3283,10 @@ function openProductModal(existing, defaultCat){
   const cats = Object.keys(CAT_EMOJI_MAP);
   const curCat = existing?.cat || defaultCat || '';
   const cfgOK = !!(CLOUDINARY_CFG && CLOUDINARY_CFG.cloudName && CLOUDINARY_CFG.uploadPreset);
-  // Pre-fill photo from slicer/productPhotos if the product record has no direct photo URL
+  // URL field: Cloudinary URL only (no data URIs in a text input)
   const existingPhoto = existing ? (existing.photo || photoForNameUrlOnly(existing.name) || '') : '';
+  // Preview: also accept data URIs stored by slicer
+  const existingPreview = existingPhoto || (existing ? photoForName(existing.name) : '');
   modal(`
     <div class="modal-hdr">
       <div class="modal-title">${isEdit?'✏️ '+esc(existing.name)+' — Edit':'+ નવી પ્રોડક્ટ ઉમેરો'}</div>
@@ -3307,7 +3312,7 @@ function openProductModal(existing, defaultCat){
             <input class="frm-in" id="pdPh" value="${esc(existingPhoto)}" placeholder="https://res.cloudinary.com/...">
             <button class="btn-sm" onclick="uploadProductPhoto()" style="white-space:nowrap" ${!cfgOK?'disabled':''}>✨ Upload</button>
           </div>
-          ${existingPhoto ? `<img src="${esc(existingPhoto.startsWith('data:') ? existingPhoto : cloudinaryThumb(existingPhoto,160))}" id="pdPreview" style="margin-top:10px;max-width:140px;border-radius:8px;border:1px solid #ddd">` : '<img id="pdPreview" style="display:none;margin-top:10px;max-width:140px;border-radius:8px;border:1px solid #ddd">'}
+          ${existingPreview ? `<img src="${esc(existingPreview.startsWith('data:') ? existingPreview : cloudinaryThumb(existingPreview,160))}" id="pdPreview" style="margin-top:10px;max-width:140px;border-radius:8px;border:1px solid #ddd">` : '<img id="pdPreview" style="display:none;margin-top:10px;max-width:140px;border-radius:8px;border:1px solid #ddd">'}
           ${!cfgOK ? '<div style="font-size:11.5px;color:var(--orange);margin-top:6px">⚠️ Photo upload માટે Cloudinary સેટ કરો (ⓘ ઉપર સેટિંગ્સ)</div>' : ''}
         </div>
       </div>
@@ -3361,8 +3366,8 @@ window.standardiseAllPhotos = async () => {
   if(!CLOUDINARY_CFG?.cloudName) return toast("Cloudinary સેટ નથી","err");
   // Include products with photo in product record OR in productPhotos (slicer uploads)
   const withPhotos = Object.values(PRODUCTS_DB).filter(p => {
-    const url = p.photo || photoForNameUrlOnly(p.name);
-    return url && url.startsWith('https://');
+    const url = p.photo || photoForName(p.name);
+    return !!(url && (url.startsWith('https://') || url.startsWith('data:')));
   });
   if(!withPhotos.length) return toast("Photos ન મળ્યા","err");
   const ok = await asyncConfirm(
@@ -3373,7 +3378,7 @@ window.standardiseAllPhotos = async () => {
   // Backup all current photo URLs to RTDB before touching anything
   const backupKey = 'backup_' + Date.now();
   const backup = {};
-  withPhotos.forEach(p => { backup[p.id] = p.photo; });
+  withPhotos.forEach(p => { backup[p.id] = p.photo || photoForNameUrlOnly(p.name) || '(slicer-datauri)'; });
   try {
     await fbRef('backups/photoUrls/' + backupKey).set(backup);
     toast("✅ Backup saved — " + backupKey, "ok");
@@ -3386,7 +3391,7 @@ window.standardiseAllPhotos = async () => {
   for(const p of withPhotos){
     toast(`${done+failed+1}/${withPhotos.length} — ${p.name}…`,"ok");
     try{
-      const srcUrl = p.photo || photoForNameUrlOnly(p.name);
+      const srcUrl = p.photo || photoForName(p.name);
       const processed = await bgRemoveAndProcess(srcUrl);
       const fd = new FormData();
       fd.append('file', processed, 'product.webp');
