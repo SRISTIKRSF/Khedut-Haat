@@ -679,6 +679,7 @@ async function loadAll(){
       CUSTOM_CATS = {};
       Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) CUSTOM_CATS[c.name] = c.emoji || '🌿'; });
       mergeCustomCats(CUSTOM_CATS);
+      applyCategoryOrder((await fbRef('settings/categoryOrder').get()).val() || []);
     }catch{ CUSTOM_CATS = {}; }
     HAATS = hSnap.val() || {};
     DISTRICTS = dSnap.val() || {};
@@ -2411,6 +2412,16 @@ function mergeCustomCats(custom){
     }
   });
 }
+// Reorder CATEGORY_DISPLAY by a saved order of category keys (settings/categoryOrder).
+// Categories not in the saved order keep their current relative position, at the end.
+function applyCategoryOrder(order){
+  if(!Array.isArray(order) || !order.length) return;
+  const rank = {}; order.forEach((n,i) => { rank[n] = i; });
+  const tagged = CATEGORY_DISPLAY.map((d,i) => ({d, ord: (rank[d.key] != null ? rank[d.key] : 1000 + i)}));
+  tagged.sort((a,b) => a.ord - b.ord);
+  CATEGORY_DISPLAY.length = 0;
+  tagged.forEach(t => CATEGORY_DISPLAY.push(t.d));
+}
 
 function renderPhotos(){
   const all = uniqueItemNames();
@@ -3258,6 +3269,7 @@ function renderProducts(){
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="font-size:13px;color:var(--muted)">💡 <b>drag</b> કરી ક્રમ બદલો</div>
         <button class="btn-sm" onclick="openAddCategory()" title="નવી category ઉમેરો">+ કેટેગરી</button>
+        <button class="btn-sm" onclick="openCategoryOrder()" title="કેટેગરી ક્રમ બદલો — drag">↕ કેટેગરી ક્રમ</button>
         <button class="btn-sm" onclick="importProductsExcel()" title="Excel (.xlsx) માંથી products ઉમેરો — Category + Product columns">📥 Excel import</button>
         <button class="btn-sm" onclick="standardiseAllPhotos()" title="બધા photos: BG remove + white background + 512px square">🧹 Standardise photos</button>
       </div>
@@ -3701,6 +3713,47 @@ window.saveCategory = async () => {
     logAudit('category-add','settings/categories',{name});
     closeModal();
     toast(`✓ કેટેગરી "${name}" ઉમેરાઈ`,"ok");
+    setTabBodyHtml();
+  }catch(e){ console.error(e); toast("Save નિષ્ફળ: "+(e.message||e),"err"); }
+  finally{ _busy = false; }
+};
+
+window.openCategoryOrder = () => {
+  const rows = CATEGORY_DISPLAY.map(d => `
+    <div class="cat-order-row" data-key="${esc(d.key)}" style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:grab">
+      <span style="color:var(--muted);font-size:18px;line-height:1">≡</span>
+      <span style="font-size:18px">${d.emoji}</span>
+      <span style="font-weight:600;font-size:14px">${esc(d.label)}</span>
+    </div>`).join('');
+  modal(`
+    <div class="modal-hdr">
+      <div class="modal-title">↕ કેટેગરી ક્રમ</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="card-sub">Drag કરી ક્રમ બદલો — products tab, farmer form અને customer catalog બધે લાગુ થશે.</div>
+      <div id="catOrderList" style="margin-top:12px;max-height:58vh;overflow-y:auto">${rows}</div>
+    </div>
+    <div style="display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--border)">
+      <button class="btn-sm" onclick="closeModal()" style="flex:1">રદ</button>
+      <button class="btn-sm primary" onclick="saveCategoryOrder()" style="flex:1">✓ ક્રમ સાચવો</button>
+    </div>
+  `);
+  setTimeout(() => {
+    const list = document.getElementById('catOrderList');
+    if(list && typeof Sortable !== 'undefined') Sortable.create(list, {animation:150, ghostClass:'order-ghost'});
+  }, 40);
+};
+window.saveCategoryOrder = async () => {
+  const order = [...document.querySelectorAll('#catOrderList .cat-order-row')].map(el => el.getAttribute('data-key'));
+  if(!order.length) return;
+  if(_busy) return; _busy = true;
+  try{
+    await fbRef('settings/categoryOrder').set(order);
+    applyCategoryOrder(order);
+    logAudit('category-reorder','settings/categoryOrder',{count:order.length});
+    closeModal();
+    toast("✓ કેટેગરી ક્રમ સાચવાયો","ok");
     setTabBodyHtml();
   }catch(e){ console.error(e); toast("Save નિષ્ફળ: "+(e.message||e),"err"); }
   finally{ _busy = false; }

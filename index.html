@@ -211,6 +211,14 @@ function mergeCustomCats(custom){
     }
   });
 }
+// Reorder CAT_ORDER by a saved order (settings/categoryOrder); unknowns keep relative pos at end.
+function applyCategoryOrder(order){
+  if(!Array.isArray(order) || !order.length) return;
+  const rank = {}; order.forEach((n,i) => { rank[n] = i; });
+  const tagged = CAT_ORDER.map((c,i) => ({c, ord: (rank[c] != null ? rank[c] : 1000 + i)}));
+  tagged.sort((a,b) => a.ord - b.ord);
+  CAT_ORDER.length = 0; tagged.forEach(t => CAT_ORDER.push(t.c));
+}
 
 const $=q=>document.querySelector(q);
 const $$=q=>document.querySelectorAll(q);
@@ -310,7 +318,7 @@ async function init(){
   try{
     const cur = await fbRef('weekly/current').get();
     WK = cur.exists() ? cur.val() : 1;
-    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap, haatSnap, catSnap] = await Promise.all([
+    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap, haatSnap, catSnap, coSnap] = await Promise.all([
       fbRef('weekly/'+WK+'/meta').get(),
       fbRef('weekly/'+WK+'/submissions').get(),
       fbRef('marketFarmers').get(),
@@ -320,12 +328,13 @@ async function init(){
       fbRef('settings/siteConfig').get(),
       fbRef('haats').get(),
       fbRef('settings/categories').get(),
+      fbRef('settings/categoryOrder').get(),
     ]);
     WK_META = metaSnap.val() || {weekNum:WK};
     SITE_CFG = scSnap.val() || null;
     HAAT_NAME_BY_CODE = {};
     Object.entries(haatSnap.val() || {}).forEach(([code, h]) => { HAAT_NAME_BY_CODE[code] = (h && (h.nameGu || h.name)) || code; });
-    { const cc = {}; Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; }); mergeCustomCats(cc); }
+    { const cc = {}; Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; }); mergeCustomCats(cc); applyCategoryOrder(coSnap.val() || []); }
     SUBMISSIONS = subSnap.val() || {};
     PRODUCT_PHOTOS = pSnap.val() || {};
     PRODUCT_PHOTO_MAP = mSnap.val() || {};
@@ -644,9 +653,6 @@ function itemCard(it){
   const priceTxt = (_pr.min && _pr.max && _pr.min !== _pr.max)
     ? `₹${esc(_pr.min)}-${esc(_pr.max)}`
     : `₹${esc(_pr.min || it.price)}`;
-  const qtyTxt = it.qty
-    ? `<div class="item-card-qty">~${esc(it.qty)}${esc(it.unit)}</div>`
-    : (it.hasMultipleUnits ? `<div class="item-card-qty">વિવિધ સાઈઝ</div>` : '');
   const farmerBadge = it.farmerCount > 1
     ? `<div style="position:absolute;top:3px;right:3px;background:rgba(0,0,0,.78);color:#fff;border-radius:9999px;padding:0 5px;font-size:8.5px;font-weight:700;line-height:1.35">${it.farmerCount}</div>`
     : '';
@@ -656,7 +662,6 @@ function itemCard(it){
       <div class="item-card-body">
         <div class="item-card-name">${esc(it.name)}</div>
         <div class="item-card-price">${priceTxt}<span class="item-card-unit">/${esc(it.unit)}</span></div>
-        ${qtyTxt}
       </div>
     </div>
   `;

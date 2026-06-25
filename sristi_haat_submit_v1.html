@@ -252,6 +252,14 @@ function mergeCustomCats(custom){
     }
   });
 }
+// Reorder CAT_ORDER by a saved order (settings/categoryOrder); unknowns keep relative pos at end.
+function applyCategoryOrder(order){
+  if(!Array.isArray(order) || !order.length) return;
+  const rank = {}; order.forEach((n,i) => { rank[n] = i; });
+  const tagged = CAT_ORDER.map((c,i) => ({c, ord: (rank[c] != null ? rank[c] : 1000 + i)}));
+  tagged.sort((a,b) => a.ord - b.ord);
+  CAT_ORDER.length = 0; tagged.forEach(t => CAT_ORDER.push(t.c));
+}
 
 const $=q=>document.querySelector(q);
 const $$=q=>document.querySelectorAll(q);
@@ -613,6 +621,7 @@ async function loadSubmission(){
     const cc = {};
     Object.values((await fbRef('settings/categories').get()).val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; });
     mergeCustomCats(cc);
+    applyCategoryOrder((await fbRef('settings/categoryOrder').get()).val() || []);
   }catch(e){ /* non-fatal */ }
   // Load haats and filter to ones currently OPEN for this farmer
   try{
