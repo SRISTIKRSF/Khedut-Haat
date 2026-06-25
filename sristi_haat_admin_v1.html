@@ -3280,6 +3280,8 @@ function openProductModal(existing, defaultCat){
   const cats = Object.keys(CAT_EMOJI_MAP);
   const curCat = existing?.cat || defaultCat || '';
   const cfgOK = !!(CLOUDINARY_CFG && CLOUDINARY_CFG.cloudName && CLOUDINARY_CFG.uploadPreset);
+  // Pre-fill photo from slicer/productPhotos if the product record has no direct photo URL
+  const existingPhoto = existing ? (existing.photo || photoForNameUrlOnly(existing.name) || '') : '';
   modal(`
     <div class="modal-hdr">
       <div class="modal-title">${isEdit?'✏️ '+esc(existing.name)+' — Edit':'+ નવી પ્રોડક્ટ ઉમેરો'}</div>
@@ -3302,10 +3304,10 @@ function openProductModal(existing, defaultCat){
         <div class="frm-row">
           <label class="frm-label">ફોટો — ✨ BG remove + white background (optional)</label>
           <div style="display:flex;gap:6px">
-            <input class="frm-in" id="pdPh" value="${esc(existing?.photo||'')}" placeholder="https://res.cloudinary.com/...">
+            <input class="frm-in" id="pdPh" value="${esc(existingPhoto)}" placeholder="https://res.cloudinary.com/...">
             <button class="btn-sm" onclick="uploadProductPhoto()" style="white-space:nowrap" ${!cfgOK?'disabled':''}>✨ Upload</button>
           </div>
-          ${existing?.photo ? `<img src="${esc(cloudinaryThumb(existing.photo,160))}" id="pdPreview" style="margin-top:10px;max-width:140px;border-radius:8px;border:1px solid #ddd">` : '<img id="pdPreview" style="display:none;margin-top:10px;max-width:140px;border-radius:8px;border:1px solid #ddd">'}
+          ${existingPhoto ? `<img src="${esc(existingPhoto.startsWith('data:') ? existingPhoto : cloudinaryThumb(existingPhoto,160))}" id="pdPreview" style="margin-top:10px;max-width:140px;border-radius:8px;border:1px solid #ddd">` : '<img id="pdPreview" style="display:none;margin-top:10px;max-width:140px;border-radius:8px;border:1px solid #ddd">'}
           ${!cfgOK ? '<div style="font-size:11.5px;color:var(--orange);margin-top:6px">⚠️ Photo upload માટે Cloudinary સેટ કરો (ⓘ ઉપર સેટિંગ્સ)</div>' : ''}
         </div>
       </div>
@@ -3357,7 +3359,11 @@ window.uploadProductPhoto = async () => {
 
 window.standardiseAllPhotos = async () => {
   if(!CLOUDINARY_CFG?.cloudName) return toast("Cloudinary સેટ નથી","err");
-  const withPhotos = Object.values(PRODUCTS_DB).filter(p => p.photo && p.photo.startsWith('https://'));
+  // Include products with photo in product record OR in productPhotos (slicer uploads)
+  const withPhotos = Object.values(PRODUCTS_DB).filter(p => {
+    const url = p.photo || photoForNameUrlOnly(p.name);
+    return url && url.startsWith('https://');
+  });
   if(!withPhotos.length) return toast("Photos ન મળ્યા","err");
   const ok = await asyncConfirm(
     `${withPhotos.length} products ના photos standardise કરવા છે?\n\nBG remove + white background + 512×512 square.\n\nPrthom vaar ~30s model download thay. Pachhi fast.\n\nOriginal Cloudinary URLs replace thashe.`,
@@ -3380,7 +3386,8 @@ window.standardiseAllPhotos = async () => {
   for(const p of withPhotos){
     toast(`${done+failed+1}/${withPhotos.length} — ${p.name}…`,"ok");
     try{
-      const processed = await bgRemoveAndProcess(p.photo);
+      const srcUrl = p.photo || photoForNameUrlOnly(p.name);
+      const processed = await bgRemoveAndProcess(srcUrl);
       const fd = new FormData();
       fd.append('file', processed, 'product.webp');
       fd.append('upload_preset', CLOUDINARY_CFG.uploadPreset);
