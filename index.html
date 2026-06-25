@@ -208,6 +208,7 @@ function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{f
 
 let WK=null, WK_META={}, SUBMISSIONS={}, FARMERS_MAP={};
 let SITE_CFG=null;            // settings/siteConfig — admin Design tab branding (banner/logo/text)
+let HAAT_NAME_BY_CODE={};     // haat code -> display name (to map per-haat prices, keyed by code, onto venue names)
 let PRODUCTS_MASTER={}, PRODUCTS_BY_NAME={};   // Part A: master catalogue (id -> product, normName -> product)
 function normName(s){ return String(s==null?'':s).trim().toLowerCase(); }
 function resolveMaster(it){
@@ -298,7 +299,7 @@ async function init(){
   try{
     const cur = await fbRef('weekly/current').get();
     WK = cur.exists() ? cur.val() : 1;
-    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap] = await Promise.all([
+    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap, haatSnap] = await Promise.all([
       fbRef('weekly/'+WK+'/meta').get(),
       fbRef('weekly/'+WK+'/submissions').get(),
       fbRef('marketFarmers').get(),
@@ -306,9 +307,12 @@ async function init(){
       fbRef('productPhotoMap').get(),
       fbRef('products').get(),
       fbRef('settings/siteConfig').get(),
+      fbRef('haats').get(),
     ]);
     WK_META = metaSnap.val() || {weekNum:WK};
     SITE_CFG = scSnap.val() || null;
+    HAAT_NAME_BY_CODE = {};
+    Object.entries(haatSnap.val() || {}).forEach(([code, h]) => { HAAT_NAME_BY_CODE[code] = (h && (h.nameGu || h.name)) || code; });
     SUBMISSIONS = subSnap.val() || {};
     PRODUCT_PHOTOS = pSnap.val() || {};
     PRODUCT_PHOTO_MAP = mSnap.val() || {};
@@ -353,14 +357,27 @@ function buildLists(){
     if(!items.length) return;
     // Part A: resolve each item to its MASTER product → display the master name + category.
     // Legacy items with no master match keep their typed name but fall into "અન્ય" (Other).
+    const subCodes = Array.isArray(sub.farmerHaatCodes) ? sub.farmerHaatCodes : [];
     const resolved = items.map(it => {
       const m = resolveMaster(it);
+      // Per-venue price keyed by venue NAME: use the per-haat price if set, else the base price.
+      // (priceByHaat is keyed by haat CODE; map code -> name here so display can look it up by venue.)
+      const pbv = {};
+      if(subCodes.length){
+        subCodes.forEach(code => {
+          const nm = HAAT_NAME_BY_CODE[code] || code;
+          pbv[nm] = (it.priceByHaat && it.priceByHaat[code] != null) ? +it.priceByHaat[code] : (+it.price||0);
+        });
+      } else {
+        venues.forEach(nm => { pbv[nm] = +it.price||0; });
+      }
       return { ...it,
         _dispName: m ? m.name : (it.name||'').trim(),
         _dispCat:  m ? (m.cat||'અન્ય') : 'અન્ય',
         _masterId: m ? m.id : null,
         _emoji:    (m && m.emoji) || it.emoji,
         _photo:    (m && m.photo) || '',
+        _priceByVenue: pbv,
       };
     });
     resolved.forEach(it=>{
@@ -402,7 +419,7 @@ function buildLists(){
     if(p > 0) agg.prices.push(p);
     if(it.qty != null && it.qty !== "" && +it.qty > 0) agg.totalQty += +it.qty;
     (it.venues || []).forEach(v => agg.venueSet.add(v));
-    agg.farmers.push({name:it.farmerName, farmerFid:it.farmerFid, originalItemName:dispName, unit:u, price:p, qty:+it.qty||0});
+    agg.farmers.push({name:it.farmerName, farmerFid:it.farmerFid, originalItemName:dispName, unit:u, price:p, qty:+it.qty||0, priceByVenue: it._priceByVenue || {}});
   });
   // 3. Build ALL_ITEMS — master groups use the master name; legacy use shortest variant.
   ALL_ITEMS = [...aggMap.values()].map(agg => {
@@ -588,13 +605,32 @@ function renderItems(){
   `).join('');
 }
 
+// Per-haat pricing: a farmer's effective price at the currently selected venue (base when 'all').
+function farmerEffPrice(f){
+  if(VENUE !== 'all' && f.priceByVenue && f.priceByVenue[VENUE] != null) return +f.priceByVenue[VENUE]||0;
+  return +f.price||0;
+}
+// Item price min/max, scoped to the selected venue (only farmers present at that venue).
+function itemPriceRange(it){
+  let prices;
+  if(VENUE === 'all'){
+    prices = (it.farmers||[]).map(f => +f.price||0).filter(p=>p>0);
+  } else {
+    prices = (it.farmers||[]).filter(f => f.priceByVenue && f.priceByVenue[VENUE] != null)
+                             .map(f => +f.priceByVenue[VENUE]||0).filter(p=>p>0);
+  }
+  if(!prices.length) return {min: it.minPrice||it.price||0, max: it.maxPrice||it.price||0};
+  return {min: Math.min(...prices), max: Math.max(...prices)};
+}
+
 function itemCard(it){
   const emo = it.emoji || CAT_EMOJI[it.cat] || '🌿';
   const photo = it.photoUrl || photoFor(it.name);
   const img = photo ? `<img src="${esc(cloudinaryThumb(photo,200))}" alt="" loading="lazy">` : esc(emo);
-  const priceTxt = (it.minPrice && it.maxPrice && it.minPrice !== it.maxPrice)
-    ? `₹${esc(it.minPrice)}-${esc(it.maxPrice)}`
-    : `₹${esc(it.minPrice || it.price)}`;
+  const _pr = itemPriceRange(it);
+  const priceTxt = (_pr.min && _pr.max && _pr.min !== _pr.max)
+    ? `₹${esc(_pr.min)}-${esc(_pr.max)}`
+    : `₹${esc(_pr.min || it.price)}`;
   const qtyTxt = it.qty
     ? `<div class="item-card-qty">~${esc(it.qty)}${esc(it.unit)}</div>`
     : (it.hasMultipleUnits ? `<div class="item-card-qty">વિવિધ સાઈઝ</div>` : '');
@@ -616,15 +652,16 @@ function itemCard(it){
 window.openProductSheet = (productKey) => {
   const it = ALL_ITEMS.find(x => x._k === productKey);
   if(!it) return;
-  // Sort farmers by price (cheapest first)
-  const sorted = [...(it.farmers||[])].sort((a,b) => (a.price||0) - (b.price||0));
-  const cheapest = sorted[0]?.price || 0;
+  const _shr = itemPriceRange(it);   // venue-scoped price range for the sheet header
+  // Sort farmers by price (cheapest first) — use the price for the selected venue.
+  const sorted = [...(it.farmers||[])].sort((a,b) => (farmerEffPrice(a)||0) - (farmerEffPrice(b)||0));
+  const cheapest = farmerEffPrice(sorted[0]||{}) || 0;
   // Resolve farmer details from FARMERS_MAP
   const enriched = sorted.map(f => {
     const meta = (f.farmerFid && FARMERS_MAP[f.farmerFid]) || Object.values(FARMERS_MAP).find(m => m.name === f.name);
     return {
       name: f.name,
-      price: f.price,
+      price: farmerEffPrice(f),
       unit: f.unit,
       phone: meta?.phone || '',
       venues: meta ? farmerVenues(meta) : [],
@@ -674,7 +711,7 @@ window.openProductSheet = (productKey) => {
           <div style="width:38px;height:38px;background:#d8f3dc;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:20px;overflow:hidden;flex-shrink:0">${img}</div>
           <div style="flex:1;min-width:0">
             <div style="font-family:'Fraunces','Noto Sans Gujarati',serif;font-size:15px;font-weight:600">${esc(it.name)}</div>
-            <div style="font-size:10.5px;color:#6b7280">${esc(it.cat||'')} · ${enriched.length} ખેડૂત · ₹${esc(it.minPrice)}${it.maxPrice && it.maxPrice !== it.minPrice ? '-'+esc(it.maxPrice) : ''}/${esc(it.unit)}</div>
+            <div style="font-size:10.5px;color:#6b7280">${esc(it.cat||'')} · ${enriched.length} ખેડૂત · ₹${esc(_shr.min)}${_shr.max && _shr.max !== _shr.min ? '-'+esc(_shr.max) : ''}/${esc(it.unit)}</div>
           </div>
         </div>
         <div style="padding:11px 14px 6px;font-size:10px;color:#6b7280;font-weight:700;letter-spacing:.8px;text-transform:uppercase">આ ખેડૂત પાસે મળશે</div>
@@ -686,7 +723,7 @@ window.openProductSheet = (productKey) => {
             <div style="width:46px;height:46px;background:#d8f3dc;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:24px;overflow:hidden;flex-shrink:0">${img}</div>
             <div style="flex:1">
               <div style="font-family:'Fraunces','Noto Sans Gujarati',serif;font-size:18px;font-weight:600">${esc(it.name)}</div>
-              <div style="font-size:11px;color:#6b7280">${esc(it.cat||'')} · ${enriched.length} ખેડૂત · ₹${esc(it.minPrice)}${it.maxPrice && it.maxPrice !== it.minPrice ? '-'+esc(it.maxPrice) : ''}/${esc(it.unit)}</div>
+              <div style="font-size:11px;color:#6b7280">${esc(it.cat||'')} · ${enriched.length} ખેડૂત · ₹${esc(_shr.min)}${_shr.max && _shr.max !== _shr.min ? '-'+esc(_shr.max) : ''}/${esc(it.unit)}</div>
             </div>
             <div onclick="closeProductSheet()" style="background:#f4f4ef;color:#444;font-size:18px;font-weight:600;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">×</div>
           </div>
@@ -740,15 +777,18 @@ function renderFarmers(){
           </div>
           ${f.venues.length?`<div class="farmer-venues">${f.venues.map(v=>`<span class="venue-chip">📍 ${esc(v)}</span>`).join('')}</div>`:''}
           <div class="farmer-items ${open?'open':''}">
-            ${f.items.map(it=>`
+            ${f.items.map(it=>{
+              // show this farmer's price for the selected venue (base when 'all')
+              const fp = (VENUE!=='all' && it._priceByVenue && it._priceByVenue[VENUE]!=null) ? it._priceByVenue[VENUE] : it.price;
+              return `
               <div class="farmer-item-row">
                 <div style="flex:1;min-width:0">
                   <span class="item-cat-tag">${esc(it.cat||'')}</span>
                   ${esc(it.name)}
                 </div>
-                <div class="item-price-tag">₹${esc(it.price)} <span style="font-weight:400;color:var(--muted);font-size:11px">/ ${esc(it.unit)}</span>${it.qty?` <span style="color:var(--green2);font-weight:600;font-size:10.5px;margin-left:5px">× ${esc(it.qty)} ${esc(it.unit)}</span>`:''}</div>
+                <div class="item-price-tag">₹${esc(fp)} <span style="font-weight:400;color:var(--muted);font-size:11px">/ ${esc(it.unit)}</span>${it.qty?` <span style="color:var(--green2);font-weight:600;font-size:10.5px;margin-left:5px">× ${esc(it.qty)} ${esc(it.unit)}</span>`:''}</div>
               </div>
-            `).join('')}
+            `;}).join('')}
           </div>
         </div>
       `;

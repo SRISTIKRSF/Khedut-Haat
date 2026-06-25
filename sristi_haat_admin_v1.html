@@ -1438,10 +1438,24 @@ function renderReviewCard(fid){
           ${qtyHtml}
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div style="font-size:15.5px;font-weight:800;color:var(--orange);line-height:1">₹${esc(it.price)}</div>
-          <div style="font-size:10.5px;color:var(--muted);margin-top:2px">/${esc(it.unit)}</div>
-          ${priceChanged?`<div style="font-size:10px;color:var(--muted);margin-top:2px"><s>₹${esc(prev.price)}</s></div>`:''}
-          ${priceDelta?`<div style="margin-top:3px">${priceDelta}</div>`:''}
+          ${(() => {
+            const pbh = it.priceByHaat;
+            const distinct = pbh ? [...new Set(Object.values(pbh).map(x=>+x||0).filter(x=>x>0))] : [];
+            if(pbh && distinct.length > 1){
+              // Per-haat prices differ — show each so admin sees before approving.
+              return `<div style="display:flex;flex-direction:column;gap:1px;align-items:flex-end">
+                ${Object.entries(pbh).filter(([,v])=>+v>0).map(([code,v]) => {
+                  const name = HAATS[code]?.nameGu || HAATS[code]?.name || code;
+                  return `<div style="font-size:11.5px;white-space:nowrap"><span style="color:var(--muted)">${esc(name)}:</span> <b style="color:var(--orange)">₹${esc(v)}</b></div>`;
+                }).join('')}
+                <div style="font-size:10px;color:var(--muted)">/${esc(it.unit)}</div>
+              </div>`;
+            }
+            return `<div style="font-size:15.5px;font-weight:800;color:var(--orange);line-height:1">₹${esc(it.price)}</div>
+              <div style="font-size:10.5px;color:var(--muted);margin-top:2px">/${esc(it.unit)}</div>
+              ${priceChanged?`<div style="font-size:10px;color:var(--muted);margin-top:2px"><s>₹${esc(prev.price)}</s></div>`:''}
+              ${priceDelta?`<div style="margin-top:3px">${priceDelta}</div>`:''}`;
+          })()}
         </div>
       </div>
     `;
@@ -1503,7 +1517,6 @@ function renderReviewCard(fid){
       <div style="display:flex;gap:8px;padding:11px 16px;border-top:1px solid var(--border);flex-wrap:wrap;justify-content:flex-end">
         <button class="btn-sm" onclick="openNote('${esc(fid)}')">📝 ${sub.noteToFarmer?'Edit note':'Note'}</button>
         <button class="btn-sm" onclick="editSubmission('${esc(fid)}')">✏️ Edit</button>
-        <button class="btn-sm" style="background:#fff8d6;color:#7a5a00;border-color:#f7c800" onclick="sendBackSubmission('${esc(fid)}')">🔄 Send Back</button>
         <button class="btn-sm" style="background:var(--red-pale);color:var(--red);border-color:#f5c4c4" onclick="rejectSubmission('${esc(fid)}')">✗ Reject</button>
         <button class="btn-sm primary" onclick="approveSubmission('${esc(fid)}')">✓ Approve</button>
       </div>
@@ -1577,50 +1590,6 @@ window.approveAllPending = async () => {
     toast(`✓ ${pending.length} submissions approved`,"ok");
     render();
   }catch(e){ console.error(e); toast("Bulk approve નિષ્ફળ","err"); }
-  finally{ _busy = false; }
-};
-
-window.sendBackSubmission = (fid) => {
-  const sub = SUBS[fid] || {};
-  modal(`
-    <div class="modal-hdr">
-      <div class="modal-title">🔄 Send back to ${esc(sub.farmerName||fid)}</div>
-      <button class="modal-close" onclick="closeModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="card-sub">Submission ખેડૂત ને પાછી મોકલો સુધારવા. તેઓ submit form ખોલશે ત્યારે તમારી note દેખાશે, અને ફરી submit કરી શકશે.</div>
-      <div class="frm-row" style="margin-top:14px">
-        <label class="frm-label">શું સુધારવા કહેવું? (ખેડૂતને દેખાશે)</label>
-        <textarea class="frm-in" id="sbReason" rows="3" placeholder="દા.ત. દૂધી જથ્થો 102 લાગે છે — 12 હશે? ફરી જુઓ"></textarea>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:14px">
-        <button class="btn-sm" onclick="closeModal()" style="flex:1">રદ</button>
-        <button class="btn-sm" style="flex:1;background:#e36414;color:#fff;border-color:#e36414" onclick="confirmSendBack('${esc(fid)}')">🔄 Send Back</button>
-      </div>
-    </div>
-  `);
-};
-window.confirmSendBack = async (fid) => {
-  const reason = $('#sbReason')?.value?.trim() || '';
-  if(!reason) return toast("કારણ ભરો — ખેડૂતને ખબર પડે કે શું સુધારવું","err");
-  if(_busy) return; _busy = true;
-  const me = adminIdentity();
-  try{
-    await fbRef('weekly/'+WK+'/submissions/'+fid).update({
-      status: 'sent_back',
-      sentBackAt: firebase.database.ServerValue.TIMESTAMP,
-      sentBackBy: me?.username || 'unknown',
-      noteToFarmer: reason,
-    });
-    if(SUBS[fid]){
-      SUBS[fid].status = 'sent_back';
-      SUBS[fid].noteToFarmer = reason;
-    }
-    logAudit('send-back', 'submissions/'+fid, { farmer: (SUBS[fid]&&SUBS[fid].farmerName)||fid, note: reason });
-    closeModal();
-    toast("🔄 Sent back — ખેડૂતને edit કરવા કહેવાશે","ok");
-    render();
-  }catch(e){ console.error(e); toast("Send back નિષ્ફળ: "+(e.message||e),"err"); }
   finally{ _busy = false; }
 };
 
@@ -1713,28 +1682,54 @@ let EDIT_STATE = null;
 function renderEditModal(){
   const {fid, items} = EDIT_STATE;
   const sub = SUBS[fid] || {};
+  const codes = Array.isArray(sub.farmerHaatCodes) ? sub.farmerHaatCodes : [];
+  const multi = codes.length > 1;
+  const haatName = c => esc(HAATS[c]?.nameGu || HAATS[c]?.name || c);
+  const priceInput = (val, oninput) =>
+    `<input type="number" value="${esc(val)}" min="0" oninput="${oninput}" style="width:60px;border:1.5px solid var(--border);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;text-align:center;outline:none">`;
   return `
     <div class="modal-hdr">
       <div class="modal-title">✏️ Edit — ${esc(sub.farmerName||fid)}</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="card-sub">Edit prices or remove items, then approve. Catalog updates immediately on approval.</div>
+      <div class="card-sub">Edit prices${multi?' (per haat)':''} or remove items, then approve. Catalog updates immediately on approval.</div>
       <div style="max-height:55vh;overflow-y:auto;margin-top:10px">
-        ${items.map((it,i) => `
-          <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:600">${esc(it.name)}</div>
-              <div style="font-size:10.5px;color:var(--muted)">${esc(it.cat||'')}</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:3px">
-              <span style="color:var(--muted);font-size:12px">₹</span>
-              <input type="number" value="${esc(it.price)}" min="0" oninput="updateEditPrice(${i},this.value)" style="width:60px;border:1.5px solid var(--border);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;text-align:center;outline:none">
-              <span style="color:var(--muted);font-size:10.5px;margin-left:3px">/ ${esc(it.unit||'')}</span>
-            </div>
-            <button onclick="removeEditItem(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:4px;font-family:inherit">✕</button>
-          </div>
-        `).join('')}
+        ${items.map((it,i) => {
+          if(multi){
+            const pbh = it.priceByHaat || {};
+            const rows = codes.map(c => {
+              const pv = pbh[c] != null ? pbh[c] : (it.price != null ? it.price : '');
+              return `<div style="display:flex;align-items:center;gap:5px;margin-top:5px">
+                <span style="flex:1;min-width:0;font-size:11.5px;color:var(--muted)">${haatName(c)}</span>
+                <span style="color:var(--muted);font-size:12px">₹</span>
+                ${priceInput(pv, `updateEditPriceForHaat(${i},'${esc(c)}',this.value)`)}
+                <span style="color:var(--muted);font-size:10.5px">/ ${esc(it.unit||'')}</span>
+              </div>`;
+            }).join('');
+            return `
+              <div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="flex:1;min-width:0"><div style="font-weight:600">${esc(it.name)}</div><div style="font-size:10.5px;color:var(--muted)">${esc(it.cat||'')}</div></div>
+                  <button onclick="removeEditItem(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:4px;font-family:inherit">✕</button>
+                </div>
+                ${rows}
+              </div>`;
+          }
+          return `
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600">${esc(it.name)}</div>
+                <div style="font-size:10.5px;color:var(--muted)">${esc(it.cat||'')}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:3px">
+                <span style="color:var(--muted);font-size:12px">₹</span>
+                ${priceInput(it.price, `updateEditPrice(${i},this.value)`)}
+                <span style="color:var(--muted);font-size:10.5px;margin-left:3px">/ ${esc(it.unit||'')}</span>
+              </div>
+              <button onclick="removeEditItem(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:4px;font-family:inherit">✕</button>
+            </div>`;
+        }).join('')}
       </div>
     </div>
     <div style="display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--border)">
@@ -1744,6 +1739,14 @@ function renderEditModal(){
   `;
 }
 window.updateEditPrice = (i, v) => { EDIT_STATE.items[i].price = +v || 0; };
+window.updateEditPriceForHaat = (i, code, v) => {
+  const it = EDIT_STATE.items[i];
+  if(!it.priceByHaat) it.priceByHaat = {};
+  it.priceByHaat[code] = +v || 0;
+  // keep it.price as a backward-compat fallback = highest per-haat price
+  const vals = Object.values(it.priceByHaat).map(x => +x||0).filter(x => x>0);
+  it.price = vals.length ? Math.max(...vals) : 0;
+};
 window.removeEditItem = (i) => { EDIT_STATE.items.splice(i,1); modal(renderEditModal()); };
 window.saveEditAndApprove = async () => {
   const {fid, items} = EDIT_STATE;
@@ -1829,6 +1832,11 @@ function aggregateByVenue(){
 
     (sub.items||[]).forEach(it => {
       if(!it || !it.name || it.available === false) return;
+      // The farmer's TOTAL brought for this product (sum of per-haat qty, or the flat qty).
+      // Used for grand totals so multi-haat quantities sum correctly (and flat qty counts once).
+      const farmerTotal = it.qtyByHaat
+        ? Object.values(it.qtyByHaat).reduce((s,v)=>s+(+v||0),0)
+        : (+it.qty||0);
       venueList.forEach(({name:v, code}) => {
         if(!venueMap[v]) venueMap[v] = {farmers: new Set(), items: {}};
         venueMap[v].farmers.add(fid);
@@ -1845,7 +1853,9 @@ function aggregateByVenue(){
         }
         if(qty > 0){ ent.totalQty += qty; ent.withQty++; }
         else { ent.withoutQty++; }
-        ent.contributors.push({fid, name:sub.farmerName||fid, qty: qty || null, price:it.price});
+        // qtyRemaining is cumulative across the farmer's haats (one number) — carried on every
+        // venue contributor; the pivot dedupes by farmer so it's counted once per product.
+        ent.contributors.push({fid, name:sub.farmerName||fid, qty: qty || null, farmerTotal, price:it.price, remaining: (it.qtyRemaining != null ? +it.qtyRemaining : null)});
       });
     });
   });
@@ -1863,7 +1873,8 @@ function mergeAllVenues(venueMap){
       ent.contributors.forEach(c => {
         if(tgt._seen.has(c.fid)) return; // same farmer counted only once across venues
         tgt._seen.add(c.fid);
-        if(c.qty && +c.qty > 0){ tgt.totalQty += +c.qty; tgt.withQty++; }
+        const ft = c.farmerTotal != null ? +c.farmerTotal : (+c.qty||0);  // full per-farmer qty (sum of haats)
+        if(ft > 0){ tgt.totalQty += ft; tgt.withQty++; }
         else { tgt.withoutQty++; }
         tgt.contributors.push(c);
       });
@@ -2187,7 +2198,7 @@ function renderCategoryPivot(catKey, venueMap, cols){
   // collect product rows × col cells
   const products = new Map(); // name -> {byVenue:{v: {kg, otherUnits, farmers:Set}}, allFarmers:Set, mergedKg, mergedOther:{}}
   const ensureP = (name) => {
-    if(!products.has(name)) products.set(name, {name, byVenue:{}, allFarmers:new Set(), _seenForGrand:new Set(), mergedKg:0, mergedOther:{}});
+    if(!products.has(name)) products.set(name, {name, byVenue:{}, allFarmers:new Set(), _seenForGrand:new Set(), mergedKg:0, mergedOther:{}, mergedRemKg:0, mergedRemOther:{}, hasRem:false});
     return products.get(name);
   };
   // 1) per-venue cells from venueMap[v].items (these have totalQty pre-summed)
@@ -2218,9 +2229,17 @@ function renderCategoryPivot(catKey, venueMap, cols){
         const sk = key+'|'+c.fid;
         if(p._seenForGrand.has(sk)) return;
         p._seenForGrand.add(sk);
-        if(c.qty && +c.qty > 0){
-          if(isKg) p.mergedKg += +c.qty;
-          else p.mergedOther[u] = (p.mergedOther[u]||0) + +c.qty;
+        // grand total = the farmer's FULL item qty (sum across their haats), counted once.
+        const ft = c.farmerTotal != null ? +c.farmerTotal : (+c.qty||0);
+        if(ft > 0){
+          if(isKg) p.mergedKg += ft;
+          else p.mergedOther[u] = (p.mergedOther[u]||0) + ft;
+        }
+        // Remaining (બાકી જથ્થો) — cumulative per farmer-product, counted once via the dedup above.
+        if(c.remaining != null){
+          p.hasRem = true;
+          const rem = +c.remaining || 0;
+          if(rem > 0){ if(isKg) p.mergedRemKg += rem; else p.mergedRemOther[u] = (p.mergedRemOther[u]||0) + rem; }
         }
       });
     });
@@ -2230,6 +2249,14 @@ function renderCategoryPivot(catKey, venueMap, cols){
   if(!prodList.length){
     return `<div style="padding:14px 16px;color:var(--muted);font-size:12px">આ કેટેગરી માં કોઈ પ્રોડક્ટ નથી</div>`;
   }
+  // Format a {kg, otherUnits} quantity pair for the Total / Remaining / Sold columns.
+  const fmtQtyPair = (kg, other) => {
+    const parts = [];
+    if(kg > 0) parts.push(`<b>${+kg.toFixed(0)}</b>`);
+    const o = Object.entries(other||{}).filter(([,v]) => v>0);
+    if(o.length) parts.push(`<span style="font-size:9.5px;color:var(--muted)">${o.map(([u,v])=>`${+v.toFixed(0)}${esc(u)}`).join(' ')}</span>`);
+    return parts.length ? parts.join(' ') : '<span style="color:var(--muted)">—</span>';
+  };
 
   const HAAT_SHORT = {
     'નવજીવન':'નવ', 'સોલા':'સોલા', 'વસ્ત્રાપુર':'વસ્ત્રા', 'છારોડી':'છા',
@@ -2261,27 +2288,40 @@ function renderCategoryPivot(catKey, venueMap, cols){
           <tr style="background:#fff;color:var(--muted);font-size:11px;border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:7px 12px;font-weight:600;min-width:160px">પ્રોડક્ટ</th>
             ${cols.map(v => `<th style="text-align:right;padding:7px 8px;font-weight:600;white-space:nowrap;min-width:64px" title="${esc(v)}">${esc(shortName(v))}</th>`).join('')}
-            <th style="text-align:right;padding:7px 12px;font-weight:600;background:var(--green-pale);color:var(--green2);white-space:nowrap;min-width:72px">કુલ</th>
+            <th style="text-align:right;padding:7px 12px;font-weight:600;background:var(--green-pale);color:var(--green2);white-space:nowrap;min-width:64px" title="કુલ લાવેલ જથ્થો (બધા હાટ)">કુલ આવ્યું</th>
+            <th style="text-align:right;padding:7px 10px;font-weight:600;background:#fff3e0;color:#92400e;white-space:nowrap;min-width:56px" title="બાકી / વેચાયા વગર (બધા હાટ ભેગા)">બાકી</th>
+            <th style="text-align:right;padding:7px 12px;font-weight:600;background:#e6f4ea;color:var(--green2);white-space:nowrap;min-width:60px" title="વેચાયું = કુલ આવ્યું − બાકી">વેચાયું</th>
           </tr>
         </thead>
         <tbody>
           ${prodList.map(p => {
-            const grandParts = [];
-            if(p.mergedKg > 0) grandParts.push(`<b>${+p.mergedKg.toFixed(0)}</b>`);
-            const o = Object.entries(p.mergedOther).filter(([,v])=>v>0);
-            if(o.length) grandParts.push(`<span style="font-size:9.5px;color:var(--muted)">${o.map(([u,v])=>`${+v.toFixed(0)}${esc(u)}`).join(' ')}</span>`);
+            const broughtCell = fmtQtyPair(p.mergedKg, p.mergedOther);
+            let remCell, soldCell;
+            if(!p.hasRem){
+              // No farmer has entered remaining yet → unknown, don't imply "all sold".
+              remCell = '<span style="color:var(--muted)">—</span>';
+              soldCell = '<span style="color:var(--muted)">—</span>';
+            } else {
+              remCell = fmtQtyPair(p.mergedRemKg, p.mergedRemOther);
+              const soldKg = Math.max(0, p.mergedKg - p.mergedRemKg);
+              const soldOther = {};
+              Object.keys(p.mergedOther).forEach(u => { soldOther[u] = Math.max(0, (p.mergedOther[u]||0) - (p.mergedRemOther[u]||0)); });
+              soldCell = fmtQtyPair(soldKg, soldOther);
+            }
             return `
               <tr style="border-top:1px solid var(--border)">
                 <td style="padding:7px 12px;font-weight:600;white-space:nowrap">${esc(p.name)} <span style="color:var(--muted);font-size:10.5px;font-weight:400">(${p.allFarmers.size})</span></td>
                 ${cols.map(v => `<td style="padding:7px 8px;text-align:right;white-space:nowrap">${fmtCell(p.byVenue[v])}</td>`).join('')}
-                <td style="padding:7px 12px;text-align:right;background:var(--green-pale);white-space:nowrap">${grandParts.length?grandParts.join(' '):'<span style="color:var(--muted)">—</span>'}</td>
+                <td style="padding:7px 12px;text-align:right;background:var(--green-pale);white-space:nowrap">${broughtCell}</td>
+                <td style="padding:7px 10px;text-align:right;background:#fff8ef;white-space:nowrap">${remCell}</td>
+                <td style="padding:7px 12px;text-align:right;background:#f1f9f3;white-space:nowrap;font-weight:600">${soldCell}</td>
               </tr>
             `;
           }).join('')}
         </tbody>
       </table>
       <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5">
-        💡 <b>(N)</b> = ખેડૂત. <b>નંબર</b> = kg. <b style="color:var(--muted)">મ્યુટ નંબર</b> = qty વગર ખેડૂત. <span style="color:var(--red)">નથી</span> = તે હાટ માં નથી. <b>કુલ</b> = ખેડૂત દીઠ એક જ વાર.
+        💡 <b>(N)</b> = ખેડૂત. <b>નંબર</b> = kg. <b style="color:var(--muted)">મ્યુટ નંબર</b> = qty વગર ખેડૂત. <span style="color:var(--red)">નથી</span> = તે હાટ માં નથી. <b>કુલ આવ્યું</b> = બધા હાટ ભેગા (ખેડૂત દીઠ એક વાર). <b style="color:#92400e">બાકી</b> = વેચાયા વગર. <b style="color:var(--green2)">વેચાયું</b> = કુલ આવ્યું − બાકી. (બાકી ન ભર્યું હોય તો <b>—</b>.)
       </div>
     </div>
   `;

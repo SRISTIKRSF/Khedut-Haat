@@ -629,7 +629,7 @@ async function loadSubmission(){
     CUR_STATUS = v.status || '';
     (v.items||[]).forEach(it => {
       if(!it || !it.name) return;
-      ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", remaining: it.qtyRemaining||"", qtyByHaat: it.qtyByHaat || {}, unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
+      ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", remaining: it.qtyRemaining||"", qtyByHaat: it.qtyByHaat || {}, priceByHaat: it.priceByHaat || {}, unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
       ROUTINE_ITEMS.set(it.name, {
         lastPrice: it.price||"",
         unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom
@@ -877,7 +877,7 @@ function renderItems(){
 }
 
 function itemRow(p, isRoutine){
-  const e = ENTRIES.get(p.n) || {price:"", qty:"", qtyByHaat:{}};
+  const e = ENTRIES.get(p.n) || {price:"", qty:"", qtyByHaat:{}, priceByHaat:{}};
   const active = (+e.price)>0;
   const pHas = active ? 'has-val' : '';
   const safeId = 'it_'+btoa(unescape(encodeURIComponent(p.n))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
@@ -912,17 +912,26 @@ function itemRow(p, isRoutine){
 
   if(isMulti){
     const qbh = e.qtyByHaat || {};
+    const pbh = e.priceByHaat || {};
+    const jsName = esc(p.n).replace(/'/g,"\\'");
     let total = 0;
     Object.values(qbh).forEach(v => { if(+v>0) total += +v; });
     const haatRows = OPEN_HAATS.map(code => {
       const haatName = HAATS_ALL[code]?.nameGu || HAATS_ALL[code]?.name || code;
       const val = qbh[code] != null ? qbh[code] : '';
       const has = (+val)>0 ? 'has-val' : '';
+      const pv = pbh[code] != null ? pbh[code] : '';
+      const pHasH = (+pv)>0 ? 'has-val' : '';
+      // Per-haat price OVERRIDE — blank = use base price above. Locked (read-only) once approved.
       return `
-        <div style="display:flex;align-items:center;gap:8px;margin-top:5px">
-          <span style="font-size:11px;color:#5a5a5a;flex:1;font-weight:600">${esc(haatName)}</span>
-          <div class="input-wrap ${has}" style="flex:0 0 110px">
-            <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(val)}" oninput="onQtyForHaat('${esc(p.n).replace(/'/g,"\\'")}','${esc(code)}',this.value)">
+        <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+          <span style="font-size:11px;color:#5a5a5a;flex:1;min-width:0;font-weight:600">${esc(haatName)}</span>
+          <div class="input-wrap ${pHasH}" style="flex:0 0 82px"${priceLocked?' style="flex:0 0 82px;opacity:.7;background:#f2f2ef"':''}>
+            <span class="pfx">₹</span>
+            <input type="number" inputmode="numeric" min="0" data-price="1" data-code="${esc(code)}" placeholder="${esc(e.price||'ભાવ')}" value="${esc(pv)}" ${priceLocked?'readonly title="ભાવ મંજૂર — બદલી શકાતો નથી"':`oninput="onPriceForHaat('${jsName}','${esc(code)}',this.value)"`}>
+          </div>
+          <div class="input-wrap ${has}" style="flex:0 0 92px">
+            <input type="number" inputmode="numeric" min="0" data-qty="1" data-code="${esc(code)}" placeholder="0" value="${esc(val)}" oninput="onQtyForHaat('${jsName}','${esc(code)}',this.value)">
             <span class="sfx">${esc(p.u)}</span>
           </div>
         </div>
@@ -936,7 +945,7 @@ function itemRow(p, isRoutine){
           <div style="flex:0 0 130px">${priceCol}</div>
         </div>
         <div style="background:var(--bg);border-radius:8px;padding:7px 10px;border:1px dashed var(--border)">
-          <div style="font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.3px">હાટ વાર જથ્થો</div>
+          <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.3px"><span>હાટ વાર ભાવ + જથ્થો</span><span style="font-weight:500;color:#999">ભાવ ખાલી = ઉપરનો ₹</span></div>
           ${haatRows}
           <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px dotted var(--border);font-size:11.5px">
             <span style="color:var(--muted)">કુલ</span>
@@ -1001,9 +1010,16 @@ window.onQtyForHaat = (name, haatCode, val) => {
   ENTRIES.set(name, e);
   refreshRow(name);
 };
+window.onPriceForHaat = (name, haatCode, val) => {   // per-haat price override (blank = base price)
+  const e = ENTRIES.get(name) || pristine(name);
+  if(!e.priceByHaat) e.priceByHaat = {};
+  e.priceByHaat[haatCode] = val;
+  ENTRIES.set(name, e);
+  refreshRow(name);
+};
 function pristine(name){
   const p = PRODUCT_LIB.find(x=>x.n===name);
-  return {price:"", qty:"", qtyByHaat:{}, unit:p?p.u:"kg", cat:p?p.c:"અન્ય", emoji:p?p.e:"🌿"};
+  return {price:"", qty:"", qtyByHaat:{}, priceByHaat:{}, unit:p?p.u:"kg", cat:p?p.c:"અન્ય", emoji:p?p.e:"🌿"};
 }
 function refreshRow(name){
   const safeId = 'it_'+btoa(unescape(encodeURIComponent(name))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
@@ -1014,15 +1030,19 @@ function refreshRow(name){
   row.classList.toggle('active', active);
   const wraps = row.querySelectorAll('.input-wrap');
   const isMulti = row.classList.contains('multi-haat');
-  if(wraps[0]) wraps[0].classList.toggle('has-val', active);
+  if(wraps[0]) wraps[0].classList.toggle('has-val', active);  // base price box (top)
   if(isMulti){
-    // wraps[1..N] = qty per haat; refresh has-val class + total
+    // Each haat row now has a price-override + a qty input — target by data marker, not index.
     const qbh = e.qtyByHaat || {};
+    const pbh = e.priceByHaat || {};
     let total = 0;
-    OPEN_HAATS.forEach((code, idx) => {
-      const v = +(qbh[code] || 0);
+    row.querySelectorAll('input[data-qty]').forEach(inp => {
+      const v = +(qbh[inp.dataset.code] || 0);
       if(v > 0) total += v;
-      if(wraps[idx+1]) wraps[idx+1].classList.toggle('has-val', v > 0);
+      const w = inp.closest('.input-wrap'); if(w) w.classList.toggle('has-val', v > 0);
+    });
+    row.querySelectorAll('input[data-price]').forEach(inp => {
+      const w = inp.closest('.input-wrap'); if(w) w.classList.toggle('has-val', (+(pbh[inp.dataset.code]||0))>0);
     });
     const tot = document.getElementById('tot_'+safeId);
     if(tot){
@@ -1167,17 +1187,30 @@ window.submitAll = async () => {
   const idByName = {}; PRODUCT_LIB.forEach(p => { if(p.id) idByName[p.n] = p.id; });   // Part A: name -> master productId
   const items = [];
   ENTRIES.forEach((e, name) => {
-    const price = +e.price;
+    let price = +e.price;
+    // Multi-haat: if base price blank but per-haat overrides exist, use the highest as the
+    // backward-compat fallback price so the item isn't dropped.
+    if(isMulti && !(price>0) && e.priceByHaat){
+      const ovs = OPEN_HAATS.map(c => +(e.priceByHaat[c]||0)).filter(x => x>0);
+      if(ovs.length) price = Math.max(...ovs);
+    }
     if(!(price>0)) return;
     const it = {name, price, unit:e.unit||"kg", cat:e.cat||"અન્ય", available:true};
     if(idByName[name]) it.productId = idByName[name];   // Part A: stamp master productId (renames propagate by id)
     if(isMulti && e.qtyByHaat){
       const qbh = {};
+      const pbh = {};
+      const pbhSrc = e.priceByHaat || {};
       let total = 0;
       OPEN_HAATS.forEach(code => {
         const v = +(e.qtyByHaat[code] || 0);
+        // record the effective per-haat price for EVERY haat the farmer submits to,
+        // even with 0 qty (so an approved price stays locked even before qty is filled).
+        const ov = +(pbhSrc[code] || 0);
+        pbh[code] = ov > 0 ? ov : price;   // override else base price
         if(v > 0){ qbh[code] = v; total += v; }
       });
+      it.priceByHaat = pbh;
       if(Object.keys(qbh).length){
         it.qtyByHaat = qbh;
         it.qty = total;     // backwards-compat aggregate
