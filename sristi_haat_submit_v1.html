@@ -241,6 +241,17 @@ const CAT_ORDER = ["શાકભાજી","ભાજી","ફળ","ડેરી
 const CAT_EMOJI = {"શાકભાજી":"🥬","ભાજી":"🌿","ફળ":"🥭","ડેરી":"🥛","દાળ/કઠોળ":"🫘","અનાજ/લોટ":"🌾","મસાલા":"🌶️","તેલ":"🛢️","ગોળ/ખાંડ":"🍯","ફરસાણ":"🍪","પ્રવાહી":"🥤","તૈયાર ભોજન":"🍽️","અન્ય":"🌿"};
 const UNITS = ["kg","500gm","250gm","200gm","100gm","Lt","500ml","250ml","જુડી","નંગ","બોક્સ","ગ્લાસ","ડીશ","પેકેટ"];
 const CATS_ALL = CAT_ORDER;
+// Merge admin-added categories (settings/categories) into the built-in lists.
+function mergeCustomCats(custom){
+  Object.entries(custom||{}).forEach(([name, emoji]) => {
+    name = (name||'').trim(); if(!name) return;
+    if(!(name in CAT_EMOJI)) CAT_EMOJI[name] = emoji || '🌿';
+    if(!CAT_ORDER.includes(name)){
+      const i = CAT_ORDER.indexOf('અન્ય');
+      if(i >= 0) CAT_ORDER.splice(i, 0, name); else CAT_ORDER.push(name);
+    }
+  });
+}
 
 const $=q=>document.querySelector(q);
 const $$=q=>document.querySelectorAll(q);
@@ -597,6 +608,12 @@ async function loadSubmission(){
     }
   }catch(e){ /* non-fatal — fall back to seeded PRODUCT_LIB */ }
 
+  // Load admin-added categories so new categories show in the form
+  try{
+    const cc = {};
+    Object.values((await fbRef('settings/categories').get()).val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; });
+    mergeCustomCats(cc);
+  }catch(e){ /* non-fatal */ }
   // Load haats and filter to ones currently OPEN for this farmer
   try{
     const hSnap = await fbRef('haats').get();

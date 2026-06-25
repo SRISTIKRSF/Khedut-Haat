@@ -200,6 +200,17 @@ const CAT_EMOJI = {
   "ગોળ/ખાંડ":"🍯","ફરસાણ":"🍪","પ્રવાહી":"🥤","તૈયાર ભોજન":"🍽️","અન્ય":"🌿"
 };
 const CAT_ORDER = ["શાકભાજી","ભાજી","ફળ","ડેરી","દાળ/કઠોળ","અનાજ/લોટ","મસાલા","તેલ","ગોળ/ખાંડ","ફરસાણ","પ્રવાહી","તૈયાર ભોજન","અન્ય"];
+// Merge admin-added categories (settings/categories) into the built-in lists.
+function mergeCustomCats(custom){
+  Object.entries(custom||{}).forEach(([name, emoji]) => {
+    name = (name||'').trim(); if(!name) return;
+    if(!(name in CAT_EMOJI)) CAT_EMOJI[name] = emoji || '🌿';
+    if(!CAT_ORDER.includes(name)){
+      const i = CAT_ORDER.indexOf('અન્ય');
+      if(i >= 0) CAT_ORDER.splice(i, 0, name); else CAT_ORDER.push(name);
+    }
+  });
+}
 
 const $=q=>document.querySelector(q);
 const $$=q=>document.querySelectorAll(q);
@@ -299,7 +310,7 @@ async function init(){
   try{
     const cur = await fbRef('weekly/current').get();
     WK = cur.exists() ? cur.val() : 1;
-    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap, haatSnap] = await Promise.all([
+    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap, haatSnap, catSnap] = await Promise.all([
       fbRef('weekly/'+WK+'/meta').get(),
       fbRef('weekly/'+WK+'/submissions').get(),
       fbRef('marketFarmers').get(),
@@ -308,11 +319,13 @@ async function init(){
       fbRef('products').get(),
       fbRef('settings/siteConfig').get(),
       fbRef('haats').get(),
+      fbRef('settings/categories').get(),
     ]);
     WK_META = metaSnap.val() || {weekNum:WK};
     SITE_CFG = scSnap.val() || null;
     HAAT_NAME_BY_CODE = {};
     Object.entries(haatSnap.val() || {}).forEach(([code, h]) => { HAAT_NAME_BY_CODE[code] = (h && (h.nameGu || h.name)) || code; });
+    { const cc = {}; Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; }); mergeCustomCats(cc); }
     SUBMISSIONS = subSnap.val() || {};
     PRODUCT_PHOTOS = pSnap.val() || {};
     PRODUCT_PHOTO_MAP = mSnap.val() || {};
