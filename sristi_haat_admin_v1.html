@@ -3364,6 +3364,18 @@ window.standardiseAllPhotos = async () => {
     'હા, standardise કરો', 'રદ'
   );
   if(!ok) return;
+  // Backup all current photo URLs to RTDB before touching anything
+  const backupKey = 'backup_' + Date.now();
+  const backup = {};
+  withPhotos.forEach(p => { backup[p.id] = p.photo; });
+  try {
+    await fbRef('backups/photoUrls/' + backupKey).set(backup);
+    toast("✅ Backup saved — " + backupKey, "ok");
+  } catch(e) {
+    console.warn('Backup failed', e);
+    toast("⚠️ Backup ન થઈ — proceed anyway? (cancel = safe)", "err");
+    await new Promise(r => setTimeout(r, 3000));
+  }
   let done=0, failed=0;
   for(const p of withPhotos){
     toast(`${done+failed+1}/${withPhotos.length} — ${p.name}…`,"ok");
