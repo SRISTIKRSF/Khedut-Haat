@@ -2644,9 +2644,10 @@ let _bgRemoveLib = null;
 // on a 512×512 square. Returns a Blob (WebP).
 async function bgRemoveAndProcess(source) {
   if (!_bgRemoveLib) {
-    // ESM build (v1.7.0). Model/ONNX files are fetched from the lib's own default host
-    // (staticimgly.com) — do NOT override publicPath, the default works with CORS.
-    _bgRemoveLib = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/index.mjs');
+    // jsDelivr's "+esm" bundle: rewrites the lib's bare `import('onnxruntime-web')` to a
+    // real CDN URL so it resolves in a plain browser (no bundler/import-map needed).
+    // ONNX model + wasm files are fetched from the lib's own host (staticimgly.com, CORS-ok).
+    _bgRemoveLib = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm');
   }
   const { removeBackground } = _bgRemoveLib;
 
@@ -3373,17 +3374,24 @@ window.standardiseAllPhotos = async () => {
     'હા, standardise કરો', 'રદ'
   );
   if(!ok) return;
-  // Backup all current photo URLs to RTDB before touching anything
+  // Backup all current photo URLs to a LOCAL JSON file before touching anything.
+  // (RTDB backups/ path is blocked by security rules, so we download instead — free, bulletproof.)
   const backupKey = 'backup_' + Date.now();
   const backup = {};
-  withPhotos.forEach(p => { backup[p.id] = p.photo || photoForNameUrlOnly(p.name) || '(slicer-datauri)'; });
+  withPhotos.forEach(p => { backup[p.id] = { name: p.name, photo: p.photo || photoForNameUrlOnly(p.name) || '(slicer-datauri)' }; });
   try {
-    await fbRef('backups/photoUrls/' + backupKey).set(backup);
-    toast("✅ Backup saved — " + backupKey, "ok");
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'khedut-haat-photoUrls-' + backupKey + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+    toast("✅ Backup downloaded — " + a.download, "ok");
+    await new Promise(r => setTimeout(r, 1500));
   } catch(e) {
     console.warn('Backup failed', e);
-    toast("⚠️ Backup ન થઈ — proceed anyway? (cancel = safe)", "err");
-    await new Promise(r => setTimeout(r, 3000));
+    toast("⚠️ Backup download ન થઈ", "err");
+    await new Promise(r => setTimeout(r, 2000));
   }
   let done=0, failed=0;
   for(const p of withPhotos){
