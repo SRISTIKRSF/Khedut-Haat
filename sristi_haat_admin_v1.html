@@ -2637,6 +2637,65 @@ function resizePhoto(file, maxDim, q){
   });
 }
 
+// Cached module handle so the import only happens once per session
+let _bgRemoveLib = null;
+
+// Remove background from a File or Cloudinary URL, composite on white, auto-trim + centre
+// on a 512×512 square. Returns a Blob (WebP).
+async function bgRemoveAndProcess(source) {
+  if (!_bgRemoveLib) {
+    _bgRemoveLib = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal/dist/browser/index.js');
+  }
+  const { removeBackground } = _bgRemoveLib;
+
+  let inputBlob;
+  if (typeof source === 'string') {
+    const resp = await fetch(source);
+    inputBlob = await resp.blob();
+  } else {
+    inputBlob = source; // File
+  }
+
+  // BG removal → PNG with transparency
+  const noBgBlob = await removeBackground(inputBlob);
+
+  // Composite on white + auto-trim + pad + square 512×512
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const tmp = document.createElement('canvas');
+      tmp.width = img.width; tmp.height = img.height;
+      const tCtx = tmp.getContext('2d');
+      tCtx.drawImage(img, 0, 0);
+      const px = tCtx.getImageData(0, 0, img.width, img.height).data;
+      let x0 = img.width, y0 = img.height, x1 = 0, y1 = 0;
+      for (let y = 0; y < img.height; y++) {
+        for (let x = 0; x < img.width; x++) {
+          if (px[(y * img.width + x) * 4 + 3] > 10) {
+            if (x < x0) x0 = x; if (x > x1) x1 = x;
+            if (y < y0) y0 = y; if (y > y1) y1 = y;
+          }
+        }
+      }
+      if (x0 > x1 || y0 > y1) { x0 = 0; y0 = 0; x1 = img.width - 1; y1 = img.height - 1; }
+      const sw = x1 - x0 + 1, sh = y1 - y0 + 1;
+      const pad = Math.round(Math.max(sw, sh) * 0.10);
+      const side = Math.max(sw, sh) + pad * 2;
+      const SIZE = 512;
+      const out = document.createElement('canvas');
+      out.width = SIZE; out.height = SIZE;
+      const ctx = out.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, SIZE, SIZE);
+      const sc = SIZE / side;
+      ctx.drawImage(tmp, (SIZE - sw * sc) / 2 - (x0 - pad) * sc, (SIZE - sh * sc) / 2 - (y0 - pad) * sc, img.width * sc, img.height * sc);
+      out.toBlob(blob => resolve(blob), 'image/webp', 0.88);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(noBgBlob);
+  });
+}
+
 /* ════════ TAB 2e: ORDER (NEW — drag-drop product ordering per category) ════════ */
 let ORDER_OPEN = new Set();  // category keys with section expanded
 let _orderSortableInstances = [];
@@ -3129,7 +3188,10 @@ function renderProducts(){
   return `
     <div class="card" style="margin-bottom:14px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
       <div style="font-size:15px"><b>${total}</b> કુલ પ્રોડક્ટ • ${Object.values(groups).filter(g=>g.items.length).length} કેટેગરી</div>
-      <div style="font-size:13px;color:var(--muted)">💡 પ્રોડક્ટ ને <b>drag</b> કરી ક્રમ બદલો. ફેરફાર auto-save થાય છે.</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:13px;color:var(--muted)">💡 <b>drag</b> કરી ક્રમ બદલો</div>
+        <button class="btn-sm" onclick="standardiseAllPhotos()" title="બધા photos: BG remove + white background + 512px square">🧹 Standardise photos</button>
+      </div>
     </div>
     ${CATEGORY_DISPLAY.map(d => {
       const g = groups[d.key];
@@ -3238,10 +3300,10 @@ function openProductModal(existing, defaultCat){
           <div class="frm-row" style="flex:0 0 100px"><label class="frm-label">Emoji</label><input class="frm-in" id="pdEm" value="${esc(existing?.emoji||'🌿')}" maxlength="3" style="text-align:center;font-size:22px"></div>
         </div>
         <div class="frm-row">
-          <label class="frm-label">ફોટો (optional)</label>
+          <label class="frm-label">ફોટો — ✨ BG remove + white background (optional)</label>
           <div style="display:flex;gap:6px">
             <input class="frm-in" id="pdPh" value="${esc(existing?.photo||'')}" placeholder="https://res.cloudinary.com/...">
-            <button class="btn-sm" onclick="uploadProductPhoto()" style="white-space:nowrap" ${!cfgOK?'disabled':''}>📷 Upload</button>
+            <button class="btn-sm" onclick="uploadProductPhoto()" style="white-space:nowrap" ${!cfgOK?'disabled':''}>✨ Upload</button>
           </div>
           ${existing?.photo ? `<img src="${esc(cloudinaryThumb(existing.photo,160))}" id="pdPreview" style="margin-top:10px;max-width:140px;border-radius:8px;border:1px solid #ddd">` : '<img id="pdPreview" style="display:none;margin-top:10px;max-width:140px;border-radius:8px;border:1px solid #ddd">'}
           ${!cfgOK ? '<div style="font-size:11.5px;color:var(--orange);margin-top:6px">⚠️ Photo upload માટે Cloudinary સેટ કરો (ⓘ ઉપર સેટિંગ્સ)</div>' : ''}
@@ -3263,11 +3325,20 @@ window.uploadProductPhoto = async () => {
   inp.type='file'; inp.accept='image/*';
   inp.onchange = async () => {
     const f = inp.files[0]; if(!f) return;
-    toast("Uploading…","ok");
+    toast("✨ BG remove + process… (પ્રથમ વખત ~30s model download)","ok");
+    let uploadBlob;
+    try {
+      uploadBlob = await bgRemoveAndProcess(f);
+    } catch(e) {
+      console.warn('BG removal failed, falling back to resize:', e);
+      toast("⚠️ BG remove ન થઈ — original upload…","ok");
+      const dataUrl = await resizePhoto(f, 800, 0.85);
+      uploadBlob = await (await fetch(dataUrl)).blob();
+    }
     try{
-      const dataUrl = await resizePhoto(f, 1200, 0.82);
+      toast("☁️ Cloudinary upload…","ok");
       const fd = new FormData();
-      fd.append('file', dataUrl);
+      fd.append('file', uploadBlob, 'product.webp');
       fd.append('upload_preset', CLOUDINARY_CFG.uploadPreset);
       fd.append('folder', 'sristi/products');
       const r = await fetch('https://api.cloudinary.com/v1_1/'+CLOUDINARY_CFG.cloudName+'/image/upload', {method:'POST', body:fd});
@@ -3277,11 +3348,42 @@ window.uploadProductPhoto = async () => {
         if(inp2) inp2.value = j.secure_url;
         const prev = document.getElementById('pdPreview');
         if(prev){ prev.src = cloudinaryThumb(j.secure_url,160); prev.style.display='block'; }
-        toast("✓ Upload થયું","ok");
-      } else { toast("Upload નિષ્ફળ","err"); }
+        toast("✓ Photo ready","ok");
+      } else { toast("Upload નિષ્ફળ: "+(j.error?.message||'unknown'),"err"); }
     }catch(e){ console.error(e); toast("Upload error","err"); }
   };
   inp.click();
+};
+
+window.standardiseAllPhotos = async () => {
+  if(!CLOUDINARY_CFG?.cloudName) return toast("Cloudinary સેટ નથી","err");
+  const withPhotos = Object.values(PRODUCTS_DB).filter(p => p.photo && p.photo.startsWith('https://'));
+  if(!withPhotos.length) return toast("Photos ન મળ્યા","err");
+  const ok = await asyncConfirm(
+    `${withPhotos.length} products ના photos standardise કરવા છે?\n\nBG remove + white background + 512×512 square.\n\nPrthom vaar ~30s model download thay. Pachhi fast.\n\nOriginal Cloudinary URLs replace thashe.`,
+    'હા, standardise કરો', 'રદ'
+  );
+  if(!ok) return;
+  let done=0, failed=0;
+  for(const p of withPhotos){
+    toast(`${done+failed+1}/${withPhotos.length} — ${p.name}…`,"ok");
+    try{
+      const processed = await bgRemoveAndProcess(p.photo);
+      const fd = new FormData();
+      fd.append('file', processed, 'product.webp');
+      fd.append('upload_preset', CLOUDINARY_CFG.uploadPreset);
+      fd.append('folder', 'sristi/products');
+      const r = await fetch('https://api.cloudinary.com/v1_1/'+CLOUDINARY_CFG.cloudName+'/image/upload',{method:'POST',body:fd});
+      const j = await r.json();
+      if(j.secure_url){
+        await fbRef('products/'+p.id).update({photo:j.secure_url});
+        PRODUCTS_DB[p.id].photo = j.secure_url;
+        done++;
+      } else { console.warn(p.name, j); failed++; }
+    }catch(e){ console.warn(p.name, e); failed++; }
+  }
+  toast(`✓ ${done} standardised${failed?' • '+failed+' failed':''}`, done?'ok':'err');
+  setTabBodyHtml();
 };
 
 window.saveProduct = async (existingId) => {
