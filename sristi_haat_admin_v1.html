@@ -3236,6 +3236,7 @@ function renderProducts(){
       <div style="font-size:15px"><b>${total}</b> કુલ પ્રોડક્ટ • ${Object.values(groups).filter(g=>g.items.length).length} કેટેગરી</div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="font-size:13px;color:var(--muted)">💡 <b>drag</b> કરી ક્રમ બદલો</div>
+        <button class="btn-sm" onclick="importProductsExcel()" title="Excel (.xlsx) માંથી products ઉમેરો — Category + Product columns">📥 Excel import</button>
         <button class="btn-sm" onclick="standardiseAllPhotos()" title="બધા photos: BG remove + white background + 512px square">🧹 Standardise photos</button>
       </div>
     </div>
@@ -3508,6 +3509,115 @@ window.deleteProduct = async (id) => {
     closeModal();
     setTabBodyHtml();
   }catch(e){ toast("Delete નિષ્ફળ","err"); }
+};
+
+/* ════════ PRODUCT IMPORT — 📥 Excel (.xlsx) → products ════════ */
+// Reads a .xlsx/.csv with columns: A=Category, B=Product, C=Unit(optional, default kg).
+// Categories must match CAT_EMOJI_MAP. Emoji defaults from the category. Shows a preview
+// (new / already-exist / problem) before any write. Dedupe is by makeProductId(name).
+let PRODUCT_IMPORT = null;   // {toCreate:[{id,name,cat,unit}], dupes:[], invalid:[{row,reason}]}
+let _xlsxLib = null;
+
+window.importProductsExcel = async () => {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.xlsx,.xls,.csv';
+  inp.onchange = async () => {
+    const f = inp.files[0]; if(!f) return;
+    toast("📥 Excel વાંચાય છે…","ok");
+    try{
+      if(!_xlsxLib) _xlsxLib = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+      const XLSX = _xlsxLib;
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf, {type:'array'});
+      // Prefer the "New products" sheet; else the first sheet.
+      const sheetName = wb.SheetNames.find(n => /new\s*product/i.test(n)) || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, blankrows:false, defval:''});
+      const validCats = new Set(Object.keys(CAT_EMOJI_MAP));
+      const toCreate = [], dupes = [], invalid = [], seenInFile = new Set();
+      rows.forEach((r, i) => {
+        const cat  = String(r[0]==null?'':r[0]).trim();
+        const name = String(r[1]==null?'':r[1]).trim();
+        const unit = String(r[2]==null?'':r[2]).trim() || 'kg';
+        // skip header row and fully blank rows
+        if(!cat && !name) return;
+        if(/^category$/i.test(cat) && /^product$/i.test(name)) return;
+        if(!name){ invalid.push({rowNo:i+1, cat, name, reason:'નામ ખાલી'}); return; }
+        if(!cat){ invalid.push({rowNo:i+1, cat, name, reason:'કેટેગરી ખાલી'}); return; }
+        if(!validCats.has(cat)){ invalid.push({rowNo:i+1, cat, name, reason:'અમાન્ય કેટેગરી'}); return; }
+        const id = makeProductId(name);
+        if(seenInFile.has(id)){ return; }   // duplicate within the file itself — keep first
+        seenInFile.add(id);
+        if(PRODUCTS_DB[id]){ dupes.push({id, name, cat}); return; }
+        toCreate.push({id, name, cat, unit});
+      });
+      PRODUCT_IMPORT = {toCreate, dupes, invalid, sheetName};
+      showImportPreview();
+    }catch(e){ console.error(e); toast("Excel વાંચવામાં ભૂલ: "+(e.message||e),"err"); }
+  };
+  inp.click();
+};
+
+function showImportPreview(){
+  const {toCreate, dupes, invalid, sheetName} = PRODUCT_IMPORT;
+  const listBox = (rows, color) => rows.length
+    ? `<div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin-top:5px">
+        ${rows.map(r => `<div style="font-size:12.5px;padding:2px 0;color:${color}">${CAT_EMOJI_MAP[r.cat]||''} <b>${esc(r.name)}</b> <span style="color:var(--muted)">— ${esc(r.cat)}${r.unit?(' · '+esc(r.unit)):''}${r.reason?(' · '+esc(r.reason)):''}</span></div>`).join('')}
+      </div>` : '';
+  modal(`
+    <div class="modal-hdr">
+      <div class="modal-title">📥 Excel import — preview</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="card-sub">Sheet: <b>${esc(sheetName)}</b>. કંઈ સેવ થયું નથી — નીચે જુઓ અને <b>ઉમેરો</b> દબાવો.</div>
+      <div style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap">
+        <span style="background:var(--green-pale);color:var(--green2);padding:5px 12px;border-radius:8px;font-weight:700;font-size:13px">✅ ${toCreate.length} નવા</span>
+        <span style="background:var(--bg);color:var(--muted);padding:5px 12px;border-radius:8px;font-weight:700;font-size:13px">⚠️ ${dupes.length} પહેલેથી છે</span>
+        <span style="background:var(--red-pale);color:var(--red);padding:5px 12px;border-radius:8px;font-weight:700;font-size:13px">❌ ${invalid.length} પ્રોબ્લેમ</span>
+      </div>
+      ${toCreate.length ? `<div style="font-size:12px;color:var(--green2);font-weight:700;margin-top:8px">✅ આ ${toCreate.length} નવા ઉમેરાશે:</div>${listBox(toCreate,'var(--text)')}` : '<div style="color:var(--muted);font-size:13px;margin-top:8px">કોઈ નવા પ્રોડક્ટ નથી મળ્યા.</div>'}
+      ${dupes.length ? `<div style="font-size:12px;color:var(--muted);font-weight:700;margin-top:12px">⚠️ પહેલેથી છે (છોડી દેવાશે):</div>${listBox(dupes,'var(--muted)')}` : ''}
+      ${invalid.length ? `<div style="font-size:12px;color:var(--red);font-weight:700;margin-top:12px">❌ પ્રોબ્લેમ rows (છોડી દેવાશે):</div>${listBox(invalid,'var(--red)')}` : ''}
+    </div>
+    <div style="display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--border)">
+      <button class="btn-sm" onclick="closeModal()" style="flex:1">રદ</button>
+      <button class="btn-sm primary" onclick="commitProductImport()" style="flex:1" ${toCreate.length?'':'disabled'}>✓ ${toCreate.length} પ્રોડક્ટ ઉમેરો</button>
+    </div>
+  `);
+}
+
+window.commitProductImport = async () => {
+  if(!PRODUCT_IMPORT || !PRODUCT_IMPORT.toCreate.length) return;
+  if(_busy) return; _busy = true;
+  const {toCreate} = PRODUCT_IMPORT;
+  // append each new product to the end of its category
+  const catNext = {};
+  const orderFor = (cat) => {
+    if(catNext[cat] == null){
+      const same = Object.values(PRODUCTS_DB).filter(p => p.cat === cat);
+      catNext[cat] = same.length ? Math.max(...same.map(p => +p.order||0)) + 1 : 0;
+    }
+    return catNext[cat]++;
+  };
+  const updates = {};
+  const created = [];
+  toCreate.forEach(r => {
+    const data = {id:r.id, name:r.name, cat:r.cat, unit:r.unit, emoji:CAT_EMOJI_MAP[r.cat]||'🌿', photo:'', order:orderFor(r.cat), active:true, manual:true, addedAt:Date.now()};
+    updates['products/'+r.id] = data;
+    if(DELETED_PRODUCT_IDS.has(r.id)) updates['productsDeleted/'+r.id] = null;
+    created.push(data);
+  });
+  try{
+    await fbRef('').update(updates);
+    created.forEach(d => { PRODUCTS_DB[d.id] = d; DELETED_PRODUCT_IDS.delete(d.id); PRODUCTS_OPEN_CATS.add(categoryKeyOf({cat:d.cat})); });
+    logAudit('product-import', 'products', { count: created.length });
+    closeModal();
+    toast(`✓ ${created.length} પ્રોડક્ટ ઉમેરાયા`,"ok");
+    PRODUCT_IMPORT = null;
+    setTabBodyHtml();
+  }catch(e){ console.error(e); toast("Import save નિષ્ફળ: "+(e.message||e),"err"); }
+  finally{ _busy = false; }
 };
 
 /* ════════ TAB: DESIGN — 🎨 brand the customer page ════════ */
