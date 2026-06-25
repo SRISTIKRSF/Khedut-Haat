@@ -679,6 +679,8 @@ async function loadAll(){
       CUSTOM_CATS = {};
       Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) CUSTOM_CATS[c.name] = c.emoji || '🌿'; });
       mergeCustomCats(CUSTOM_CATS);
+      CAT_LABELS = (await fbRef('settings/categoryLabels').get()).val() || {};
+      applyCategoryLabels();
       applyCategoryOrder((await fbRef('settings/categoryOrder').get()).val() || []);
     }catch{ CUSTOM_CATS = {}; }
     HAATS = hSnap.val() || {};
@@ -2412,6 +2414,15 @@ function mergeCustomCats(custom){
     }
   });
 }
+let CAT_LABELS = {};   // categoryKey -> custom display label (settings/categoryLabels). Display-only rename.
+function catLabel(name){ return (CAT_LABELS && CAT_LABELS[name]) || name; }
+// Apply custom display labels to CATEGORY_DISPLAY (keeps each entry's key/grouping; only label changes).
+function applyCategoryLabels(){
+  CATEGORY_DISPLAY.forEach(d => {
+    if(d._origLabel == null) d._origLabel = d.label;
+    d.label = (CAT_LABELS && CAT_LABELS[d.key]) || d._origLabel;
+  });
+}
 // Reorder CATEGORY_DISPLAY by a saved order of category keys (settings/categoryOrder).
 // Categories not in the saved order keep their current relative position, at the end.
 function applyCategoryOrder(order){
@@ -2525,7 +2536,7 @@ function openMasterProductModal(existing){
           <label class="frm-label">કેટેગરી *</label>
           <select class="frm-in" id="mpCat">
             <option value="">— પસંદ કરો —</option>
-            ${cats.map(c => `<option value="${esc(c)}" ${existing?.cat===c?'selected':''}>${CAT_EMOJI_MAP[c]} ${esc(c)}</option>`).join('')}
+            ${cats.map(c => `<option value="${esc(c)}" ${existing?.cat===c?'selected':''}>${CAT_EMOJI_MAP[c]} ${esc(catLabel(c))}</option>`).join('')}
           </select>
         </div>
         <div style="display:flex;gap:10px">
@@ -3377,7 +3388,7 @@ function openProductModal(existing, defaultCat){
           <label class="frm-label">કેટેગરી *</label>
           <select class="frm-in" id="pdCat">
             <option value="">— પસંદ કરો —</option>
-            ${cats.map(c => `<option value="${esc(c)}" ${curCat===c?'selected':''}>${CAT_EMOJI_MAP[c]} ${esc(c)}</option>`).join('')}
+            ${cats.map(c => `<option value="${esc(c)}" ${curCat===c?'selected':''}>${CAT_EMOJI_MAP[c]} ${esc(catLabel(c))}</option>`).join('')}
           </select>
         </div>
         <div style="display:flex;gap:10px">
@@ -3719,41 +3730,53 @@ window.saveCategory = async () => {
 };
 
 window.openCategoryOrder = () => {
-  const rows = CATEGORY_DISPLAY.map(d => `
-    <div class="cat-order-row" data-key="${esc(d.key)}" style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:grab">
-      <span style="color:var(--muted);font-size:18px;line-height:1">≡</span>
-      <span style="font-size:18px">${d.emoji}</span>
-      <span style="font-weight:600;font-size:14px">${esc(d.label)}</span>
+  // List every assignable category (built-in + custom) so any can be reordered AND renamed.
+  const names = Object.keys(CAT_EMOJI_MAP);
+  const rows = names.map(name => `
+    <div class="cat-order-row" data-key="${esc(name)}" style="display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--border);border-radius:9px;padding:8px 10px;margin-bottom:6px">
+      <span class="cat-drag-handle" style="cursor:grab;color:var(--muted);font-size:18px;line-height:1">≡</span>
+      <span style="font-size:18px;flex-shrink:0">${CAT_EMOJI_MAP[name]||'🌿'}</span>
+      <input class="cat-label-in frm-in" value="${esc(catLabel(name))}" style="flex:1;font-size:14px;padding:7px 9px" placeholder="${esc(name)}">
     </div>`).join('');
   modal(`
     <div class="modal-hdr">
-      <div class="modal-title">↕ કેટેગરી ક્રમ</div>
+      <div class="modal-title">↕ કેટેગરી — ક્રમ + નામ</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="card-sub">Drag કરી ક્રમ બદલો — products tab, farmer form અને customer catalog બધે લાગુ થશે.</div>
-      <div id="catOrderList" style="margin-top:12px;max-height:58vh;overflow-y:auto">${rows}</div>
+      <div class="card-sub"><b>≡</b> drag કરી ક્રમ બદલો · નામ બદલવા text edit કરો. Products, farmer form અને customer catalog બધે લાગુ થશે. (નામ બદલવાથી products ખસતા નથી — ફક્ત દેખાતું નામ બદલાય.)</div>
+      <div id="catOrderList" style="margin-top:12px;max-height:56vh;overflow-y:auto">${rows}</div>
     </div>
     <div style="display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--border)">
       <button class="btn-sm" onclick="closeModal()" style="flex:1">રદ</button>
-      <button class="btn-sm primary" onclick="saveCategoryOrder()" style="flex:1">✓ ક્રમ સાચવો</button>
+      <button class="btn-sm primary" onclick="saveCategoryOrder()" style="flex:1">✓ સાચવો</button>
     </div>
   `);
   setTimeout(() => {
     const list = document.getElementById('catOrderList');
-    if(list && typeof Sortable !== 'undefined') Sortable.create(list, {animation:150, ghostClass:'order-ghost'});
+    if(list && typeof Sortable !== 'undefined') Sortable.create(list, {animation:150, ghostClass:'order-ghost', handle:'.cat-drag-handle'});
   }, 40);
 };
 window.saveCategoryOrder = async () => {
-  const order = [...document.querySelectorAll('#catOrderList .cat-order-row')].map(el => el.getAttribute('data-key'));
-  if(!order.length) return;
+  const rows = [...document.querySelectorAll('#catOrderList .cat-order-row')];
+  if(!rows.length) return;
+  const order = rows.map(el => el.getAttribute('data-key'));
+  const labels = {};
+  rows.forEach(el => {
+    const key = el.getAttribute('data-key');
+    const v = (el.querySelector('.cat-label-in')?.value || '').trim();
+    if(v && v !== key) labels[key] = v;   // only store genuine renames
+  });
   if(_busy) return; _busy = true;
   try{
     await fbRef('settings/categoryOrder').set(order);
+    await fbRef('settings/categoryLabels').set(Object.keys(labels).length ? labels : null);
+    CAT_LABELS = labels;
+    applyCategoryLabels();
     applyCategoryOrder(order);
-    logAudit('category-reorder','settings/categoryOrder',{count:order.length});
+    logAudit('category-manage','settings',{order:order.length, renamed:Object.keys(labels).length});
     closeModal();
-    toast("✓ કેટેગરી ક્રમ સાચવાયો","ok");
+    toast("✓ કેટેગરી સાચવાઈ","ok");
     setTabBodyHtml();
   }catch(e){ console.error(e); toast("Save નિષ્ફળ: "+(e.message||e),"err"); }
   finally{ _busy = false; }

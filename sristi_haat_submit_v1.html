@@ -260,6 +260,8 @@ function applyCategoryOrder(order){
   tagged.sort((a,b) => a.ord - b.ord);
   CAT_ORDER.length = 0; tagged.forEach(t => CAT_ORDER.push(t.c));
 }
+let CAT_LABELS = {};   // categoryKey -> custom display label (settings/categoryLabels). Display-only rename.
+function catLabel(name){ return (CAT_LABELS && CAT_LABELS[name]) || name; }
 
 const $=q=>document.querySelector(q);
 const $$=q=>document.querySelectorAll(q);
@@ -621,6 +623,7 @@ async function loadSubmission(){
     const cc = {};
     Object.values((await fbRef('settings/categories').get()).val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; });
     mergeCustomCats(cc);
+    CAT_LABELS = (await fbRef('settings/categoryLabels').get()).val() || {};
     applyCategoryOrder((await fbRef('settings/categoryOrder').get()).val() || []);
   }catch(e){ /* non-fatal */ }
   // Load haats and filter to ones currently OPEN for this farmer
@@ -891,7 +894,7 @@ function renderItems(){
       <div class="cat-section ${isOpen?'':'collapsed'}" id="cat_${safeKey}">
         <div class="cat-h" style="cursor:pointer" onclick="toggleCat('${esc(c).replace(/'/g,"\\'")}')">
           <span class="cat-h-emoji">${CAT_EMOJI[c]||'🌿'}</span>
-          <span class="cat-h-name">${esc(c)}</span>
+          <span class="cat-h-name">${esc(catLabel(c))}</span>
           <span class="cat-h-count">${groups[c].length}</span>
           <span class="cat-chev" style="margin-left:6px;color:#7a7a7a;font-size:11px">${isOpen?'▼':'▶'}</span>
         </div>
@@ -1116,7 +1119,7 @@ window.openCustomForm = () => {
           </div>
           <div class="frm-row">
             <label class="frm-label">શ્રેણી</label>
-            <select class="frm-in" id="cuC">${CATS_ALL.map(c=>`<option ${c==='શાકભાજી'?'selected':''}>${c}</option>`).join('')}</select>
+            <select class="frm-in" id="cuC">${CATS_ALL.map(c=>`<option value="${esc(c)}" ${c==='શાકભાજી'?'selected':''}>${esc(catLabel(c))}</option>`).join('')}</select>
           </div>
         </div>
       </div>

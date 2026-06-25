@@ -219,6 +219,8 @@ function applyCategoryOrder(order){
   tagged.sort((a,b) => a.ord - b.ord);
   CAT_ORDER.length = 0; tagged.forEach(t => CAT_ORDER.push(t.c));
 }
+let CAT_LABELS = {};   // categoryKey -> custom display label (settings/categoryLabels). Display-only rename.
+function catLabel(name){ return (CAT_LABELS && CAT_LABELS[name]) || name; }
 
 const $=q=>document.querySelector(q);
 const $$=q=>document.querySelectorAll(q);
@@ -318,7 +320,7 @@ async function init(){
   try{
     const cur = await fbRef('weekly/current').get();
     WK = cur.exists() ? cur.val() : 1;
-    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap, haatSnap, catSnap, coSnap] = await Promise.all([
+    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap, haatSnap, catSnap, coSnap, clSnap] = await Promise.all([
       fbRef('weekly/'+WK+'/meta').get(),
       fbRef('weekly/'+WK+'/submissions').get(),
       fbRef('marketFarmers').get(),
@@ -329,12 +331,13 @@ async function init(){
       fbRef('haats').get(),
       fbRef('settings/categories').get(),
       fbRef('settings/categoryOrder').get(),
+      fbRef('settings/categoryLabels').get(),
     ]);
     WK_META = metaSnap.val() || {weekNum:WK};
     SITE_CFG = scSnap.val() || null;
     HAAT_NAME_BY_CODE = {};
     Object.entries(haatSnap.val() || {}).forEach(([code, h]) => { HAAT_NAME_BY_CODE[code] = (h && (h.nameGu || h.name)) || code; });
-    { const cc = {}; Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; }); mergeCustomCats(cc); applyCategoryOrder(coSnap.val() || []); }
+    { const cc = {}; Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; }); mergeCustomCats(cc); CAT_LABELS = clSnap.val() || {}; applyCategoryOrder(coSnap.val() || []); }
     SUBMISSIONS = subSnap.val() || {};
     PRODUCT_PHOTOS = pSnap.val() || {};
     PRODUCT_PHOTO_MAP = mSnap.val() || {};
@@ -562,7 +565,7 @@ function render(){
       </div>
       <div class="filters">
         <button class="filter-btn ${CAT==='all'?'active':''}" onclick="setCat('all')">બધું</button>
-        ${cats.map(c=>`<button class="filter-btn ${CAT===c?'active':''}" onclick="setCat('${esc(c)}')">${CAT_EMOJI[c]||'🌿'} ${esc(c)}</button>`).join('')}
+        ${cats.map(c=>`<button class="filter-btn ${CAT===c?'active':''}" onclick="setCat('${esc(c)}')">${CAT_EMOJI[c]||'🌿'} ${esc(catLabel(c))}</button>`).join('')}
       </div>
     </div>
 
@@ -619,7 +622,7 @@ function renderItems(){
     <div class="cat-section fade-in">
       <div class="cat-header">
         <span class="cat-emoji">${CAT_EMOJI[c]||'🌿'}</span>
-        <span class="cat-name">${esc(c)}</span>
+        <span class="cat-name">${esc(catLabel(c))}</span>
         <span class="cat-count">${groups[c].length}</span>
       </div>
       <div class="items-scroll">${groups[c].map(itemCard).join('')}</div>
