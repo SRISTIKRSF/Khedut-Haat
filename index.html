@@ -207,6 +207,12 @@ const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{folder:'svg',ext:'.svg'}),0); }
 
 let WK=null, WK_META={}, SUBMISSIONS={}, FARMERS_MAP={};
+let PRODUCTS_MASTER={}, PRODUCTS_BY_NAME={};   // Part A: master catalogue (id -> product, normName -> product)
+function normName(s){ return String(s==null?'':s).trim().toLowerCase(); }
+function resolveMaster(it){
+  if(it && it.productId && PRODUCTS_MASTER[it.productId]) return PRODUCTS_MASTER[it.productId];
+  return (it && PRODUCTS_BY_NAME[normName(it.name)]) || null;
+}
 let PRODUCT_PHOTOS={};        // safeKey OR cellKey -> URL/dataURL
 let PRODUCT_PHOTO_MAP={};     // safeKey -> cellKey (when slicer was used)
 let ALL_ITEMS=[], FARMER_LIST=[];
@@ -291,12 +297,13 @@ async function init(){
   try{
     const cur = await fbRef('weekly/current').get();
     WK = cur.exists() ? cur.val() : 1;
-    const [metaSnap, subSnap, fSnap, pSnap, mSnap] = await Promise.all([
+    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap] = await Promise.all([
       fbRef('weekly/'+WK+'/meta').get(),
       fbRef('weekly/'+WK+'/submissions').get(),
       fbRef('marketFarmers').get(),
       fbRef('productPhotos').get(),
       fbRef('productPhotoMap').get(),
+      fbRef('products').get(),
     ]);
     WK_META = metaSnap.val() || {weekNum:WK};
     SUBMISSIONS = subSnap.val() || {};
@@ -304,6 +311,13 @@ async function init(){
     PRODUCT_PHOTO_MAP = mSnap.val() || {};
     const raw = fSnap.val() || {};
     Object.values(raw).forEach(f => { if(f && f.id && f.active!==false) FARMERS_MAP[f.id] = f; });
+    // Part A: load the master product catalogue — customer display names resolve from here by id
+    PRODUCTS_MASTER = {}; PRODUCTS_BY_NAME = {};
+    Object.values(prodSnap.val() || {}).forEach(p => {
+      if(!p || !p.id || p.active===false) return;
+      PRODUCTS_MASTER[p.id] = p;
+      if(p.name) PRODUCTS_BY_NAME[normName(p.name)] = p;
+    });
   }catch(e){
     console.error(e);
     return renderErrorState(init);
@@ -334,35 +348,50 @@ function buildLists(){
       : farmerVenues(f);
     const items = (sub.items||[]).filter(it=>it.available!==false);
     if(!items.length) return;
-    items.forEach((it, idx)=>{
+    // Part A: resolve each item to its MASTER product → display the master name + category.
+    // Legacy items with no master match keep their typed name but fall into "અન્ય" (Other).
+    const resolved = items.map(it => {
+      const m = resolveMaster(it);
+      return { ...it,
+        _dispName: m ? m.name : (it.name||'').trim(),
+        _dispCat:  m ? (m.cat||'અન્ય') : 'અન્ય',
+        _masterId: m ? m.id : null,
+        _emoji:    (m && m.emoji) || it.emoji,
+        _photo:    (m && m.photo) || '',
+      };
+    });
+    resolved.forEach(it=>{
       allRaw.push({...it, farmerName: f.name || sub.farmerName || "ખેડૂત", farmerFid: fid, venues});
     });
     FARMER_LIST.push({
       id:fid, name:f.name||sub.farmerName||"ખેડૂત", farm:f.farm||"",
       loc:[f.village,f.district].filter(Boolean).join(", "),
-      phone:f.phone||"", photo:f.photoUrl||"", venues, items
+      phone:f.phone||"", photo:f.photoUrl||"", venues,
+      items: resolved.map(it => ({...it, name: it._dispName, cat: it._dispCat, emoji: it._emoji}))
     });
   });
   // 2. Aggregate. Group by slicer's cellKey when available (ignoring unit so 500ml & 1Lt merge),
   //    else fall back to name+unit so items without a photo mapping stay safe.
   const aggMap = new Map();
   allRaw.forEach(it => {
-    const trimmed = (it.name||'').trim();
-    const sk = photoKey(trimmed);
-    const cellKey = PRODUCT_PHOTO_MAP[sk];
-    const groupId = cellKey ? cellKey : `${trimmed}|${it.unit||''}`;
+    const dispName = it._dispName || (it.name||'').trim();
+    const isMaster = !!it._masterId;
+    // Part A: group master-resolved items by master id (variants consolidate under the master);
+    // legacy items keep the old cellKey / name+unit grouping.
+    const groupId = isMaster ? ('m_'+it._masterId)
+                  : (PRODUCT_PHOTO_MAP[photoKey(dispName)] || `${dispName}|${it.unit||''}`);
     let agg = aggMap.get(groupId);
     if(!agg){
       agg = {
-        name: trimmed, nameOptions: new Set([trimmed]),
-        unitCounts: {}, cat: it.cat, emoji: it.emoji,
+        name: dispName, isMaster, nameOptions: new Set([dispName]),
+        unitCounts: {}, cat: it._dispCat || it.cat || 'અન્ય', emoji: it._emoji || it.emoji, photoUrl: it._photo || '',
         prices: [], totalQty: 0,
         venueSet: new Set(), farmers: [],
         _k: 'agg_'+btoa(unescape(encodeURIComponent(groupId))).replace(/[^a-zA-Z0-9]/g,'').slice(0,32)
       };
       aggMap.set(groupId, agg);
     } else {
-      agg.nameOptions.add(trimmed);
+      agg.nameOptions.add(dispName);
     }
     const u = it.unit||'';
     agg.unitCounts[u] = (agg.unitCounts[u]||0)+1;
@@ -370,11 +399,11 @@ function buildLists(){
     if(p > 0) agg.prices.push(p);
     if(it.qty != null && it.qty !== "" && +it.qty > 0) agg.totalQty += +it.qty;
     (it.venues || []).forEach(v => agg.venueSet.add(v));
-    agg.farmers.push({name:it.farmerName, farmerFid:it.farmerFid, originalItemName:trimmed, unit:u, price:p, qty:+it.qty||0});
+    agg.farmers.push({name:it.farmerName, farmerFid:it.farmerFid, originalItemName:dispName, unit:u, price:p, qty:+it.qty||0});
   });
-  // 3. Build ALL_ITEMS — canonical name = shortest; canonical unit = most common
+  // 3. Build ALL_ITEMS — master groups use the master name; legacy use shortest variant.
   ALL_ITEMS = [...aggMap.values()].map(agg => {
-    const canonical = [...agg.nameOptions].sort((a,b)=> a.length - b.length || a.localeCompare(b))[0];
+    const canonical = agg.isMaster ? agg.name : [...agg.nameOptions].sort((a,b)=> a.length - b.length || a.localeCompare(b))[0];
     const variantNames = [...agg.nameOptions].filter(n=>n!==canonical);
     const sortedUnits = Object.entries(agg.unitCounts).sort((a,b)=>b[1]-a[1]);
     const canonicalUnit = sortedUnits[0][0];
@@ -382,7 +411,7 @@ function buildLists(){
     const minP = agg.prices.length ? Math.min(...agg.prices) : 0;
     const maxP = agg.prices.length ? Math.max(...agg.prices) : 0;
     return {
-      name: canonical, unit: canonicalUnit, cat: agg.cat, emoji: agg.emoji,
+      name: canonical, unit: canonicalUnit, cat: agg.cat, emoji: agg.emoji, photoUrl: agg.photoUrl || '',
       minPrice: minP, maxPrice: maxP, price: minP,
       qty: agg.totalQty || null,
       hasMultipleUnits,

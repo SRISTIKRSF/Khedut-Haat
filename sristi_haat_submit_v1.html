@@ -183,6 +183,19 @@ const AUTH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days; re-PIN after expiry
 let FB={app:null,db:null};
 function fbRef(p){return FB.db.ref(FB_NAMESPACE+(p?'/'+p:''));}
 
+// ── Part C: append-only audit trail (auditLog/{YYYY-MM}/{pushId}) ──
+function logAudit(action, target, extra){
+  try{
+    const d=new Date(), ym=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    const ph=String((typeof FARMER!=='undefined'&&FARMER?FARMER.phone:'')||'').replace(/[^0-9]/g,'');
+    fbRef('auditLog/'+ym).push().set(Object.assign({
+      ts: firebase.database.ServerValue.TIMESTAMP,
+      actor: 'farmer:'+((typeof FARMER!=='undefined'&&FARMER&&FARMER.name)||'?')+(ph?' ('+ph.slice(-4)+')':''),
+      action, target, wk: (typeof WK!=='undefined'?WK:null)
+    }, extra||{}));
+  }catch(e){}
+}
+
 /* ── Master product library ── */
 const PRODUCT_LIB = [
   // શાકભાજી
@@ -575,7 +588,7 @@ async function loadSubmission(){
           if(ca !== cb) return (ca===-1?99:ca) - (cb===-1?99:cb);
           return (+a.order||0) - (+b.order||0);
         })
-        .map(p => ({n:p.name, u:p.unit||'kg', c:p.cat||'અન્ય', e:p.emoji||'🌿', photo:p.photo||''}));
+        .map(p => ({n:p.name, u:p.unit||'kg', c:p.cat||'અન્ય', e:p.emoji||'🌿', photo:p.photo||'', id:p.id||''}));
       if(arr.length){
         // Replace PRODUCT_LIB contents in place
         PRODUCT_LIB.length = 0;
@@ -616,7 +629,7 @@ async function loadSubmission(){
     CUR_STATUS = v.status || '';
     (v.items||[]).forEach(it => {
       if(!it || !it.name) return;
-      ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", qtyByHaat: it.qtyByHaat || {}, unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
+      ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", remaining: it.qtyRemaining||"", qtyByHaat: it.qtyByHaat || {}, unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
       ROUTINE_ITEMS.set(it.name, {
         lastPrice: it.price||"",
         unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom
@@ -649,6 +662,18 @@ async function loadSubmission(){
         }
       }
     }catch{}
+  }
+  // Part A: seed persistent starred products (FARMER.myProductIds) so the farmer's recurring
+  // items show at top EVERY week — surviving "નવો અઠવાડિયું" / skipped weeks. Resolve via the
+  // master catalogue by id; products renamed/removed from the master simply won't resolve.
+  if(Array.isArray(FARMER.myProductIds) && FARMER.myProductIds.length){
+    const byId = {}; PRODUCT_LIB.forEach(p => { if(p.id) byId[p.id] = p; });
+    FARMER.myProductIds.forEach(pid => {
+      const p = byId[pid];
+      if(p && !ROUTINE_ITEMS.has(p.n)){
+        ROUTINE_ITEMS.set(p.n, {lastPrice:"", unit:p.u, cat:p.c, emoji:p.e, custom:false});
+      }
+    });
   }
   renderForm();
 }
@@ -766,18 +791,16 @@ function renderForm(){
 
     <div id="itemsContainer">${renderItems()}</div>
 
-    <div class="add-row">
-      <button class="add-btn" onclick="openCustomForm()">+ યાદીમાં ન હોય તેવી વસ્તુ ઉમેરો</button>
-    </div>
+    <!-- Part A: select-only — farmers choose from the master catalogue; no add-custom button -->
     <div id="customFormSlot"></div>
 
     <div class="submit-bar">
       <div class="submit-bar-inner">
         <div class="submit-summary">
           <b id="submitCt">${activeCount()} વસ્તુ ભરી</b>
-          હાટ #${esc(WK)} માટે
+          ${CUR_STATUS==='approved'?'— ભાવ મંજૂર 🔒, જથ્થો અપડેટ કરો':'હાટ #'+esc(WK)+' માટે'}
         </div>
-        <button class="btn-submit" id="btnSubmit" onclick="submitAll()">મોકલો ✓</button>
+        <button class="btn-submit" id="btnSubmit" onclick="submitAll()">${CUR_STATUS==='approved'?'જથ્થો અપડેટ કરો':'મોકલો ✓'}</button>
       </div>
     </div>
   `;
@@ -864,16 +887,28 @@ function itemRow(p, isRoutine){
 
   const nameHtml = `<div class="item-name">${esc(p.n)}${p.custom?' <span style="font-size:9.5px;background:var(--green-pale);color:var(--green2);padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:700">CUSTOM</span>':''}${isRoutine&&lastPrice?` <span style="font-size:9.5px;color:#7a7a7a;margin-left:4px">ગયા હાટે ₹${esc(lastPrice)}</span>`:''}</div>`;
 
+  const priceLocked = (CUR_STATUS === 'approved');   // Part B: price frozen once admin approves
   const priceCol = `
     <div class="input-col">
-      <div class="input-col-lbl">ભાવ</div>
-      <div class="input-wrap ${pHas}">
+      <div class="input-col-lbl">ભાવ${priceLocked?' 🔒':''}</div>
+      <div class="input-wrap ${pHas}"${priceLocked?' style="opacity:.7;background:#f2f2ef"':''}>
         <span class="pfx">₹</span>
-        <input type="number" inputmode="numeric" min="0" placeholder="${esc(pricePlaceholder)}" value="${esc(e.price)}" oninput="onPrice('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
+        <input type="number" inputmode="numeric" min="0" placeholder="${esc(pricePlaceholder)}" value="${esc(e.price)}" ${priceLocked?'readonly title="ભાવ મંજૂર થયો — બદલી શકાતો નથી"':`oninput="onPrice('${esc(p.n).replace(/'/g,"\\'")}',this.value)"`}>
         <span class="sfx">/${esc(p.u)}</span>
       </div>
     </div>
   `;
+
+  const showRemaining = priceLocked;   // Part B (B6): બાકી જથ્થો shown only post-approval (post-haat)
+  const rHas = (+e.remaining)>0 ? 'has-val' : '';
+  const remainingCol = showRemaining ? `
+    <div class="input-col">
+      <div class="input-col-lbl">બાકી જથ્થો</div>
+      <div class="input-wrap ${rHas}">
+        <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.remaining||'')}" oninput="onRemaining('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
+        <span class="sfx">${esc(p.u)}</span>
+      </div>
+    </div>` : '';
 
   if(isMulti){
     const qbh = e.qtyByHaat || {};
@@ -907,6 +942,13 @@ function itemRow(p, isRoutine){
             <span style="color:var(--muted)">કુલ</span>
             <span id="tot_${safeId}" style="font-weight:700;color:var(--green2)">${total ? total + ' ' + esc(p.u) : '—'}</span>
           </div>
+          ${showRemaining ? `<div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding-top:5px;border-top:1px dotted var(--border)">
+            <span style="font-size:11px;color:#5a5a5a;flex:1;font-weight:600">બાકી જથ્થો</span>
+            <div class="input-wrap ${(+e.remaining)>0?'has-val':''}" style="flex:0 0 110px">
+              <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.remaining||'')}" oninput="onRemaining('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
+              <span class="sfx">${esc(p.u)}</span>
+            </div>
+          </div>` : ''}
         </div>
       </div>
     `;
@@ -921,12 +963,13 @@ function itemRow(p, isRoutine){
       <div class="item-inputs">
         ${priceCol}
         <div class="input-col">
-          <div class="input-col-lbl">જથ્થો</div>
+          <div class="input-col-lbl">${showRemaining?'કુલ જથ્થો':'જથ્થો'}</div>
           <div class="input-wrap ${qHas}">
             <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.qty)}" oninput="onQty('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
             <span class="sfx">${esc(p.u)}</span>
           </div>
         </div>
+        ${remainingCol}
       </div>
     </div>
   `;
@@ -945,6 +988,11 @@ window.onQty = (name, val) => {
   e.qty = val;
   ENTRIES.set(name, e);
   refreshRow(name);
+};
+window.onRemaining = (name, val) => {   // Part B (B6): બાકી જથ્થો (unsold)
+  const e = ENTRIES.get(name) || pristine(name);
+  e.remaining = val;
+  ENTRIES.set(name, e);
 };
 window.onQtyForHaat = (name, haatCode, val) => {
   const e = ENTRIES.get(name) || pristine(name);
@@ -1116,11 +1164,13 @@ window.submitAll = async () => {
   });
 
   const isMulti = OPEN_HAATS.length > 1;
+  const idByName = {}; PRODUCT_LIB.forEach(p => { if(p.id) idByName[p.n] = p.id; });   // Part A: name -> master productId
   const items = [];
   ENTRIES.forEach((e, name) => {
     const price = +e.price;
     if(!(price>0)) return;
     const it = {name, price, unit:e.unit||"kg", cat:e.cat||"અન્ય", available:true};
+    if(idByName[name]) it.productId = idByName[name];   // Part A: stamp master productId (renames propagate by id)
     if(isMulti && e.qtyByHaat){
       const qbh = {};
       let total = 0;
@@ -1135,6 +1185,7 @@ window.submitAll = async () => {
     } else if(e.qty != null && e.qty !== "" && +e.qty>0){
       it.qty = +e.qty;
     }
+    if(e.remaining != null && e.remaining !== "" && !isNaN(+e.remaining)) it.qtyRemaining = +e.remaining;   // Part B (B6)
     if(e.emoji) it.emoji = e.emoji;
     if(e.custom) it.custom = true;
     items.push(it);
@@ -1148,44 +1199,64 @@ window.submitAll = async () => {
     // Check if we're re-editing a previously approved submission (so admin sees a flag)
     const curSnap = await fbRef('weekly/'+WK+'/submissions/'+subFid()).get();
     const cur = curSnap.val() || {};
-    const reEdited = cur.status === 'approved';
-    // Use only currently-open haats from the farmer's attended list (set by admin)
-    const submissionHaatNames = OPEN_HAATS.length
-      ? OPEN_HAATS.map(c => HAATS_ALL[c]?.nameGu || HAATS_ALL[c]?.name || c).join(', ')
-      : (FARMER.haat || "");
-    const payload = {
-      farmerId: subFid(),
-      farmerName: FARMER.name||"",
-      farmerPhone: String(FARMER.phone||"").replace(/[^0-9]/g,""),
-      farmerVillage: FARMER.village||"",
-      farmerDistrict: FARMER.district||"",
-      farmerHaat: submissionHaatNames,
-      farmerHaatCodes: OPEN_HAATS.slice(),
-      weekNum: WK,
-      items,
-      status: 'pending',
-      submittedAt: cur.submittedAt || firebase.database.ServerValue.TIMESTAMP,
-      updatedAt:   firebase.database.ServerValue.TIMESTAMP,
-    };
-    if(reEdited){
-      payload.previousItems = cur.items || [];
-      payload.previousApprovedAt = cur.approvedAt || null;
-      payload._reEdited = true;
+    const isQtyPhase = (cur.status === 'approved');   // Part B: price already approved+locked → quantity-only update
+    if(isQtyPhase){
+      // Part B: write ONLY quantity (+ qtyUpdatedAt). Price + status + approval fields untouched. No re-review.
+      await Promise.race([
+        fbRef('weekly/'+WK+'/submissions/'+subFid()).update({ items, qtyUpdatedAt: firebase.database.ServerValue.TIMESTAMP }),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), 20000))
+      ]);
+      logAudit('qty-update', 'weekly/'+WK+'/submissions/'+subFid(), { items: items.length });
+      showState("✅","જથ્થો અપડેટ થયો!",
+        `તમારો જથ્થો અપડેટ થઈ ગયો છે.<br><br>
+         <b>${items.length} વસ્તુ</b><br><br>
+         ભાવ મંજૂર થયેલો છે — એ બદલાયો નથી. 🔒<br><br>
+         <button class="btn-primary" onclick="loadSubmission()" style="max-width:200px;margin-top:8px">↻ ફરી જુઓ</button>`);
+    } else {
+      // Price phase (new / pending / sent-back): full submit → goes to review
+      const submissionHaatNames = OPEN_HAATS.length
+        ? OPEN_HAATS.map(c => HAATS_ALL[c]?.nameGu || HAATS_ALL[c]?.name || c).join(', ')
+        : (FARMER.haat || "");
+      const payload = {
+        farmerId: subFid(),
+        farmerName: FARMER.name||"",
+        farmerPhone: String(FARMER.phone||"").replace(/[^0-9]/g,""),
+        farmerVillage: FARMER.village||"",
+        farmerDistrict: FARMER.district||"",
+        farmerHaat: submissionHaatNames,
+        farmerHaatCodes: OPEN_HAATS.slice(),
+        weekNum: WK,
+        items,
+        status: 'pending',
+        submittedAt: cur.submittedAt || firebase.database.ServerValue.TIMESTAMP,
+        updatedAt:   firebase.database.ServerValue.TIMESTAMP,
+      };
+      await Promise.race([
+        fbRef('weekly/'+WK+'/submissions/'+subFid()).set(payload),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), 20000))
+      ]);
+      // Part A: remember this farmer's products (master ids) so they're starred at top in future weeks
+      try{
+        const ids = items.map(it => it.productId).filter(Boolean);
+        const existing = Array.isArray(FARMER.myProductIds) ? FARMER.myProductIds : [];
+        const merged = [...new Set([...existing, ...ids])];
+        if(ids.length && merged.length !== existing.length){
+          FARMER.myProductIds = merged;
+          await fbRef('marketFarmers/'+(FARMER._key||subFid())+'/myProductIds').set(merged);
+        }
+      }catch(e){ /* non-fatal */ }
+      logAudit('submit', 'weekly/'+WK+'/submissions/'+subFid(), { items: items.length });
+      showState("✅","ધન્યવાદ!",
+        `તમારી પેદાશ હાટ #${WK} માટે મોકલાઈ ગઈ છે.<br><br>
+         <b>${items.length} વસ્તુ</b><br><br>
+         ⏳ <b>સૃષ્ટિ ટીમની સમીક્ષા બાકી</b> — ભાવ approve થયા પછી catalog માં દેખાશે.<br>
+         જરૂર પડે તો શનિવાર સાંજ સુધી ફરી લોગ-ઇન કરી બદલી શકો છો.<br><br>
+         <button class="btn-primary" onclick="loadSubmission()" style="max-width:200px;margin-top:8px">↻ બદલવા જાઓ</button>`);
     }
-    await Promise.race([
-      fbRef('weekly/'+WK+'/submissions/'+subFid()).set(payload),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), 20000))
-    ]);
-    showState("✅","ધન્યવાદ!",
-      `તમારી પેદાશ હાટ #${WK} માટે મોકલાઈ ગઈ છે.<br><br>
-       <b>${items.length} વસ્તુ</b><br><br>
-       ⏳ <b>સૃષ્ટિ ટીમની સમીક્ષા બાકી</b> — approve થયા પછી catalog માં દેખાશે.<br>
-       જરૂર પડે તો શનિવાર સાંજ સુધી ફરી લોગ-ઇન કરી બદલી શકો છો.<br><br>
-       <button class="btn-primary" onclick="loadSubmission()" style="max-width:200px;margin-top:8px">↻ બદલવા જાઓ</button>`);
   }catch(e){
     console.error(e);
     toast("મોકલવામાં ભૂલ. ફરી પ્રયત્ન કરો.","err");
-    btn.disabled = false; btn.textContent = "મોકલો ✓";
+    btn.disabled = false; btn.textContent = (CUR_STATUS==='approved'?'જથ્થો અપડેટ કરો':'મોકલો ✓');
   }
   } finally {
     _submitting = false;             // V11: always release the guard

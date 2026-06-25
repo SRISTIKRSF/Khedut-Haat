@@ -248,6 +248,21 @@ function adminIdentity(){
 let FB={app:null,db:null};
 function fbRef(p){return FB.db.ref(FB_NAMESPACE+(p?'/'+p:''));}
 
+// ── Part C: append-only audit trail (auditLog/{YYYY-MM}/{pushId}) ──
+function auditActor(){
+  try{ const a=JSON.parse(sessionStorage.getItem(AUTH_KEY)||'{}'); return 'admin:'+(a.username||a.name||'?'); }catch(_){ return 'admin:?'; }
+}
+function logAudit(action, target, extra){
+  try{
+    const d=new Date(), ym=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    fbRef('auditLog/'+ym).push().set(Object.assign({
+      ts: firebase.database.ServerValue.TIMESTAMP,
+      actor: auditActor(), action, target,
+      wk: (typeof WK!=='undefined'?WK:null)
+    }, extra||{}));
+  }catch(e){ console.warn('audit', e); }
+}
+
 const $=q=>document.querySelector(q);
 const $$=q=>document.querySelectorAll(q);
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -614,40 +629,16 @@ async function loadProductsDB(){
     fbRef('products').get(),
     fbRef('productsDeleted').get(),
   ]);
-  const oldDB = snap.val() || {};
-  const tombstones = delSnap.val() || {};
-  DELETED_PRODUCT_IDS = new Set(Object.keys(tombstones));
+  const masterDB = snap.val() || {};
+  DELETED_PRODUCT_IDS = new Set(Object.keys(delSnap.val() || {}));
 
-  // Rebuild PRODUCTS_DB:
-  //   1. Canonical names from history (matches demo) — EXCEPT tombstoned ids
-  //   2. + Manually-added products (those with .manual === true)
-  const newDB = {};
-  let nextOrder = 0;
-  ALL_PRODUCTS_MAP.forEach((v, name) => {
-    const id = makeProductId(name);
-    if(DELETED_PRODUCT_IDS.has(id)) return;
-    const old = oldDB[id];
-    newDB[id] = {
-      id, name,
-      cat: (old && old.cat) || v.cat || 'અન્ય',
-      unit: (old && old.unit) || v.unit || 'kg',
-      emoji: (old && old.emoji) || v.emoji || '🌿',
-      photo: (old && old.photo) || photoForNameUrlOnly(name) || '',
-      order: (old && old.order != null) ? +old.order : (nextOrder++),
-      active: true,
-      addedAt: (old && old.addedAt) || Date.now(),
-      ...(old && old.manual ? {manual: true} : {}),
-    };
-  });
-  // Preserve manual additions (e.g. Kiwi)
-  Object.values(oldDB).forEach(p => {
-    if(!p || !p.name || !p.manual) return;
-    const id = makeProductId(p.name);
-    if(!newDB[id]) newDB[id] = p;
-  });
-
-  PRODUCTS_DB = newDB;
-  try{ await fbRef('products').set(newDB); }catch(e){ console.error('products write failed', e); }
+  // PART A (simplified — farmers SELECT-only, never add): `products` is the admin-curated
+  // source of truth. No history rebuild, no auto-discovery, no overwrite → admin edits always
+  // persist (this is what makes rename/edit stick). Exclude any tombstoned id defensively.
+  // NOTE: loadAllProductsAcrossWeeks() above is kept only because other admin features use
+  // ALL_PRODUCTS_MAP (~line 2248/2574); loadProductsDB itself no longer uses it.
+  Object.keys(masterDB).forEach(id => { if(DELETED_PRODUCT_IDS.has(id)) delete masterDB[id]; });
+  PRODUCTS_DB = masterDB;
 }
 
 async function loadAll(){
@@ -912,7 +903,7 @@ function renderActivityLog(){
   });
   events.sort((a,b) => b.ts - a.ts);
   const recent = events.slice(0, 10);
-  if(!recent.length) return '';
+  if(!recent.length) return '<div class="card" style="padding:11px 16px;margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:10px"><div style="font-size:13px;color:var(--muted)">આ અઠવાડિયે કોઈ admin action નથી</div><button class="btn-sm" onclick="openTrail()">📜 પૂરો Trail</button></div>';
   return `
     <div class="card" style="padding:0;margin-top:14px">
       <div style="padding:11px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
@@ -920,7 +911,7 @@ function renderActivityLog(){
           <div style="font-size:14px;font-weight:700;color:var(--green)">📋 Activity</div>
           <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Last ${recent.length} admin actions across this week</div>
         </div>
-        <div style="font-size:11px;color:var(--muted)">${events.length > 10 ? '+'+(events.length-10)+' older' : ''}</div>
+        <button class="btn-sm" onclick="openTrail()" title="પૂરો audit trail — બધી farmer + admin actions, બે મહિના">📜 પૂરો Trail</button>
       </div>
       <div>
         ${recent.map(e => `
@@ -940,6 +931,68 @@ function renderActivityLog(){
     </div>
   `;
 }
+
+// ── Part C: full audit trail viewer (reads auditLog/{YYYY-MM}) ──
+const AUDIT_META = {
+  'submit':        {ic:'📤', lbl:'ખેડૂતે મોકલ્યું',  c:'#1b6b3a', bg:'#d8f3dc'},
+  'qty-update':    {ic:'🔄', lbl:'જથ્થો અપડેટ',       c:'#1b6b3a', bg:'#d8f3dc'},
+  'approve':       {ic:'✓',  lbl:'Approve',           c:'#1b4332', bg:'#d8f3dc'},
+  'approve-all':   {ic:'✓',  lbl:'બધી approve',       c:'#1b4332', bg:'#d8f3dc'},
+  'edit-approve':  {ic:'✏️', lbl:'Edit & approve',    c:'#0a6a3a', bg:'#d8f3dc'},
+  'send-back':     {ic:'↩️', lbl:'Send back',         c:'#7a3010', bg:'#fff0e0'},
+  'reject':        {ic:'✗',  lbl:'Reject',            c:'#c1121f', bg:'#ffe0e0'},
+  'product-save':  {ic:'🏷️', lbl:'Product save',      c:'#5a4a00', bg:'#fff8d6'},
+  'product-delete':{ic:'🗑️', lbl:'Product delete',    c:'#c1121f', bg:'#ffe0e0'},
+};
+function auditSummary(e){
+  const bits=[];
+  if(e.renamedFrom) bits.push(esc(e.renamedFrom)+' → '+esc(e.product||''));
+  else if(e.product) bits.push(esc(e.product)+(e.isNew?' (નવું)':''));
+  if(e.farmer) bits.push(esc(e.farmer));
+  if(e.count!=null) bits.push(e.count+' ખેડૂત');
+  if(e.items!=null) bits.push(e.items+' વસ્તુ');
+  if(e.note) bits.push('"'+esc(String(e.note).slice(0,40))+'"');
+  if(e.reason) bits.push('"'+esc(String(e.reason).slice(0,40))+'"');
+  return bits.join(' • ');
+}
+window.openTrail = async () => {
+  modal(`
+    <div class="modal-hdr">
+      <div class="modal-title">📜 Audit Trail</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="trailBody">⏳ Trail loading…</div>
+  `);
+  try{
+    const d=new Date();
+    const ym=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    const pd=new Date(d.getFullYear(), d.getMonth()-1, 1);
+    const pym=pd.getFullYear()+'-'+String(pd.getMonth()+1).padStart(2,'0');
+    const snaps = await Promise.all([fbRef('auditLog/'+ym).get(), fbRef('auditLog/'+pym).get()]);
+    const all=[];
+    snaps.forEach(s=>{ const v=s.val()||{}; Object.values(v).forEach(e=> all.push(e)); });
+    all.sort((a,b)=>(b.ts||0)-(a.ts||0));
+    const rows=all.slice(0,120);
+    const body=document.getElementById('trailBody'); if(!body) return;
+    if(!rows.length){ body.innerHTML='<div style="text-align:center;padding:30px;color:var(--muted)">હજી કોઈ entry નથી — નવી farmer/admin actions અહીં દેખાશે.</div>'; return; }
+    body.innerHTML = `
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">છેલ્લી ${rows.length} actions (બે મહિના) • newest first</div>
+      ${rows.map(e=>{
+        const m=AUDIT_META[e.action]||{ic:'•', lbl:e.action||'?', c:'#555', bg:'#eee'};
+        const who=String(e.actor||'').replace(/^admin:/,'👤 ').replace(/^farmer:/,'🌾 ');
+        const sum=auditSummary(e);
+        return `<div style="display:flex;align-items:flex-start;gap:10px;padding:9px 2px;border-bottom:1px solid #f0eee5">
+          <div style="background:${m.bg};color:${m.c};border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">${m.ic}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;color:var(--text)"><b>${esc(m.lbl)}</b>${sum?' — '+sum:''}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">${esc(who)}${e.wk!=null?' • હાટ '+esc(e.wk):''}</div>
+          </div>
+          <div style="font-size:10.5px;color:var(--muted);text-align:right;flex-shrink:0">${e.ts?formatAgo(e.ts):''}</div>
+        </div>`;
+      }).join('')}
+    `;
+  }catch(err){ const b=document.getElementById('trailBody'); if(b) b.innerHTML='<div style="color:var(--red);padding:20px">Trail load નિષ્ફળ: '+esc(err.message||err)+'</div>'; }
+};
 
 window.openCustomerViews = async () => {
   modal(`
@@ -1229,6 +1282,9 @@ function reviewCompactList(ids, statusLabel, statusColor){
     const phone = sub.farmerPhone || f.phone || '';
     const items = sub.items || [];
     const totalKg = items.reduce((n, it) => n + (+it.qty || 0), 0);
+    const hasRem = items.some(it => it.qtyRemaining != null && it.qtyRemaining !== '');   // Part B (B6)
+    const totalRem = items.reduce((n, it) => n + (it.qtyRemaining != null ? (+it.qtyRemaining||0) : 0), 0);
+    const sold = Math.max(0, totalKg - totalRem);
     return `
       <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border)">
         <div style="width:34px;height:34px;border-radius:50%;background:${statusColor};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">${esc((name||'?').charAt(0))}</div>
@@ -1239,6 +1295,8 @@ function reviewCompactList(ids, statusLabel, statusColor){
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:13px;font-weight:600">${items.length} વસ્તુ</div>
           ${totalKg>0?`<div style="font-size:11.5px;color:var(--muted)">${totalKg} kg</div>`:''}
+          ${hasRem?`<div style="font-size:11px;color:var(--green2);font-weight:600;margin-top:2px">બાકી ${totalRem} • વેચાયું ${sold}</div>`:''}
+          ${sub.qtyUpdatedAt?`<div style="font-size:10px;color:var(--green2);font-weight:700;margin-top:2px">🔄 જથ્થો અપડેટ</div>`:''}
         </div>
         <button class="btn-sm" onclick="previewSub('${esc(fid)}')" style="font-size:12px">👁️ જુઓ</button>
       </div>
@@ -1476,6 +1534,7 @@ window.approveSubmission = async (fid) => {
     await fbRef('weekly/'+WK+'/submissions/'+fid).update({
       status: 'approved',
       approvedAt: firebase.database.ServerValue.TIMESTAMP,
+      qtyUpdatedAt: null,   // Part B: reset qty-update marker on (re)approval
       _reEdited: null,
       previousItems: null,
       previousApprovedAt: null,
@@ -1484,7 +1543,9 @@ window.approveSubmission = async (fid) => {
       SUBS[fid].status = 'approved';
       delete SUBS[fid]._reEdited;
       delete SUBS[fid].previousItems;
+      delete SUBS[fid].qtyUpdatedAt;
     }
+    logAudit('approve', 'submissions/'+fid, { farmer: (SUBS[fid]&&SUBS[fid].farmerName)||fid });
     toast("✓ Approved — catalog માં લાઈવ","ok");
     render();
   }catch(e){ console.error(e); toast("Approve નિષ્ફળ: "+(e.message||e),"err"); }
@@ -1501,12 +1562,14 @@ window.approveAllPending = async () => {
   pending.forEach(fid => {
     updates[`weekly/${WK}/submissions/${fid}/status`] = 'approved';
     updates[`weekly/${WK}/submissions/${fid}/approvedAt`] = firebase.database.ServerValue.TIMESTAMP;
+    updates[`weekly/${WK}/submissions/${fid}/qtyUpdatedAt`] = null;   // Part B
     updates[`weekly/${WK}/submissions/${fid}/_reEdited`] = null;
     updates[`weekly/${WK}/submissions/${fid}/previousItems`] = null;
   });
   try{
     await fbRef('').update(updates);
     pending.forEach(fid => { SUBS[fid].status = 'approved'; });
+    logAudit('approve-all', 'submissions', { count: pending.length });
     toast(`✓ ${pending.length} submissions approved`,"ok");
     render();
   }catch(e){ console.error(e); toast("Bulk approve નિષ્ફળ","err"); }
@@ -1549,6 +1612,7 @@ window.confirmSendBack = async (fid) => {
       SUBS[fid].status = 'sent_back';
       SUBS[fid].noteToFarmer = reason;
     }
+    logAudit('send-back', 'submissions/'+fid, { farmer: (SUBS[fid]&&SUBS[fid].farmerName)||fid, note: reason });
     closeModal();
     toast("🔄 Sent back — ખેડૂતને edit કરવા કહેવાશે","ok");
     render();
@@ -1588,6 +1652,7 @@ window.confirmReject = async (fid) => {
       rejectReason: reason || null,
     });
     if(SUBS[fid]){ SUBS[fid].status = 'rejected'; SUBS[fid].rejectReason = reason; }
+    logAudit('reject', 'submissions/'+fid, { farmer: (SUBS[fid]&&SUBS[fid].farmerName)||fid, reason: reason||'' });
     closeModal(); toast("Rejected","ok"); render();
   }catch(e){ console.error(e); toast("Reject નિષ્ફળ","err"); }
   finally{ _busy = false; }
@@ -1686,6 +1751,7 @@ window.saveEditAndApprove = async () => {
       items: valid,
       status: 'approved',
       approvedAt: firebase.database.ServerValue.TIMESTAMP,
+      qtyUpdatedAt: null,   // Part B: edit & re-approve resets the qty-update marker
       editedByAdmin: true,
       _reEdited: null,
       previousItems: null,
@@ -1695,7 +1761,9 @@ window.saveEditAndApprove = async () => {
       SUBS[fid].status = 'approved';
       delete SUBS[fid]._reEdited;
       delete SUBS[fid].previousItems;
+      delete SUBS[fid].qtyUpdatedAt;
     }
+    logAudit('edit-approve', 'submissions/'+fid, { farmer: (SUBS[fid]&&SUBS[fid].farmerName)||fid, items: valid.length });
     closeModal(); toast("✓ Saved & approved — catalog માં લાઈવ","ok"); render();
   }catch(e){ console.error(e); toast("Save નિષ્ફળ","err"); }
   finally{ _busy = false; }
@@ -2344,7 +2412,13 @@ function renderPhotoCard(it, cfgOK){
     </div>
   `;
 }
-window.setPhotoSearch = v => { PHOTO_SEARCH = v; setTabBodyHtml(); };
+window.setPhotoSearch = v => {
+  PHOTO_SEARCH = v;
+  const car = document.querySelector('.frm-search')?.selectionStart ?? null;   // preserve caret (same Gujarati-reversal fix)
+  setTabBodyHtml();
+  const el = document.querySelector('.frm-search');
+  if(el){ el.focus(); if(car!=null) try{ el.setSelectionRange(car, car); }catch(_){} }
+};
 window.setPhotoFilter = f => { PHOTO_FILTER = f; setTabBodyHtml(); };
 
 /* ════════ Master Products CRUD ════════ */
@@ -3226,6 +3300,7 @@ window.saveProduct = async (existingId) => {
     order = sameCat.length === 0 ? 0 : Math.max(...sameCat.map(p => +p.order || 0)) + 1;
   }
   const data = {id, name:nm, cat, unit:un, emoji:em, photo:ph, order, active:true, manual:true, addedAt: PRODUCTS_DB[id]?.addedAt || Date.now()};
+  const _prevName = (existingId && PRODUCTS_DB[id]) ? PRODUCTS_DB[id].name : null;   // Part C: capture for rename delta
   try{
     const updates = {};
     updates['products/'+id] = data;
@@ -3233,6 +3308,7 @@ window.saveProduct = async (existingId) => {
     await fbRef('').update(updates);
     PRODUCTS_DB[id] = data;
     DELETED_PRODUCT_IDS.delete(id);
+    logAudit('product-save', 'products/'+id, Object.assign({ product: nm, isNew: !existingId }, (_prevName && _prevName!==nm)?{renamedFrom:_prevName}:{}));
     toast(`✓ "${nm}" save થયું`,"ok");
     closeModal();
     PRODUCTS_OPEN_CATS.add(categoryKeyOf({cat})); // open the category so user sees it
@@ -3251,6 +3327,7 @@ window.deleteProduct = async (id) => {
     await fbRef('').update(updates);
     delete PRODUCTS_DB[id];
     DELETED_PRODUCT_IDS.add(id);
+    logAudit('product-delete', 'products/'+id, { product: p.name });
     toast("Delete થયું — હવે પાછું નહીં આવે","ok");
     closeModal();
     setTabBodyHtml();
@@ -3397,6 +3474,7 @@ window.doPublish = async () => {
     updates['weekly/'+WK+'/submissions/'+fid+'/parsedAt'] = firebase.database.ServerValue.TIMESTAMP;
     updates['weekly/'+WK+'/submissions/'+fid+'/status'] = 'approved';
     updates['weekly/'+WK+'/submissions/'+fid+'/approvedAt'] = firebase.database.ServerValue.TIMESTAMP;
+    updates['weekly/'+WK+'/submissions/'+fid+'/qtyUpdatedAt'] = null;   // Part B
     wrote++;
   });
   try{
@@ -3473,7 +3551,13 @@ function renderFarmers(){
     </div>
   `;
 }
-window.setFarmerQ = q => { FILTER_Q = q; setTabBodyHtml(); document.querySelector('.frm-search')?.focus(); };
+window.setFarmerQ = q => {
+  FILTER_Q = q;
+  const car = document.querySelector('.frm-search')?.selectionStart ?? null;   // preserve caret — Gujarati matras were reversing (caret jumped to 0)
+  setTabBodyHtml();
+  const el = document.querySelector('.frm-search');
+  if(el){ el.focus(); if(car!=null) try{ el.setSelectionRange(car, car); }catch(_){} }
+};
 window.setFarmerKind = k => { FILTER_KIND = k; setTabBodyHtml(); };
 
 function renderFarmerRow(f, num){
