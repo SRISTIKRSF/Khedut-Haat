@@ -207,6 +207,7 @@ const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{folder:'svg',ext:'.svg'}),0); }
 
 let WK=null, WK_META={}, SUBMISSIONS={}, FARMERS_MAP={};
+let SITE_CFG=null;            // settings/siteConfig — admin Design tab branding (banner/logo/text)
 let PRODUCTS_MASTER={}, PRODUCTS_BY_NAME={};   // Part A: master catalogue (id -> product, normName -> product)
 function normName(s){ return String(s==null?'':s).trim().toLowerCase(); }
 function resolveMaster(it){
@@ -297,15 +298,17 @@ async function init(){
   try{
     const cur = await fbRef('weekly/current').get();
     WK = cur.exists() ? cur.val() : 1;
-    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap] = await Promise.all([
+    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap] = await Promise.all([
       fbRef('weekly/'+WK+'/meta').get(),
       fbRef('weekly/'+WK+'/submissions').get(),
       fbRef('marketFarmers').get(),
       fbRef('productPhotos').get(),
       fbRef('productPhotoMap').get(),
       fbRef('products').get(),
+      fbRef('settings/siteConfig').get(),
     ]);
     WK_META = metaSnap.val() || {weekNum:WK};
+    SITE_CFG = scSnap.val() || null;
     SUBMISSIONS = subSnap.val() || {};
     PRODUCT_PHOTOS = pSnap.val() || {};
     PRODUCT_PHOTO_MAP = mSnap.val() || {};
@@ -457,17 +460,29 @@ function render(){
   const cats = CAT_ORDER.filter(c => ALL_ITEMS.some(it=>it.cat===c));
   const activeVenues = uniqueActiveVenues();
 
+  // Design tab (settings/siteConfig) — fall back to current hard-coded look when unset.
+  const _sc = SITE_CFG || {};
+  const _b = _sc.banner || {};
+  const heroSrc   = _b.url || 'hero.jpg';
+  const heroFit   = _b.fit || 'cover';
+  const heroBlur  = (_b.blur != null ? +_b.blur : 0);
+  const heroOv    = (_b.overlay != null ? +_b.overlay : 85) / 100;
+  const logoLeft  = (_sc.logoLeft && _sc.logoLeft.url) || 'krsf-logo.png';
+  const logoRight = (_sc.logoRight && _sc.logoRight.url) || 'sristi-logo.jpg';
+  const heroTitle = (_sc.text && _sc.text.title) || 'સૃષ્ટિ ખેડૂત હાટ';
+  const heroSub   = (_sc.text && _sc.text.subtitle) || 'ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી';
+
   $('#wrap').innerHTML = `
     <div class="hero">
-      <img class="hero-img" src="hero.jpg" alt="ખેડૂત હાટ બજાર — ગ્રાહકો અને ખેડૂતો સાથે" loading="eager" onerror="this.style.display='none'">
-      <div class="hero-overlay"></div>
+      <img class="hero-img" src="${esc(heroSrc)}" alt="ખેડૂત હાટ બજાર — ગ્રાહકો અને ખેડૂતો સાથે" loading="eager" style="object-fit:${heroFit};filter:brightness(.65) blur(${heroBlur}px)" onerror="this.style.display='none'">
+      <div class="hero-overlay" style="background:linear-gradient(to bottom,rgba(0,0,0,.1) 0%,rgba(27,67,50,${heroOv.toFixed(2)}) 100%)"></div>
       <div class="hero-logos">
-        <div class="hero-logo"><img src="krsf-logo.png" alt="KRSF" loading="eager"></div>
-        <div class="hero-logo"><img src="sristi-logo.jpg" alt="sristi.org" loading="eager"></div>
+        <div class="hero-logo"><img src="${esc(logoLeft)}" alt="KRSF" loading="eager"></div>
+        <div class="hero-logo"><img src="${esc(logoRight)}" alt="sristi.org" loading="eager"></div>
       </div>
       <div class="hero-content">
-        <div class="hero-title">સૃષ્ટિ ખેડૂત હાટ</div>
-        <div class="hero-sub">ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી</div>
+        <div class="hero-title">${esc(heroTitle)}</div>
+        <div class="hero-sub">${esc(heroSub)}</div>
         <div class="hero-chips">
           <button class="hero-chip" onclick="showAllLocs()" style="cursor:pointer;border:1px solid rgba(255,255,255,.3);font-family:inherit" aria-label="બધા 12 સ્થળ જુઓ">📍 12 સ્થળે</button>
           ${farmerCount?`<button class="hero-chip" onclick="scrollToList('farmers')" style="cursor:pointer;border:1px solid rgba(255,255,255,.3);font-family:inherit" aria-label="${farmerCount} ખેડૂત જુઓ">🌾 ${farmerCount} ખેડૂત</button>`:''}

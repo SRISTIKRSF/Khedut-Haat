@@ -380,6 +380,7 @@ let _prodSortables=[];
 let HAATS={};            // code -> {code, name, nameGu, district, days, time, ...}
 let DISTRICTS={};        // code -> {code, name, nameGu, state}
 let CLOUDINARY_CFG=null; // {cloudName, uploadPreset}
+let SITE_CFG=null;       // settings/siteConfig — {banner:{url,overlay,blur,fit}, logoLeft:{url}, logoRight:{url}, text:{title,subtitle}}
 let TAB="dashboard";
 let PHOTO_SEARCH="";
 
@@ -672,6 +673,7 @@ async function loadAll(){
     PRODUCT_PHOTOS = pSnap.val() || {};
     PRODUCT_PHOTO_MAP = pmSnap.val() || {};
     CLOUDINARY_CFG = cSnap.val() || null;
+    try{ SITE_CFG = (await fbRef('settings/siteConfig').get()).val() || null; }catch{ SITE_CFG = null; }
     HAATS = hSnap.val() || {};
     DISTRICTS = dSnap.val() || {};
     PRODUCT_ORDER = oSnap.val() || {};
@@ -742,6 +744,7 @@ function render(){
       <div style="padding:0 8px;font-size:9.5px;color:#888;font-weight:700;letter-spacing:.6px;text-transform:uppercase;flex-shrink:0" aria-hidden="true">મેનેજ</div>
       <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')" role="tab" aria-selected="${TAB==='farmers'}" aria-controls="tabBody">🌾 ખેડૂત <span class="badge">${pendingTab}</span></button>
       <button class="tab ${TAB==='products'?'active':''}" onclick="setTab('products')" role="tab" aria-selected="${TAB==='products'}" aria-controls="tabBody">📦 પ્રોડક્ટ</button>
+      <button class="tab ${TAB==='design'?'active':''}" onclick="setTab('design')" role="tab" aria-selected="${TAB==='design'}" aria-controls="tabBody">🎨 ડિઝાઇન</button>
       <div style="width:1px;height:22px;background:#e8e0d0;margin:0 8px;flex-shrink:0" aria-hidden="true"></div>
       <button class="tab ${TAB==='guide'?'active':''}" onclick="setTab('guide')" role="tab" aria-selected="${TAB==='guide'}" aria-controls="tabBody">📖 માર્ગદર્શન</button>
     </div>
@@ -802,6 +805,7 @@ function renderTab(){
   if(TAB==='review')    return renderReview();
   if(TAB==='summary')   return renderSummary();
   if(TAB==='products')  return renderProducts();
+  if(TAB==='design')    return renderDesign();
   if(TAB==='guide')     return renderGuide();
   if(TAB==='collect')   return renderCollect();
   if(TAB==='publish')   return renderPublish();
@@ -3464,6 +3468,211 @@ window.deleteProduct = async (id) => {
     closeModal();
     setTabBodyHtml();
   }catch(e){ toast("Delete નિષ્ફળ","err"); }
+};
+
+/* ════════ TAB: DESIGN — 🎨 brand the customer page ════════ */
+// Defaults that match the customer page's current hard-coded look (used when a field is blank).
+const SITE_DEFAULTS = {
+  title:'સૃષ્ટિ ખેડૂત હાટ',
+  subtitle:'ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી',
+  overlay:85, blur:0, fit:'cover'
+};
+let DESIGN_DRAFT = null;          // in-progress edits (survives slider/upload tweaks without RTDB writes)
+let DESIGN_DRAFT_OVERRIDE = null; // set by reset() so the next render starts from defaults, not SITE_CFG
+
+function designDraftFromCfg(){
+  const c = SITE_CFG || {};
+  return {
+    banner:   { url:(c.banner&&c.banner.url)||'', overlay:(c.banner&&c.banner.overlay!=null?c.banner.overlay:SITE_DEFAULTS.overlay), blur:(c.banner&&c.banner.blur!=null?c.banner.blur:SITE_DEFAULTS.blur), fit:(c.banner&&c.banner.fit)||SITE_DEFAULTS.fit },
+    logoLeft: { url:(c.logoLeft&&c.logoLeft.url)||'' },
+    logoRight:{ url:(c.logoRight&&c.logoRight.url)||'' },
+    text:     { title:(c.text&&c.text.title)||'', subtitle:(c.text&&c.text.subtitle)||'' }
+  };
+}
+
+function renderDesign(){
+  const cfgOK = !!(CLOUDINARY_CFG && CLOUDINARY_CFG.cloudName && CLOUDINARY_CFG.uploadPreset);
+  DESIGN_DRAFT = DESIGN_DRAFT_OVERRIDE || designDraftFromCfg();
+  DESIGN_DRAFT_OVERRIDE = null;
+  const d = DESIGN_DRAFT;
+  const thumb = (url, fallbackLabel) => url
+    ? `<img src="${esc(cloudinaryThumb(url,200))}" style="width:100%;height:100%;object-fit:contain;border-radius:8px">`
+    : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#999;font-size:11.5px;text-align:center;padding:6px">${fallbackLabel}</div>`;
+  return `
+    <div class="card">
+      <h3>🎨 ડિઝાઇન — કસ્ટમર પેજ બ્રાન્ડિંગ</h3>
+      <p style="color:var(--muted);font-size:13px;margin:-4px 0 14px">ઉપરનો બેનર, લોગો અને હેડિંગ બદલો. ખાલી છોડો તો ડિફોલ્ટ વપરાશે. <b>સાચવો</b> દબાવ્યા પછી જ customer પેજ પર લાગુ થાય.</p>
+      ${!cfgOK ? '<div style="background:#fff3e0;border:1px solid var(--orange);border-radius:8px;padding:10px;font-size:12.5px;color:#92400e;margin-bottom:14px">⚠️ ઇમેજ અપલોડ માટે પહેલા Cloudinary સેટ કરો (📦 પ્રોડક્ટ tab → ⓘ).</div>' : ''}
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px" class="design-grid">
+        <!-- ===== LEFT: controls ===== -->
+        <div>
+          <div class="frm-row">
+            <label class="frm-label">બેનર ઇમેજ (hero)</label>
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <div id="dsBannerThumb" style="width:120px;height:72px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#1b4332;flex-shrink:0">${thumb(d.banner.url,'ડિફોલ્ટ<br>hero.jpg')}</div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <button class="btn-sm" onclick="uploadSiteImg('banner')" ${!cfgOK?'disabled':''}>📤 બેનર બદલો</button>
+                ${d.banner.url?`<button class="btn-sm" onclick="clearSiteImg('banner')">🗑️ ડિફોલ્ટ પર પાછા</button>`:''}
+              </div>
+            </div>
+          </div>
+
+          <div class="frm-row">
+            <label class="frm-label">અંધારું (overlay) — ટેક્સ્ટ વાંચવા માટે <span id="dsOverlayVal" style="color:var(--green2)">${d.banner.overlay}%</span></label>
+            <input type="range" id="dsOverlay" min="0" max="100" value="${d.banner.overlay}" oninput="updateDesignPreview()" style="width:100%">
+          </div>
+          <div class="frm-row">
+            <label class="frm-label">ઝાંખું (blur) — <span id="dsBlurVal" style="color:var(--green2)">${d.banner.blur}px</span></label>
+            <input type="range" id="dsBlur" min="0" max="8" step="0.5" value="${d.banner.blur}" oninput="updateDesignPreview()" style="width:100%">
+          </div>
+          <div class="frm-row">
+            <label class="frm-label">ઇમેજ fit</label>
+            <select class="frm-in" id="dsFit" onchange="updateDesignPreview()">
+              <option value="cover" ${d.banner.fit==='cover'?'selected':''}>Cover (ભરો — crop થાય)</option>
+              <option value="contain" ${d.banner.fit==='contain'?'selected':''}>Contain (આખી દેખાય)</option>
+            </select>
+          </div>
+
+          <div style="height:1px;background:var(--border);margin:16px 0"></div>
+
+          <div class="frm-row">
+            <label class="frm-label">શીર્ષક (title)</label>
+            <input class="frm-in" id="dsTitle" value="${esc(d.text.title)}" placeholder="${esc(SITE_DEFAULTS.title)}" oninput="updateDesignPreview()">
+          </div>
+          <div class="frm-row">
+            <label class="frm-label">ઉપશીર્ષક (subtitle)</label>
+            <input class="frm-in" id="dsSub" value="${esc(d.text.subtitle)}" placeholder="${esc(SITE_DEFAULTS.subtitle)}" oninput="updateDesignPreview()">
+          </div>
+
+          <div style="height:1px;background:var(--border);margin:16px 0"></div>
+
+          <div class="frm-row">
+            <label class="frm-label">લોગો (ડાબે / જમણે)</label>
+            <div style="display:flex;gap:14px">
+              <div style="text-align:center">
+                <div id="dsLogoL" style="width:56px;height:56px;border:1px solid var(--border);border-radius:50%;overflow:hidden;background:#f4f1e8;margin:0 auto 6px">${thumb(d.logoLeft.url,'ડાબે')}</div>
+                <button class="btn-sm" onclick="uploadSiteImg('logoLeft')" ${!cfgOK?'disabled':''}>📤</button>
+                ${d.logoLeft.url?`<button class="btn-sm" onclick="clearSiteImg('logoLeft')" title="ડિફોલ્ટ">🗑️</button>`:''}
+              </div>
+              <div style="text-align:center">
+                <div id="dsLogoR" style="width:56px;height:56px;border:1px solid var(--border);border-radius:50%;overflow:hidden;background:#f4f1e8;margin:0 auto 6px">${thumb(d.logoRight.url,'જમણે')}</div>
+                <button class="btn-sm" onclick="uploadSiteImg('logoRight')" ${!cfgOK?'disabled':''}>📤</button>
+                ${d.logoRight.url?`<button class="btn-sm" onclick="clearSiteImg('logoRight')" title="ડિફોલ્ટ">🗑️</button>`:''}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== RIGHT: live preview ===== -->
+        <div>
+          <div class="frm-label" style="margin-bottom:8px">👁️ લાઈવ પ્રિવ્યૂ</div>
+          <div id="dpHero" style="position:relative;height:230px;border-radius:12px;overflow:hidden;background:#1b4332;border:1px solid var(--border)">
+            <img id="dpImg" src="${esc(d.banner.url)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${d.banner.fit};filter:brightness(.65) blur(${d.banner.blur}px);${d.banner.url?'':'display:none'}">
+            <div id="dpOverlay" style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.1) 0%,rgba(27,67,50,${(d.banner.overlay/100).toFixed(2)}) 100%)"></div>
+            <div style="position:absolute;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;z-index:2">
+              <div style="width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.55);overflow:hidden">${d.logoLeft.url?`<img src="${esc(cloudinaryThumb(d.logoLeft.url,80))}" style="width:100%;height:100%;object-fit:contain">`:''}</div>
+              <div style="width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.55);overflow:hidden">${d.logoRight.url?`<img src="${esc(cloudinaryThumb(d.logoRight.url,80))}" style="width:100%;height:100%;object-fit:contain">`:''}</div>
+            </div>
+            <div style="position:absolute;bottom:0;left:0;right:0;padding:18px 16px 14px;color:#fff;z-index:2">
+              <div id="dpTitle" style="font-family:'Fraunces',serif;font-size:24px;font-weight:900;line-height:1.05">${esc(d.text.title||SITE_DEFAULTS.title)}</div>
+              <div id="dpSub" style="font-size:13px;opacity:.88;margin-top:6px;font-weight:300">${esc(d.text.subtitle||SITE_DEFAULTS.subtitle)}</div>
+            </div>
+          </div>
+          <p style="color:var(--muted);font-size:11.5px;margin-top:8px">પ્રિવ્યૂ આશરે છે. ડિફોલ્ટ ઇમેજ (hero.jpg/લોગો) અહીં ન દેખાય — ફક્ત તમે અપલોડ કરેલી દેખાશે.</p>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button class="btn-sm primary" onclick="saveSiteConfig()" style="flex:1">💾 સાચવો — customer પેજ પર લાગુ કરો</button>
+        <button class="btn-sm" onclick="resetDesignDraft()">↩︎ બધું ડિફોલ્ટ</button>
+      </div>
+      ${SITE_CFG&&SITE_CFG.updatedBy?`<div style="color:var(--muted);font-size:11.5px;margin-top:10px">છેલ્લે સાચવ્યું: ${esc(SITE_CFG.updatedBy)}</div>`:''}
+    </div>
+  `;
+}
+
+// Sync the form inputs into DESIGN_DRAFT, then apply DESIGN_DRAFT to the preview.
+window.updateDesignPreview = () => {
+  const d = DESIGN_DRAFT; if(!d) return;
+  const ov = +($('#dsOverlay')?.value ?? d.banner.overlay);
+  const bl = +($('#dsBlur')?.value ?? d.banner.blur);
+  const fit = $('#dsFit')?.value || d.banner.fit;
+  d.banner.overlay = ov; d.banner.blur = bl; d.banner.fit = fit;
+  d.text.title = $('#dsTitle')?.value ?? d.text.title;
+  d.text.subtitle = $('#dsSub')?.value ?? d.text.subtitle;
+  const ovv=$('#dsOverlayVal'); if(ovv) ovv.textContent = ov+'%';
+  const blv=$('#dsBlurVal'); if(blv) blv.textContent = bl+'px';
+  const img=$('#dpImg');
+  if(img){ img.style.objectFit=fit; img.style.filter=`brightness(.65) blur(${bl}px)`; img.src=d.banner.url||''; img.style.display=d.banner.url?'block':'none'; }
+  const ovl=$('#dpOverlay'); if(ovl) ovl.style.background=`linear-gradient(to bottom,rgba(0,0,0,.1) 0%,rgba(27,67,50,${(ov/100).toFixed(2)}) 100%)`;
+  const t=$('#dpTitle'); if(t) t.textContent=d.text.title||SITE_DEFAULTS.title;
+  const s=$('#dpSub'); if(s) s.textContent=d.text.subtitle||SITE_DEFAULTS.subtitle;
+};
+
+window.uploadSiteImg = async (field) => {
+  if(!CLOUDINARY_CFG || !CLOUDINARY_CFG.cloudName) return toast("Cloudinary સેટ નથી","err");
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+  inp.onchange=async()=>{
+    const f=inp.files[0]; if(!f) return;
+    updateDesignPreview(); // capture current text/slider edits before re-render-free upload
+    toast("☁️ Upload…","ok");
+    try{
+      const maxDim = field==='banner' ? 1280 : 256;
+      const dataUrl = await resizePhoto(f, maxDim, 0.85);
+      const blob = await (await fetch(dataUrl)).blob();
+      const fd=new FormData();
+      fd.append('file',blob, field+'.webp');
+      fd.append('upload_preset',CLOUDINARY_CFG.uploadPreset);
+      fd.append('folder','sristi/site');
+      const r=await fetch('https://api.cloudinary.com/v1_1/'+CLOUDINARY_CFG.cloudName+'/image/upload',{method:'POST',body:fd});
+      const j=await r.json();
+      if(j.secure_url){
+        if(field==='banner') DESIGN_DRAFT.banner.url=j.secure_url;
+        else DESIGN_DRAFT[field].url=j.secure_url;
+        DESIGN_DRAFT_OVERRIDE = DESIGN_DRAFT;  // keep the upload through the re-render
+        setTabBodyHtml();
+        toast("✓ Uploaded — હવે 💾 સાચવો","ok");
+      } else { toast("Upload નિષ્ફળ: "+(j.error?.message||'unknown'),"err"); }
+    }catch(e){ console.error(e); toast("Upload error","err"); }
+  };
+  inp.click();
+};
+
+window.clearSiteImg = (field) => {
+  if(!DESIGN_DRAFT) return;
+  if(field==='banner') DESIGN_DRAFT.banner.url=''; else DESIGN_DRAFT[field].url='';
+  DESIGN_DRAFT_OVERRIDE = DESIGN_DRAFT;
+  setTabBodyHtml();
+};
+
+window.resetDesignDraft = () => {
+  DESIGN_DRAFT_OVERRIDE = {
+    banner:{url:'',overlay:SITE_DEFAULTS.overlay,blur:SITE_DEFAULTS.blur,fit:SITE_DEFAULTS.fit},
+    logoLeft:{url:''}, logoRight:{url:''}, text:{title:'',subtitle:''}
+  };
+  setTabBodyHtml();
+  toast("ડિફોલ્ટ પર સેટ — સાચવવા 💾 દબાવો","ok");
+};
+
+window.saveSiteConfig = async () => {
+  if(!DESIGN_DRAFT) return;
+  updateDesignPreview();
+  const d = DESIGN_DRAFT;
+  const payload = {
+    banner:   { url:d.banner.url||'', overlay:+d.banner.overlay, blur:+d.banner.blur, fit:d.banner.fit||'cover' },
+    logoLeft: { url:d.logoLeft.url||'' },
+    logoRight:{ url:d.logoRight.url||'' },
+    text:     { title:(d.text.title||'').trim(), subtitle:(d.text.subtitle||'').trim() },
+    updatedAt: firebase.database.ServerValue.TIMESTAMP,
+    updatedBy: auditActor()
+  };
+  try{
+    await fbRef('settings/siteConfig').set(payload);
+    SITE_CFG = payload;
+    logAudit('design-update','settings/siteConfig',{ hasBanner:!!payload.banner.url });
+    toast("✓ ડિઝાઇન સાચવાઈ — customer પેજ રીલોડ થતાં લાગુ થશે","ok");
+  }catch(e){ console.error(e); toast("Save નિષ્ફળ — RTDB permission?","err"); }
 };
 
 /* ════════ TAB 3: PUBLISH ════════ */
