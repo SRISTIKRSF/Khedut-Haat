@@ -1314,6 +1314,7 @@ function reviewCompactList(ids, statusLabel, statusColor){
           ${sub.qtyUpdatedAt?`<div style="font-size:10px;color:var(--green2);font-weight:700;margin-top:2px">🔄 જથ્થો અપડેટ</div>`:''}
         </div>
         <button class="btn-sm" onclick="previewSub('${esc(fid)}')" style="font-size:12px">👁️ જુઓ</button>
+        <button class="btn-sm" onclick="deleteSubmission('${esc(fid)}')" style="font-size:12px;background:#fdeaea;color:#b91c1c;border-color:#f0b4b4" title="આ entry કાયમ delete કરો">🗑️</button>
       </div>
     `;
   }).join('');
@@ -1332,7 +1333,7 @@ function reviewNotYetList(ids){
     const f = FARMERS.find(x => x.id === fid) || {};
     const phone = String(f.phone||'').replace(/[^0-9]/g,'');
     const submitUrl = location.origin + (location.pathname.includes('admin') ? location.pathname.replace('admin','submit') : '/sristi_haat_submit_v1.html');
-    const msg = encodeURIComponent(`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${WK}\n\nનમસ્તે ${f.name||""},\nઆ અઠવાડિયે હાટ માટે તમારી પેદાશ ની યાદી નીચે link થી મોકલશો:\n${submitUrl}\n\nUsername: ${phone}\nPassword: ${phone.slice(-4)}`);
+    const msg = encodeURIComponent(`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${WK}\n\nનમસ્તે ${f.name||""},\nઆ અઠવાડિયે હાટ માટે તમારી પેદાશ ની યાદી નીચે link થી મોકલશો:\n${submitUrl}\n\nUsername: ${phone}\nPassword: તમારો પાસવર્ડ`);
     const waUrl = phone ? `https://wa.me/91${phone}?text=${msg}` : null;
     return `
       <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border)">
@@ -4249,7 +4250,7 @@ function renderFarmerRow(f, num){
 ${submitUrl}
 
 મોબાઈલ નંબર = username
-પાસવર્ડ = તમારા મોબાઈલ ના છેલ્લા 4 અંક
+પાસવર્ડ = તમારો પાસવર્ડ
 
 છેલ્લો સમય: શનિવાર સાંજે 8
 
@@ -4714,7 +4715,7 @@ function buildFarmerMessage(){
     '',
     '*Login કેવી રીતે કરવું:*',
     '👤 Username = તમારો મોબાઈલ નંબર',
-    '🔑 Password = તમારા મોબાઈલ ના છેલ્લા 4 અંક',
+    '🔑 Password = તમારો પાસવર્ડ',
     '',
     '*🗓 આ અઠવાડિયા ના ઓપન હાટ:*',
     ...haatLines,
