@@ -722,7 +722,8 @@ function render(){
         </div>
       </div>
       <div class="topbar-r">
-        <button class="topbar-btn" onclick="downloadBackup()" title="બધો data JSON માં download કરો (backup)">💾 Backup</button>
+        <button class="topbar-btn" onclick="downloadBackup()" title="બધો data JSON માં download કરો (backup/restore)">💾 Backup</button>
+        <button class="topbar-btn" onclick="exportExcel()" title="વાંચી શકાય તેવું Excel (submissions/farmers/products)">📊 Excel</button>
         <button class="topbar-btn" onclick="loadAll()">↻ રીલોડ</button>
         <button class="topbar-btn" onclick="doLogout()">⎋ લોગ-આઉટ</button>
       </div>
@@ -4976,6 +4977,50 @@ window.downloadBackup = async () => {
     toast(`✅ Backup downloaded — ${mb} MB · ${subs} submissions · ${farmers} farmers`,"ok");
     try{ logAudit('backup-export','', { sizeKB: Math.round(json.length/1024), submissions: subs }); }catch(e){}
   }catch(e){ console.error(e); toast("Backup નિષ્ફળ: "+(e.message||e),"err"); }
+};
+
+// 📊 Readable Excel export — Submissions (one row per item) + Farmers + Products. READ-ONLY.
+window.exportExcel = async () => {
+  toast("📊 Excel તૈયાર થાય છે…","ok");
+  try{
+    if(!_xlsxLib) _xlsxLib = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+    const XLSX = _xlsxLib;
+    const [wkSnap, fSnap, pSnap, hSnap] = await Promise.all([
+      fbRef('weekly').get(), fbRef('marketFarmers').get(), fbRef('products').get(), fbRef('haats').get()
+    ]);
+    const weekly = wkSnap.val()||{}, farmers = fSnap.val()||{}, products = pSnap.val()||{}, haats = hSnap.val()||{};
+    const haatName = c => (haats[c] && (haats[c].nameGu||haats[c].name)) || c;
+
+    const subRows = [];
+    Object.entries(weekly).forEach(([wk, w]) => {
+      if(!w || typeof w !== 'object' || !w.submissions) return;
+      const date = (w.meta && w.meta.dateLabel) || '';
+      const wnum = (w.meta && w.meta.weekNum) || wk;
+      Object.entries(w.submissions).forEach(([fid, sub]) => {
+        if(!sub) return;
+        (sub.items||[]).forEach(it => {
+          let brought = 0;
+          if(it.qtyByHaat) Object.values(it.qtyByHaat).forEach(v => brought += +v||0); else brought = +it.qty||0;
+          const rem = (it.qtyRemaining!=null && it.qtyRemaining!=='') ? (+it.qtyRemaining||0) : '';
+          const sold = rem!=='' ? Math.max(0, brought-rem) : '';
+          const price = +it.price||0;
+          const est = (sold!==''?sold:brought) * price;
+          subRows.push({ 'અઠવાડિયું': wnum, 'તારીખ': date, 'ખેડૂત': sub.farmerName||fid, 'ફોન': sub.farmerPhone||'', 'હાટ': sub.farmerHaat||'', 'સ્થિતિ': sub.status||'', 'પ્રોડક્ટ': it.name||'', 'કેટેગરી': it.cat||'', 'એકમ': it.unit||'', 'ભાવ': price, 'લાવ્યા': brought, 'બાકી': rem, 'વેચાયું': sold, 'અંદાજિત વેચાણ': est });
+        });
+      });
+    });
+    const farmerRows = Object.values(farmers).filter(f=>f&&f.id).map(f => ({ 'નામ': f.name||'', 'ફોન': f.phone||'', 'ગામ': f.village||'', 'જિલ્લો': f.district||'', 'હાટ': Array.isArray(f.haatCodes)?f.haatCodes.map(haatName).join(', '):(f.haat||''), 'સક્રિય': f.active===false?'ના':'હા' }));
+    const prodRows = Object.values(products).filter(p=>p&&p.name).map(p => ({ 'પ્રોડક્ટ': p.name||'', 'કેટેગરી': p.cat||'', 'એકમ': p.unit||'' }));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(subRows.length?subRows:[{'(no data)':''}]), 'Submissions');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(farmerRows.length?farmerRows:[{'(no data)':''}]), 'Farmers');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(prodRows.length?prodRows:[{'(no data)':''}]), 'Products');
+    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    XLSX.writeFile(wb, 'khedut-haat-data-'+ts+'.xlsx');
+    toast(`✅ Excel downloaded — ${subRows.length} rows · ${farmerRows.length} farmers`,"ok");
+    try{ logAudit('excel-export','', { rows: subRows.length }); }catch(e){}
+  }catch(e){ console.error(e); toast("Excel નિષ્ફળ: "+(e.message||e),"err"); }
 };
 window.openNewWeek = () => {
   modal(`
