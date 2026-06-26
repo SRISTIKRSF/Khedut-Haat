@@ -3810,8 +3810,21 @@ window.saveCategoryOrder = async () => {
 let REPORTS_DATA = null;       // { weeks:[{key,wk,label,createdAt,subs}] }
 let REPORTS_LOADING = false;
 let REPORT_WEEK = 'all';       // selected week key, or 'all'
-let REPORT_VIEW = 'farmer';    // 'farmer' | 'crop'
+let REPORT_VIEW = 'farmer';    // 'farmer' | 'crop' | 'month'
 let REPORT_CROP = '';
+let REPORT_METRIC = 'revenue'; // month view metric: 'revenue' | 'sold'
+
+function monthKeyOf(createdAt){
+  if(!createdAt) return '0000-00';
+  const d = new Date(+createdAt);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+function monthLabel(key){
+  if(key === '0000-00') return 'અજ્ઞાત તારીખ';
+  const [y,m] = key.split('-');
+  const names = ['','જાન્યુ','ફેબ્રુ','માર્ચ','એપ્રિલ','મે','જૂન','જુલાઈ','ઓગસ્ટ','સપ્ટે','ઓક્ટો','નવે','ડિસે'];
+  return (names[+m] || m) + ' ' + y;
+}
 
 async function loadReportsData(){
   if(REPORTS_LOADING) return;
@@ -3941,8 +3954,61 @@ function reportCropHtml(){
     <div style="font-size:11.5px;color:#888;margin-top:8px">⚠️ = આ ખેડૂત આ પાક typical (median ${qfmt(med)}) કરતાં 2× થી વધારે લાવે છે — તપાસવા જેવું.</div>`;
 }
 
-function reportBodyHtml(){ return REPORT_VIEW === 'crop' ? reportCropHtml() : reportFarmerHtml(); }
-function reportTitle(){ return (REPORT_VIEW === 'crop' ? ('પાક રિપોર્ટ — ' + (REPORT_CROP||'')) : 'ખેડૂત × પ્રોડક્ટ રિપોર્ટ') + ' · ' + reportPeriodLabel(); }
+// Farmer × month matrix — metric = sold (kg) or revenue (₹). Spans ALL weeks (ignores week selector).
+function reportMonthHtml(){
+  if(!REPORTS_DATA) return '';
+  const data = {};               // fid -> {name, months:{mk:{sold,rev}}}
+  const monthsSet = new Set();
+  REPORTS_DATA.weeks.forEach(w => {
+    const mk = monthKeyOf(w.createdAt);
+    monthsSet.add(mk);
+    reportRowsFromSubs(w.subs).forEach(r => {
+      const f = data[r.fid] = data[r.fid] || { name: r.farmerName, months: {} };
+      const c = f.months[mk] = f.months[mk] || { sold: 0, rev: 0 };
+      c.sold += r.sold; c.rev += r.estSale;
+    });
+  });
+  const months = [...monthsSet].sort();
+  const farmers = Object.entries(data).sort((a,b) => a[1].name.localeCompare(b[1].name,'gu'));
+  if(!farmers.length) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
+  const isRev = REPORT_METRIC === 'revenue';
+  const fmt = c => !c ? '<span style="color:#ccc">—</span>' : (isRev ? rupee(c.rev) : qfmt(c.sold));
+  const colTot = {}; months.forEach(m => colTot[m] = { sold: 0, rev: 0 });
+  const gTot = { sold: 0, rev: 0 };
+  const rowsHtml = farmers.map(([fid,f]) => {
+    const rs = { sold: 0, rev: 0 };
+    const cells = months.map(m => {
+      const c = f.months[m];
+      if(c){ rs.sold += c.sold; rs.rev += c.rev; colTot[m].sold += c.sold; colTot[m].rev += c.rev; }
+      return `<td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${fmt(c)}</td>`;
+    }).join('');
+    gTot.sold += rs.sold; gTot.rev += rs.rev;
+    return `<tr><td style="padding:5px 8px;border-bottom:1px solid #eee">🌾 ${esc(f.name)}</td>${cells}<td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700">${isRev?rupee(rs.rev):qfmt(rs.sold)}</td></tr>`;
+  }).join('');
+  const foot = months.map(m => `<td style="padding:6px 8px;text-align:right">${isRev?rupee(colTot[m].rev):qfmt(colTot[m].sold)}</td>`).join('');
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <thead><tr style="background:#fafaf5;color:#666;font-size:11px">
+        <th style="text-align:left;padding:6px 8px">ખેડૂત</th>
+        ${months.map(m => `<th style="text-align:right;padding:6px 8px">${esc(monthLabel(m))}</th>`).join('')}
+        <th style="text-align:right;padding:6px 8px">કુલ</th>
+      </tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr style="font-weight:700;background:#f6f6f0"><td style="padding:6px 8px">કુલ</td>${foot}<td style="padding:6px 8px;text-align:right">${isRev?rupee(gTot.rev):qfmt(gTot.sold)}</td></tr></tfoot>
+    </table>
+    <div style="font-size:11.5px;color:#888;margin-top:8px">${isRev?'અંદાજિત વેચાણ (₹) = વેચાયું × ભાવ':'વેચાયેલો જથ્થો (kg)'} — મહિના પ્રમાણે, ખેડૂત વાર.</div>`;
+}
+
+function reportBodyHtml(){
+  if(REPORT_VIEW === 'crop')  return reportCropHtml();
+  if(REPORT_VIEW === 'month') return reportMonthHtml();
+  return reportFarmerHtml();
+}
+function reportTitle(){
+  if(REPORT_VIEW === 'crop')  return 'પાક રિપોર્ટ — ' + (REPORT_CROP||'') + ' · ' + reportPeriodLabel();
+  if(REPORT_VIEW === 'month') return 'મહિના વાર ' + (REPORT_METRIC==='revenue'?'અંદાજિત વેચાણ':'વેચાયેલો જથ્થો') + ' — ખેડૂત વાર';
+  return 'ખેડૂત × પ્રોડક્ટ રિપોર્ટ · ' + reportPeriodLabel();
+}
 
 function renderReports(){
   if(!REPORTS_DATA){
@@ -3951,7 +4017,7 @@ function renderReports(){
   }
   const weeks = REPORTS_DATA.weeks;
   if(!weeks.length) return `<div class="card"><div class="state" style="padding:40px;text-align:center"><div class="state-icon">📊</div><div class="state-title">હજી કોઈ approved data નથી</div></div></div>`;
-  const rows = reportActiveRows();
+  const rows = (REPORT_VIEW==='month') ? weeks.flatMap(w=>reportRowsFromSubs(w.subs)) : reportActiveRows();
   const tB = rows.reduce((n,r)=>n+r.brought,0), tS = rows.reduce((n,r)=>n+r.sold,0), tE = rows.reduce((n,r)=>n+r.estSale,0);
   const nF = new Set(rows.map(r=>r.fid)).size, nP = new Set(rows.map(r=>r.product)).size;
   const crops = [...new Set(rows.map(r => r.product))].sort((a,b)=>a.localeCompare(b,'gu'));
@@ -3960,12 +4026,17 @@ function renderReports(){
   return `
     <div class="card" style="margin-bottom:12px;padding:13px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <select class="frm-in" style="width:auto;font-size:13px" onchange="setReportWeek(this.value)">${weekOpt}</select>
+        ${REPORT_VIEW!=='month' ? `<select class="frm-in" style="width:auto;font-size:13px" onchange="setReportWeek(this.value)">${weekOpt}</select>` : ''}
         <div style="display:flex;gap:4px;background:var(--bg);border-radius:8px;padding:3px">
           <button class="btn-sm ${REPORT_VIEW==='farmer'?'primary':''}" onclick="setReportView('farmer')" style="font-size:12.5px">🌾 ખેડૂત×પ્રોડક્ટ</button>
           <button class="btn-sm ${REPORT_VIEW==='crop'?'primary':''}" onclick="setReportView('crop')" style="font-size:12.5px">🥕 પાક</button>
+          <button class="btn-sm ${REPORT_VIEW==='month'?'primary':''}" onclick="setReportView('month')" style="font-size:12.5px">📅 મહિના વાર</button>
         </div>
         ${REPORT_VIEW==='crop' ? `<select class="frm-in" style="width:auto;font-size:13px" onchange="setReportCrop(this.value)">${crops.map(c=>`<option value="${esc(c)}" ${REPORT_CROP===c?'selected':''}>${esc(c)}</option>`).join('')}</select>` : ''}
+        ${REPORT_VIEW==='month' ? `<div style="display:flex;gap:4px;background:var(--bg);border-radius:8px;padding:3px">
+          <button class="btn-sm ${REPORT_METRIC==='revenue'?'primary':''}" onclick="setReportMetric('revenue')" style="font-size:12.5px">₹ વેચાણ</button>
+          <button class="btn-sm ${REPORT_METRIC==='sold'?'primary':''}" onclick="setReportMetric('sold')" style="font-size:12.5px">kg વેચાયું</button>
+        </div>` : ''}
       </div>
       <button class="btn-sm primary" onclick="printReport()" title="Print અથવા Save as PDF">🖨 PDF / Print</button>
     </div>
@@ -3979,6 +4050,7 @@ function renderReports(){
 window.setReportWeek = v => { REPORT_WEEK = v; setTabBodyHtml(); };
 window.setReportView = v => { REPORT_VIEW = v; setTabBodyHtml(); };
 window.setReportCrop = v => { REPORT_CROP = v; setTabBodyHtml(); };
+window.setReportMetric = v => { REPORT_METRIC = v; setTabBodyHtml(); };
 window.printReport = () => {
   const win = window.open('', '_blank');
   if(!win) return toast("Popup block થયું — allow કરો","err");
