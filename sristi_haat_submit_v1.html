@@ -262,6 +262,33 @@ function applyCategoryOrder(order){
 }
 let CAT_LABELS = {};   // categoryKey -> custom display label (settings/categoryLabels). Display-only rename.
 function catLabel(name){ return (CAT_LABELS && CAT_LABELS[name]) || name; }
+// Display week number (editable meta.weekNum, e.g. 497) instead of the raw RTDB key (may be a test name).
+function wkDisp(){ return (typeof WK_META!=='undefined' && WK_META && WK_META.weekNum) || WK; }
+// Post-submit summary of the farmer's own products (name · price · quantity).
+function itemQtyStr(it){
+  let t = 0;
+  if(it.qtyByHaat) Object.values(it.qtyByHaat).forEach(v => t += +v || 0);
+  else t = +it.qty || 0;
+  return t > 0 ? (t + ' ' + (it.unit||'')) : '';
+}
+function submissionSummaryHtml(items){
+  const rows = (items||[]).map(it => `<tr>
+    <td style="text-align:left;padding:5px 8px;border-bottom:1px solid #eee">${esc(it.name)}</td>
+    <td style="text-align:right;padding:5px 8px;border-bottom:1px solid #eee;white-space:nowrap">₹${esc(it.price)}/${esc(it.unit||'')}</td>
+    <td style="text-align:right;padding:5px 8px;border-bottom:1px solid #eee">${esc(itemQtyStr(it)||'—')}</td></tr>`).join('');
+  return `<div style="text-align:left;margin:10px auto 4px;max-width:360px;border:1px solid #e2ddd0;border-radius:10px;overflow:hidden">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:#f4f1e8;color:#777;font-size:11px"><th style="text-align:left;padding:6px 8px">વસ્તુ</th><th style="text-align:right;padding:6px 8px">ભાવ</th><th style="text-align:right;padding:6px 8px">જથ્થો</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+}
+function submissionSummaryText(items){
+  let t = `🌿 સૃષ્ટિ ખેડૂત હાટ #${wkDisp()} — મારી યાદી\n${FARMER.name||''}\n\n`;
+  (items||[]).forEach(it => { const q = itemQtyStr(it); t += `• ${it.name} — ₹${it.price}/${it.unit||''}${q?(' · '+q):''}\n`; });
+  return t.trim();
+}
+function summaryShareBtn(items){
+  return `<a href="https://wa.me/?text=${encodeURIComponent(submissionSummaryText(items))}" target="_blank" rel="noopener" class="btn-primary" style="display:inline-block;text-decoration:none;background:#25d366;max-width:260px;margin:4px auto 0">📤 WhatsApp પર સાચવો</a>`;
+}
 
 const $=q=>document.querySelector(q);
 const $$=q=>document.querySelectorAll(q);
@@ -588,7 +615,7 @@ async function loadSubmission(){
   }
   const metaSnap = await fbRef('weekly/'+WK+'/meta').get();
   WK_META = metaSnap.val() || {weekNum:WK};
-  if(WK_META.frozen) return showState("🔒","હાટ બંધ થઈ ગઈ",`હાટ #${WK} માટેનો સમય પૂરો થયો છે. આગલા હાટ માટે રાહ જુઓ.`);
+  if(WK_META.frozen) return showState("🔒","હાટ બંધ થઈ ગઈ",`હાટ #${esc(wkDisp())} માટેનો સમય પૂરો થયો છે. આગલા હાટ માટે રાહ જુઓ.`);
 
   // Load product order (set by admin) — used to sort within each category
   try{
@@ -827,7 +854,7 @@ function renderForm(){
       <div class="submit-bar-inner">
         <div class="submit-summary">
           <b id="submitCt">${activeCount()} વસ્તુ ભરી</b>
-          ${CUR_STATUS==='approved'?'— ભાવ મંજૂર 🔒, જથ્થો અપડેટ કરો':'હાટ #'+esc(WK)+' માટે'}
+          ${CUR_STATUS==='approved'?'— ભાવ મંજૂર 🔒, જથ્થો અપડેટ કરો':'હાટ #'+esc(wkDisp())+' માટે'}
         </div>
         <button class="btn-submit" id="btnSubmit" onclick="submitAll()">${CUR_STATUS==='approved'?'જથ્થો અપડેટ કરો':'મોકલો ✓'}</button>
       </div>
@@ -1270,9 +1297,10 @@ window.submitAll = async () => {
       ]);
       logAudit('qty-update', 'weekly/'+WK+'/submissions/'+subFid(), { items: items.length });
       showState("✅","જથ્થો અપડેટ થયો!",
-        `તમારો જથ્થો અપડેટ થઈ ગયો છે.<br><br>
-         <b>${items.length} વસ્તુ</b><br><br>
-         ભાવ મંજૂર થયેલો છે — એ બદલાયો નથી. 🔒<br><br>
+        `તમારો જથ્થો અપડેટ થઈ ગયો છે. <b>${items.length} વસ્તુ</b>
+         ${submissionSummaryHtml(items)}
+         <div style="font-size:12.5px;color:#555;margin:6px 0">ભાવ મંજૂર થયેલો છે — એ બદલાયો નથી. 🔒</div>
+         ${summaryShareBtn(items)}<br>
          <button class="btn-primary" onclick="loadSubmission()" style="max-width:200px;margin-top:8px">↻ ફરી જુઓ</button>`);
     } else {
       // Price phase (new / pending / sent-back): full submit → goes to review
@@ -1309,10 +1337,10 @@ window.submitAll = async () => {
       }catch(e){ /* non-fatal */ }
       logAudit('submit', 'weekly/'+WK+'/submissions/'+subFid(), { items: items.length });
       showState("✅","ધન્યવાદ!",
-        `તમારી પેદાશ હાટ #${WK} માટે મોકલાઈ ગઈ છે.<br><br>
-         <b>${items.length} વસ્તુ</b><br><br>
-         ⏳ <b>સૃષ્ટિ ટીમની સમીક્ષા બાકી</b> — ભાવ approve થયા પછી catalog માં દેખાશે.<br>
-         જરૂર પડે તો શનિવાર સાંજ સુધી ફરી લોગ-ઇન કરી બદલી શકો છો.<br><br>
+        `તમારી પેદાશ હાટ #${esc(wkDisp())} માટે મોકલાઈ ગઈ છે. <b>${items.length} વસ્તુ</b>
+         ${submissionSummaryHtml(items)}
+         <div style="font-size:12.5px;color:#555;margin:6px 0">⏳ <b>સૃષ્ટિ ટીમની સમીક્ષા બાકી</b> — ભાવ approve થયા પછી catalog માં દેખાશે. જરૂર પડે તો શનિવાર સાંજ સુધી ફરી લોગ-ઇન કરી બદલી શકો છો.</div>
+         ${summaryShareBtn(items)}<br>
          <button class="btn-primary" onclick="loadSubmission()" style="max-width:200px;margin-top:8px">↻ બદલવા જાઓ</button>`);
     }
   }catch(e){

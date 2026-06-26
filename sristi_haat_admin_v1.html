@@ -1066,7 +1066,7 @@ function renderCatalogStatsCard(){
         <div style="background:var(--bg);padding:12px 14px;border-radius:10px">
           <div style="font-size:11.5px;color:var(--muted);font-weight:500">આ અઠવાડિયે</div>
           <div style="font-size:26px;font-weight:800;color:var(--text);line-height:1.1">${weekCount}</div>
-          <div style="font-size:10.5px;color:var(--muted);margin-top:2px">હાટ #${esc(WK)}</div>
+          <div style="font-size:10.5px;color:var(--muted);margin-top:2px">હાટ #${esc(wkDisp())}</div>
         </div>
         <div style="background:var(--bg);padding:12px 14px;border-radius:10px">
           <div style="font-size:11.5px;color:var(--muted);font-weight:500">કુલ visits</div>
@@ -1335,7 +1335,7 @@ function reviewNotYetList(ids){
     const f = FARMERS.find(x => x.id === fid) || {};
     const phone = String(f.phone||'').replace(/[^0-9]/g,'');
     const submitUrl = location.origin + (location.pathname.includes('admin') ? location.pathname.replace('admin','submit') : '/sristi_haat_submit_v1.html');
-    const msg = encodeURIComponent(`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${WK}\n\nનમસ્તે ${f.name||""},\nઆ અઠવાડિયે હાટ માટે તમારી પેદાશ ની યાદી નીચે link થી મોકલશો:\n${submitUrl}\n\nUsername: ${phone}\nPassword: તમારો પાસવર્ડ`);
+    const msg = encodeURIComponent(`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${wkDisp()}\n\nનમસ્તે ${f.name||""},\nઆ અઠવાડિયે હાટ માટે તમારી પેદાશ ની યાદી નીચે link થી મોકલશો:\n${submitUrl}\n\nUsername: ${phone}\nPassword: તમારો પાસવર્ડ`);
     const waUrl = phone ? `https://wa.me/91${phone}?text=${msg}` : null;
     return `
       <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border)">
@@ -1541,6 +1541,9 @@ function renderReviewCard(fid){
 
 // V11: null-guarded tab-body re-render (was throwing on re-render races)
 function setTabBodyHtml(){ const el = document.getElementById('tabBody'); if(el) el.innerHTML = renderTab(); }
+// Display week number — uses the editable meta.weekNum (e.g. 497) instead of the raw RTDB key
+// (which can be a test name like "test_probe"). Falls back to the key only if no number set.
+function wkDisp(){ return (WK_META && WK_META.weekNum) || WK; }
 // V12: live Mon→Sun date range of the current week, formatted DD-MM-YYYY to DD-MM-YYYY
 function weekRange(d){
   d = d || new Date();
@@ -4553,7 +4556,7 @@ function renderFarmers(){
   return `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px">
-        <h3 style="margin:0">🌾 સક્રિય ખેડૂત — હાટ #${esc(WK)}</h3>
+        <h3 style="margin:0">🌾 સક્રિય ખેડૂત — હાટ #${esc(wkDisp())}</h3>
         <button class="btn-sm primary" onclick="openAddFarmer()">+ ખેડૂત ઉમેરો</button>
       </div>
       <div class="card-sub">ખેડૂત રજિસ્ટ્રેશન Farm Verification app માં થાય છે. અહીં ફક્ત haat-enrolled ખેડૂતો અને તેમની submissions જોવા/સંપાદન માટે છે.</div>
@@ -4590,7 +4593,7 @@ function renderFarmerRow(f, num){
   const phoneClean = String(f.phone||"").replace(/[^0-9]/g,"");
   const submitUrl = location.origin + location.pathname.replace('admin','submit');
   const waMsg = encodeURIComponent(
-`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${WK}
+`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${wkDisp()}
 
 નમસ્તે ${f.name||"ખેડૂતભાઈ"},
 
@@ -4914,11 +4917,15 @@ window.previewSub = (fid) => {
 window.openWeekSettings = () => {
   modal(`
     <div class="modal-hdr">
-      <div class="modal-title">હાટ #${WK} સેટિંગ્સ</div>
+      <div class="modal-title">હાટ #${esc(wkDisp())} સેટિંગ્સ</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
       <div class="frm">
+        <div>
+          <label class="frm-label">હાટ નંબર (દા.ત. 497) — મેસેજ/સ્ક્રીન પર દેખાય</label>
+          <input class="frm-in" id="wmNum" value="${esc(WK_META.weekNum||WK)}" placeholder="497" inputmode="numeric">
+        </div>
         <div>
           <label class="frm-label">તારીખ (દા.ત. 14 June 2026)</label>
           <input class="frm-in" id="wmDate" value="${esc(WK_META.dateLabel||"")}" placeholder="14 June 2026">
@@ -4937,7 +4944,7 @@ window.openWeekSettings = () => {
   `);
 };
 window.saveWeekMeta = async () => {
-  const upd = {weekNum:WK, frozen:!!WK_META.frozen};
+  const upd = {weekNum: ($('#wmNum')?.value||'').trim() || WK, frozen:!!WK_META.frozen};
   upd.dateLabel = $('#wmDate').value.trim();
   upd.timeLabel = $('#wmTime').value.trim();
   upd.deadline  = $('#wmDL').value.trim();
