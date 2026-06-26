@@ -722,6 +722,7 @@ function render(){
         </div>
       </div>
       <div class="topbar-r">
+        <button class="topbar-btn" onclick="downloadBackup()" title="બધો data JSON માં download કરો (backup)">💾 Backup</button>
         <button class="topbar-btn" onclick="loadAll()">↻ રીલોડ</button>
         <button class="topbar-btn" onclick="doLogout()">⎋ લોગ-આઉટ</button>
       </div>
@@ -4950,6 +4951,31 @@ window.saveWeekMeta = async () => {
   upd.deadline  = $('#wmDL').value.trim();
   await fbRef('weekly/'+WK+'/meta').update(upd);
   closeModal(); toast("સાચવાયું","ok"); await loadAll();
+};
+
+// 💾 One-click backup — reads the Khedut-Haat data nodes and downloads a complete JSON snapshot.
+// READ-ONLY: only reads + downloads to this device; writes nothing.
+window.downloadBackup = async () => {
+  toast("💾 Backup તૈયાર થાય છે…","ok");
+  const NODES = ['weekly','marketFarmers','products','masterProducts','productsDeleted','productOrder','productPhotos','productPhotoMap','haats','settings','catalogStats','announcement','geo','auditLog','admins','farmerAuth','haatFarmers'];
+  try{
+    const pairs = await Promise.all(NODES.map(n => fbRef(n).get().then(s => [n, s.val()]).catch(() => [n, null])));
+    const data = { _exportedAt: new Date().toISOString(), _namespace: 'prakrutik_kheti' };
+    pairs.forEach(([n,v]) => { if(v != null) data[n] = v; });
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    a.download = 'khedut-haat-backup-' + ts + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    const mb = (json.length/1048576).toFixed(2);
+    const subs = data.weekly ? Object.values(data.weekly).reduce((n,w) => n + (w && w.submissions ? Object.keys(w.submissions).length : 0), 0) : 0;
+    const farmers = data.marketFarmers ? Object.keys(data.marketFarmers).length : 0;
+    toast(`✅ Backup downloaded — ${mb} MB · ${subs} submissions · ${farmers} farmers`,"ok");
+    try{ logAudit('backup-export','', { sizeKB: Math.round(json.length/1024), submissions: subs }); }catch(e){}
+  }catch(e){ console.error(e); toast("Backup નિષ્ફળ: "+(e.message||e),"err"); }
 };
 window.openNewWeek = () => {
   modal(`
