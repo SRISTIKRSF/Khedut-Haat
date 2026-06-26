@@ -582,6 +582,29 @@ function makeProductId(name){
   catch(e){ return 'p_'+String(name||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,32); }
 }
 
+// Standard units — pick-from-list to avoid free-text inconsistency ("250 gm" vs "250gm").
+const STD_UNITS = ["kg","900gm","500gm","250gm","200gm","125gm","100gm","75gm","70gm","50gm","Lt","500ml","250ml","100ml","50ml","6ml","જુડી","નંગ","પેકેટ","પડીકી","બોક્સ","ગ્લાસ","ડીશ"];
+// Render a unit <select> (with an "other" escape hatch); preserves a non-standard existing value.
+function unitSelectHtml(id, cur){
+  cur = (cur==null?'kg':String(cur)).trim() || 'kg';
+  const inList = STD_UNITS.includes(cur);
+  return `<select class="frm-in" id="${id}" onchange="onUnitOther('${id}')">
+      ${STD_UNITS.map(u=>`<option ${cur===u?'selected':''}>${esc(u)}</option>`).join('')}
+      <option value="__other__" ${inList?'':'selected'}>✏️ બીજું…</option>
+    </select>
+    <input class="frm-in" id="${id}_o" placeholder="custom unit" style="margin-top:6px;${inList?'display:none':''}" value="${inList?'':esc(cur)}">`;
+}
+window.onUnitOther = (id) => {
+  const sel = document.getElementById(id), inp = document.getElementById(id+'_o');
+  if(sel && inp) inp.style.display = (sel.value==='__other__') ? 'block' : 'none';
+};
+function readUnit(id){
+  const sel = document.getElementById(id);
+  if(!sel) return 'kg';
+  if(sel.value==='__other__') return (document.getElementById(id+'_o')?.value||'').trim() || 'kg';
+  return sel.value;
+}
+
 async function loadAllProductsAcrossWeeks(){
   // Replicates the customer catalog's consolidation: groups variants by productPhotoMap cellKey,
   // picks the CANONICAL (shortest) name per group → matches what demo customer view shows.
@@ -2569,7 +2592,7 @@ function openMasterProductModal(existing){
         </div>
         <div style="display:flex;gap:10px">
           <div class="frm-row" style="flex:1"><label class="frm-label">ભાવ (₹) *</label><input class="frm-in" id="mpPr" type="number" min="0" value="${esc(existing?.price||'')}" placeholder="80"></div>
-          <div class="frm-row" style="flex:1"><label class="frm-label">Unit *</label><input class="frm-in" id="mpUn" value="${esc(existing?.unit||'kg')}" placeholder="kg / 500gm / Lt / piece"></div>
+          <div class="frm-row" style="flex:1"><label class="frm-label">Unit *</label>${unitSelectHtml('mpUn', existing?.unit)}</div>
         </div>
         <div class="frm-row">
           <label class="frm-label">ફોટો (Cloudinary URL — optional)</label>
@@ -2621,7 +2644,7 @@ window.saveMasterProduct = async (existingId) => {
   const nm = ($('#mpNm')?.value||'').trim();
   const cat = ($('#mpCat')?.value||'').trim();
   const pr = +($('#mpPr')?.value||0);
-  const un = ($('#mpUn')?.value||'kg').trim();
+  const un = readUnit('mpUn');
   const ph = ($('#mpPh')?.value||'').trim();
   if(!nm) return toast("નામ ભરો","err");
   if(!cat) return toast("કેટેગરી પસંદ કરો","err");
@@ -3420,7 +3443,7 @@ function openProductModal(existing, defaultCat){
           </select>
         </div>
         <div style="display:flex;gap:10px">
-          <div class="frm-row" style="flex:1"><label class="frm-label">Unit *</label><input class="frm-in" id="pdUn" value="${esc(existing?.unit||'kg')}" placeholder="kg / Lt / 500gm / piece"></div>
+          <div class="frm-row" style="flex:1"><label class="frm-label">Unit *</label>${unitSelectHtml('pdUn', existing?.unit)}</div>
           <div class="frm-row" style="flex:0 0 100px"><label class="frm-label">Emoji</label><input class="frm-in" id="pdEm" value="${esc(existing?.emoji||'🌿')}" maxlength="3" style="text-align:center;font-size:22px"></div>
         </div>
         <div class="frm-row">
@@ -3537,7 +3560,7 @@ window.standardiseAllPhotos = async () => {
 window.saveProduct = async (existingId) => {
   const nm = ($('#pdNm')?.value||'').trim();
   const cat = ($('#pdCat')?.value||'').trim();
-  const un = ($('#pdUn')?.value||'kg').trim();
+  const un = readUnit('pdUn');
   const em = ($('#pdEm')?.value||'🌿').trim();
   const ph = ($('#pdPh')?.value||'').trim();
   if(!nm) return toast("નામ ભરો","err");
