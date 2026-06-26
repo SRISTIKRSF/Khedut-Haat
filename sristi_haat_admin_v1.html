@@ -1528,6 +1528,7 @@ function renderReviewCard(fid){
       <div style="display:flex;gap:8px;padding:11px 16px;border-top:1px solid var(--border);flex-wrap:wrap;justify-content:flex-end">
         <button class="btn-sm" onclick="openNote('${esc(fid)}')">📝 ${sub.noteToFarmer?'Edit note':'Note'}</button>
         <button class="btn-sm" onclick="editSubmission('${esc(fid)}')">✏️ Edit</button>
+        <button class="btn-sm" style="background:#fdeaea;color:#b91c1c;border-color:#f0b4b4" onclick="deleteSubmission('${esc(fid)}')" title="આ entry કાયમ delete કરો">🗑️ Delete</button>
         <button class="btn-sm" style="background:var(--red-pale);color:var(--red);border-color:#f5c4c4" onclick="rejectSubmission('${esc(fid)}')">✗ Reject</button>
         <button class="btn-sm primary" onclick="approveSubmission('${esc(fid)}')">✓ Approve</button>
       </div>
@@ -1639,6 +1640,24 @@ window.confirmReject = async (fid) => {
     logAudit('reject', 'submissions/'+fid, { farmer: (SUBS[fid]&&SUBS[fid].farmerName)||fid, reason: reason||'' });
     closeModal(); toast("Rejected","ok"); render();
   }catch(e){ console.error(e); toast("Reject નિષ્ફળ","err"); }
+  finally{ _busy = false; }
+};
+
+// Hard-delete a submission record (e.g. demo entries). Keeps the farmer; removes only this week's submission.
+window.deleteSubmission = async (fid) => {
+  const sub = SUBS[fid] || {};
+  const nm = sub.farmerName || fid;
+  if(!(await asyncConfirm(
+    `"${nm}" ની આ entry કાયમ માટે delete કરવી છે?\n\nProducts + જથ્થો બધું જતું રહેશે — પાછું નહીં આવે.\n(ખેડૂત રહેશે, ફક્ત આ submission delete થશે.)`,
+    'હા, delete કરો', 'રદ', true))) return;
+  if(_busy) return; _busy = true;
+  try{
+    await fbRef('weekly/'+WK+'/submissions/'+fid).set(null);
+    delete SUBS[fid];
+    logAudit('delete-submission', 'weekly/'+WK+'/submissions/'+fid, { farmer: nm });
+    toast("🗑️ Entry delete થઈ","ok");
+    render();
+  }catch(e){ console.error(e); toast("Delete નિષ્ફળ: "+(e.message||e),"err"); }
   finally{ _busy = false; }
 };
 
