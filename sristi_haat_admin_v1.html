@@ -3856,9 +3856,12 @@ function reportRowsFromSubs(subs){
       if(it.qtyByHaat && typeof it.qtyByHaat === 'object') Object.values(it.qtyByHaat).forEach(v => brought += +v || 0);
       else brought = +it.qty || 0;
       const remaining = (it.qtyRemaining != null && it.qtyRemaining !== '') ? (+it.qtyRemaining || 0) : null;
-      const sold = remaining != null ? Math.max(0, brought - remaining) : brought;   // no 'remaining' filled → sold = brought
+      // sold is KNOWN only once the farmer fills 'remaining' (post-haat). Before that it's unknown (null) — NOT brought.
+      const sold = remaining != null ? Math.max(0, brought - remaining) : null;
       const price = +it.price || 0;
-      rows.push({ fid, farmerName: sub.farmerName || fid, farmerPhone: sub.farmerPhone || '', product: it.name || '?', cat: it.cat || 'અન્ય', unit: it.unit || 'kg', brought, remaining, sold, price, estSale: sold * price });
+      // estimated sale = actual sold×price where known, else brought×price as a projection (so the column stays meaningful)
+      const estSale = (sold != null ? sold : brought) * price;
+      rows.push({ fid, farmerName: sub.farmerName || fid, farmerPhone: sub.farmerPhone || '', product: it.name || '?', cat: it.cat || 'અન્ય', unit: it.unit || 'kg', brought, remaining, sold, price, estSale });
     });
   });
   return rows;
@@ -3872,6 +3875,14 @@ function reportActiveRows(){
 }
 const rupee = v => '₹' + Math.round(+v || 0).toLocaleString('en-IN');
 const qfmt  = (v,u) => (Math.round((+v||0)*10)/10) + (u ? ' ' + u : '');
+const soldFmt = (v) => v != null ? qfmt(v) : '—';
+// Shared fixed column layout so the farmer + crop tables (same 6 columns) line up uniformly everywhere.
+const REPORT_COLS = '<colgroup><col style="width:28%"><col style="width:15%"><col style="width:14%"><col style="width:12%"><col style="width:11%"><col style="width:20%"></colgroup>';
+const REPORT_TBL  = 'width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed';
+const REPORT_HEADS = (first) => `<thead><tr style="background:#fafaf5;color:#666;font-size:11px">
+  <th style="text-align:left;padding:5px 8px">${first}</th><th style="text-align:right;padding:5px 8px">લાવ્યા</th>
+  <th style="text-align:right;padding:5px 8px">વેચાયું</th><th style="text-align:right;padding:5px 8px">બાકી</th>
+  <th style="text-align:right;padding:5px 8px">ભાવ</th><th style="text-align:right;padding:5px 8px">અંદાજિત વેચાણ</th></tr></thead>`;
 
 function reportPeriodLabel(){
   if(REPORT_WEEK === 'all') return 'બધા અઠવાડિયા';
@@ -3893,7 +3904,7 @@ function reportFarmerHtml(){
       <tr>
         <td style="padding:5px 8px;border-bottom:1px solid #eee">${esc(r.product)}</td>
         <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(r.brought,r.unit)}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(r.sold)}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${soldFmt(r.sold)}</td>
         <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${r.remaining!=null?qfmt(r.remaining):'—'}</td>
         <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">₹${r.price}</td>
         <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${rupee(r.estSale)}</td>
@@ -3901,12 +3912,9 @@ function reportFarmerHtml(){
     return `
       <div style="margin-bottom:14px;break-inside:avoid">
         <div style="font-weight:700;font-size:14px;padding:7px 8px;background:#eef5ef;border-radius:6px 6px 0 0">🌾 ${esc(f.name)} ${f.phone?`<span style="font-weight:400;color:#666;font-size:12px">· ${esc(f.phone)}</span>`:''}</div>
-        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
-          <thead><tr style="background:#fafaf5;color:#666;font-size:11px">
-            <th style="text-align:left;padding:5px 8px">પ્રોડક્ટ</th><th style="text-align:right;padding:5px 8px">લાવ્યા</th>
-            <th style="text-align:right;padding:5px 8px">વેચાયું</th><th style="text-align:right;padding:5px 8px">બાકી</th>
-            <th style="text-align:right;padding:5px 8px">ભાવ</th><th style="text-align:right;padding:5px 8px">અંદાજિત વેચાણ</th>
-          </tr></thead>
+        <table style="${REPORT_TBL}">
+          ${REPORT_COLS}
+          ${REPORT_HEADS('પ્રોડક્ટ')}
           <tbody>${its}</tbody>
           <tfoot><tr style="font-weight:700;background:#f6f6f0"><td colspan="5" style="padding:6px 8px;text-align:right">કુલ</td><td style="padding:6px 8px;text-align:right">${rupee(sub)}</td></tr></tfoot>
         </table>
@@ -3924,31 +3932,29 @@ function reportCropHtml(){
   // auto-anomaly: flag brought > 2× the median brought for this crop
   const broughts = cr.map(r => r.brought).filter(x => x>0).sort((a,b)=>a-b);
   const med = broughts.length ? broughts[Math.floor(broughts.length/2)] : 0;
-  const tot = cr.reduce((a,r)=>({b:a.b+r.brought, s:a.s+r.sold, e:a.e+r.estSale}), {b:0,s:0,e:0});
+  const tot = cr.reduce((a,r)=>({b:a.b+r.brought, s:a.s+(r.sold||0), e:a.e+r.estSale}), {b:0,s:0,e:0});
+  const anySold = cr.some(r => r.sold != null);
   const body = cr.map(r => {
     const flag = med>0 && r.brought > 2*med;
     return `<tr style="${flag?'background:#fff4f4':''}">
       <td style="padding:5px 8px;border-bottom:1px solid #eee">${esc(r.farmerName)}${flag?' <span title="આ ખેડૂત typical કરતાં ઘણું વધારે લાવે છે" style="color:#b91c1c;font-weight:700">⚠️</span>':''}</td>
       <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(r.brought,r.unit)}</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(r.sold)}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${soldFmt(r.sold)}</td>
       <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${r.remaining!=null?qfmt(r.remaining):'—'}</td>
       <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">₹${r.price}</td>
       <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${rupee(r.estSale)}</td>
     </tr>`;
   }).join('');
   return `
-    <table style="width:100%;border-collapse:collapse;font-size:12.5px">
-      <thead><tr style="background:#fafaf5;color:#666;font-size:11px">
-        <th style="text-align:left;padding:6px 8px">ખેડૂત</th><th style="text-align:right;padding:6px 8px">લાવ્યા</th>
-        <th style="text-align:right;padding:6px 8px">વેચાયું</th><th style="text-align:right;padding:6px 8px">બાકી</th>
-        <th style="text-align:right;padding:6px 8px">ભાવ</th><th style="text-align:right;padding:6px 8px">અંદાજિત વેચાણ</th>
-      </tr></thead>
+    <table style="${REPORT_TBL}">
+      ${REPORT_COLS}
+      ${REPORT_HEADS('ખેડૂત')}
       <tbody>${body}</tbody>
       <tfoot><tr style="font-weight:700;background:#f6f6f0">
-        <td style="padding:7px 8px">કુલ (${cr.length} ખેડૂત)</td>
+        <td style="padding:7px 8px">કુલ (${cr.length})</td>
         <td style="padding:7px 8px;text-align:right">${qfmt(tot.b)}</td>
-        <td style="padding:7px 8px;text-align:right">${qfmt(tot.s)}</td>
-        <td colspan="2"></td><td style="padding:7px 8px;text-align:right">${rupee(tot.e)}</td>
+        <td style="padding:7px 8px;text-align:right">${anySold?qfmt(tot.s):'—'}</td>
+        <td></td><td></td><td style="padding:7px 8px;text-align:right">${rupee(tot.e)}</td>
       </tr></tfoot>
     </table>
     <div style="font-size:11.5px;color:#888;margin-top:8px">⚠️ = આ ખેડૂત આ પાક typical (median ${qfmt(med)}) કરતાં 2× થી વધારે લાવે છે — તપાસવા જેવું.</div>`;
@@ -3965,7 +3971,7 @@ function reportMonthHtml(){
     reportRowsFromSubs(w.subs).forEach(r => {
       const f = data[r.fid] = data[r.fid] || { name: r.farmerName, months: {} };
       const c = f.months[mk] = f.months[mk] || { sold: 0, rev: 0 };
-      c.sold += r.sold; c.rev += r.estSale;
+      c.sold += (r.sold || 0); c.rev += r.estSale;
     });
   });
   const months = [...monthsSet].sort();
@@ -4095,7 +4101,7 @@ function renderReports(){
   const weeks = REPORTS_DATA.weeks;
   if(!weeks.length) return `<div class="card"><div class="state" style="padding:40px;text-align:center"><div class="state-icon">📊</div><div class="state-title">હજી કોઈ approved data નથી</div></div></div>`;
   const rows = (REPORT_VIEW==='month' || REPORT_VIEW==='insights') ? weeks.flatMap(w=>reportRowsFromSubs(w.subs)) : reportActiveRows();
-  const tB = rows.reduce((n,r)=>n+r.brought,0), tS = rows.reduce((n,r)=>n+r.sold,0), tE = rows.reduce((n,r)=>n+r.estSale,0);
+  const tB = rows.reduce((n,r)=>n+r.brought,0), tS = rows.reduce((n,r)=>n+(r.sold||0),0), tE = rows.reduce((n,r)=>n+r.estSale,0);
   const nF = new Set(rows.map(r=>r.fid)).size, nP = new Set(rows.map(r=>r.product)).size;
   const crops = [...new Set(rows.map(r => r.product))].sort((a,b)=>a.localeCompare(b,'gu'));
   const weekOpt = `<option value="all" ${REPORT_WEEK==='all'?'selected':''}>બધા અઠવાડિયા</option>` + weeks.map(w=>`<option value="${esc(w.key)}" ${REPORT_WEEK===w.key?'selected':''}>${esc(w.label)} (${Object.keys(w.subs).length})</option>`).join('');
