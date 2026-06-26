@@ -756,6 +756,7 @@ function render(){
       <button class="tab ${TAB==='products'?'active':''}" onclick="setTab('products')" role="tab" aria-selected="${TAB==='products'}" aria-controls="tabBody">📦 પ્રોડક્ટ</button>
       <button class="tab ${TAB==='design'?'active':''}" onclick="setTab('design')" role="tab" aria-selected="${TAB==='design'}" aria-controls="tabBody">🎨 ડિઝાઇન</button>
       <div style="width:1px;height:22px;background:#e8e0d0;margin:0 8px;flex-shrink:0" aria-hidden="true"></div>
+      <button class="tab ${TAB==='reports'?'active':''}" onclick="setTab('reports')" role="tab" aria-selected="${TAB==='reports'}" aria-controls="tabBody">📊 રિપોર્ટ</button>
       <button class="tab ${TAB==='guide'?'active':''}" onclick="setTab('guide')" role="tab" aria-selected="${TAB==='guide'}" aria-controls="tabBody">📖 માર્ગદર્શન</button>
     </div>
 
@@ -817,6 +818,7 @@ function renderTab(){
   if(TAB==='products')  return renderProducts();
   if(TAB==='haats')     return renderHaats();
   if(TAB==='design')    return renderDesign();
+  if(TAB==='reports')   return renderReports();
   if(TAB==='guide')     return renderGuide();
   if(TAB==='collect')   return renderCollect();
   if(TAB==='publish')   return renderPublish();
@@ -3801,6 +3803,197 @@ window.saveCategoryOrder = async () => {
     setTabBodyHtml();
   }catch(e){ console.error(e); toast("Save નિષ્ફળ: "+(e.message||e),"err"); }
   finally{ _busy = false; }
+};
+
+/* ════════ TAB: REPORTS — 📊 read-only analytics + print/PDF (Phase 1) ════════ */
+// 100% read-only: reads weekly/* once, aggregates approved submissions. Writes nothing.
+let REPORTS_DATA = null;       // { weeks:[{key,wk,label,createdAt,subs}] }
+let REPORTS_LOADING = false;
+let REPORT_WEEK = 'all';       // selected week key, or 'all'
+let REPORT_VIEW = 'farmer';    // 'farmer' | 'crop'
+let REPORT_CROP = '';
+
+async function loadReportsData(){
+  if(REPORTS_LOADING) return;
+  REPORTS_LOADING = true;
+  try{
+    const all = (await fbRef('weekly').get()).val() || {};
+    const weeks = [];
+    Object.entries(all).forEach(([key, w]) => {
+      if(key === 'current' || !w || typeof w !== 'object') return;
+      const subs = w.submissions || {};
+      if(!Object.keys(subs).length) return;
+      const meta = w.meta || {};
+      weeks.push({ key, wk: meta.weekNum || key, label: (meta.dateLabel || ('Week ' + (meta.weekNum || key))), createdAt: +meta.createdAt || 0, subs });
+    });
+    weeks.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+    REPORTS_DATA = { weeks };
+  }catch(e){ console.error(e); toast("Reports load નિષ્ફળ","err"); REPORTS_DATA = { weeks: [] }; }
+  finally{ REPORTS_LOADING = false; setTabBodyHtml(); }
+}
+
+// Flatten approved submissions of a week into product rows.
+function reportRowsFromSubs(subs){
+  const rows = [];
+  Object.entries(subs || {}).forEach(([fid, sub]) => {
+    if(!sub) return;
+    if(sub.status && sub.status !== 'approved') return;   // approved (or legacy no-status) only
+    (sub.items || []).forEach(it => {
+      let brought = 0;
+      if(it.qtyByHaat && typeof it.qtyByHaat === 'object') Object.values(it.qtyByHaat).forEach(v => brought += +v || 0);
+      else brought = +it.qty || 0;
+      const remaining = (it.qtyRemaining != null && it.qtyRemaining !== '') ? (+it.qtyRemaining || 0) : null;
+      const sold = remaining != null ? Math.max(0, brought - remaining) : brought;   // no 'remaining' filled → sold = brought
+      const price = +it.price || 0;
+      rows.push({ fid, farmerName: sub.farmerName || fid, farmerPhone: sub.farmerPhone || '', product: it.name || '?', cat: it.cat || 'અન્ય', unit: it.unit || 'kg', brought, remaining, sold, price, estSale: sold * price });
+    });
+  });
+  return rows;
+}
+function reportActiveRows(){
+  if(!REPORTS_DATA) return [];
+  const weeks = REPORT_WEEK === 'all' ? REPORTS_DATA.weeks : REPORTS_DATA.weeks.filter(w => w.key === REPORT_WEEK);
+  let rows = [];
+  weeks.forEach(w => { rows = rows.concat(reportRowsFromSubs(w.subs).map(r => ({ ...r, weekLabel: w.label }))); });
+  return rows;
+}
+const rupee = v => '₹' + Math.round(+v || 0).toLocaleString('en-IN');
+const qfmt  = (v,u) => (Math.round((+v||0)*10)/10) + (u ? ' ' + u : '');
+
+function reportPeriodLabel(){
+  if(REPORT_WEEK === 'all') return 'બધા અઠવાડિયા';
+  const w = (REPORTS_DATA?.weeks || []).find(x => x.key === REPORT_WEEK);
+  return w ? w.label : REPORT_WEEK;
+}
+
+// ---- core report bodies (reused for on-screen + print) ----
+function reportFarmerHtml(){
+  const rows = reportActiveRows();
+  if(!rows.length) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
+  const byFarmer = {};
+  rows.forEach(r => { (byFarmer[r.fid] = byFarmer[r.fid] || { name:r.farmerName, phone:r.farmerPhone, items:[] }).items.push(r); });
+  const farmers = Object.values(byFarmer).sort((a,b) => a.name.localeCompare(b.name,'gu'));
+  let gTot = 0;
+  const blocks = farmers.map(f => {
+    const sub = f.items.reduce((n,r) => n + r.estSale, 0); gTot += sub;
+    const its = f.items.map(r => `
+      <tr>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee">${esc(r.product)}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(r.brought,r.unit)}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(r.sold)}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${r.remaining!=null?qfmt(r.remaining):'—'}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">₹${r.price}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${rupee(r.estSale)}</td>
+      </tr>`).join('');
+    return `
+      <div style="margin-bottom:14px;break-inside:avoid">
+        <div style="font-weight:700;font-size:14px;padding:7px 8px;background:#eef5ef;border-radius:6px 6px 0 0">🌾 ${esc(f.name)} ${f.phone?`<span style="font-weight:400;color:#666;font-size:12px">· ${esc(f.phone)}</span>`:''}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <thead><tr style="background:#fafaf5;color:#666;font-size:11px">
+            <th style="text-align:left;padding:5px 8px">પ્રોડક્ટ</th><th style="text-align:right;padding:5px 8px">લાવ્યા</th>
+            <th style="text-align:right;padding:5px 8px">વેચાયું</th><th style="text-align:right;padding:5px 8px">બાકી</th>
+            <th style="text-align:right;padding:5px 8px">ભાવ</th><th style="text-align:right;padding:5px 8px">અંદાજિત વેચાણ</th>
+          </tr></thead>
+          <tbody>${its}</tbody>
+          <tfoot><tr style="font-weight:700;background:#f6f6f0"><td colspan="5" style="padding:6px 8px;text-align:right">કુલ</td><td style="padding:6px 8px;text-align:right">${rupee(sub)}</td></tr></tfoot>
+        </table>
+      </div>`;
+  }).join('');
+  return `${blocks}<div style="text-align:right;font-weight:800;font-size:15px;padding:10px 8px;border-top:2px solid #1b4332;margin-top:8px">કુલ અંદાજિત વેચાણ: ${rupee(gTot)}</div>`;
+}
+
+function reportCropHtml(){
+  const rows = reportActiveRows();
+  if(!rows.length) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
+  const crops = [...new Set(rows.map(r => r.product))].sort((a,b)=>a.localeCompare(b,'gu'));
+  if(!REPORT_CROP || !crops.includes(REPORT_CROP)) REPORT_CROP = crops[0];
+  const cr = rows.filter(r => r.product === REPORT_CROP).sort((a,b) => b.brought - a.brought);
+  // auto-anomaly: flag brought > 2× the median brought for this crop
+  const broughts = cr.map(r => r.brought).filter(x => x>0).sort((a,b)=>a-b);
+  const med = broughts.length ? broughts[Math.floor(broughts.length/2)] : 0;
+  const tot = cr.reduce((a,r)=>({b:a.b+r.brought, s:a.s+r.sold, e:a.e+r.estSale}), {b:0,s:0,e:0});
+  const body = cr.map(r => {
+    const flag = med>0 && r.brought > 2*med;
+    return `<tr style="${flag?'background:#fff4f4':''}">
+      <td style="padding:5px 8px;border-bottom:1px solid #eee">${esc(r.farmerName)}${flag?' <span title="આ ખેડૂત typical કરતાં ઘણું વધારે લાવે છે" style="color:#b91c1c;font-weight:700">⚠️</span>':''}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(r.brought,r.unit)}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(r.sold)}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${r.remaining!=null?qfmt(r.remaining):'—'}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">₹${r.price}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${rupee(r.estSale)}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <thead><tr style="background:#fafaf5;color:#666;font-size:11px">
+        <th style="text-align:left;padding:6px 8px">ખેડૂત</th><th style="text-align:right;padding:6px 8px">લાવ્યા</th>
+        <th style="text-align:right;padding:6px 8px">વેચાયું</th><th style="text-align:right;padding:6px 8px">બાકી</th>
+        <th style="text-align:right;padding:6px 8px">ભાવ</th><th style="text-align:right;padding:6px 8px">અંદાજિત વેચાણ</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr style="font-weight:700;background:#f6f6f0">
+        <td style="padding:7px 8px">કુલ (${cr.length} ખેડૂત)</td>
+        <td style="padding:7px 8px;text-align:right">${qfmt(tot.b)}</td>
+        <td style="padding:7px 8px;text-align:right">${qfmt(tot.s)}</td>
+        <td colspan="2"></td><td style="padding:7px 8px;text-align:right">${rupee(tot.e)}</td>
+      </tr></tfoot>
+    </table>
+    <div style="font-size:11.5px;color:#888;margin-top:8px">⚠️ = આ ખેડૂત આ પાક typical (median ${qfmt(med)}) કરતાં 2× થી વધારે લાવે છે — તપાસવા જેવું.</div>`;
+}
+
+function reportBodyHtml(){ return REPORT_VIEW === 'crop' ? reportCropHtml() : reportFarmerHtml(); }
+function reportTitle(){ return (REPORT_VIEW === 'crop' ? ('પાક રિપોર્ટ — ' + (REPORT_CROP||'')) : 'ખેડૂત × પ્રોડક્ટ રિપોર્ટ') + ' · ' + reportPeriodLabel(); }
+
+function renderReports(){
+  if(!REPORTS_DATA){
+    if(!REPORTS_LOADING) setTimeout(loadReportsData, 30);
+    return `<div class="card"><div class="state" style="padding:40px;text-align:center"><div class="state-icon">📊</div><div class="state-title">રિપોર્ટ data લોડ થાય છે…</div></div></div>`;
+  }
+  const weeks = REPORTS_DATA.weeks;
+  if(!weeks.length) return `<div class="card"><div class="state" style="padding:40px;text-align:center"><div class="state-icon">📊</div><div class="state-title">હજી કોઈ approved data નથી</div></div></div>`;
+  const rows = reportActiveRows();
+  const tB = rows.reduce((n,r)=>n+r.brought,0), tS = rows.reduce((n,r)=>n+r.sold,0), tE = rows.reduce((n,r)=>n+r.estSale,0);
+  const nF = new Set(rows.map(r=>r.fid)).size, nP = new Set(rows.map(r=>r.product)).size;
+  const crops = [...new Set(rows.map(r => r.product))].sort((a,b)=>a.localeCompare(b,'gu'));
+  const weekOpt = `<option value="all" ${REPORT_WEEK==='all'?'selected':''}>બધા અઠવાડિયા</option>` + weeks.map(w=>`<option value="${esc(w.key)}" ${REPORT_WEEK===w.key?'selected':''}>${esc(w.label)} (${Object.keys(w.subs).length})</option>`).join('');
+  const stat = (lbl,val)=>`<div style="flex:1;min-width:90px;background:#fff;border:1px solid var(--border);border-radius:9px;padding:9px 12px"><div style="font-size:11px;color:var(--muted)">${lbl}</div><div style="font-size:19px;font-weight:800">${val}</div></div>`;
+  return `
+    <div class="card" style="margin-bottom:12px;padding:13px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select class="frm-in" style="width:auto;font-size:13px" onchange="setReportWeek(this.value)">${weekOpt}</select>
+        <div style="display:flex;gap:4px;background:var(--bg);border-radius:8px;padding:3px">
+          <button class="btn-sm ${REPORT_VIEW==='farmer'?'primary':''}" onclick="setReportView('farmer')" style="font-size:12.5px">🌾 ખેડૂત×પ્રોડક્ટ</button>
+          <button class="btn-sm ${REPORT_VIEW==='crop'?'primary':''}" onclick="setReportView('crop')" style="font-size:12.5px">🥕 પાક</button>
+        </div>
+        ${REPORT_VIEW==='crop' ? `<select class="frm-in" style="width:auto;font-size:13px" onchange="setReportCrop(this.value)">${crops.map(c=>`<option value="${esc(c)}" ${REPORT_CROP===c?'selected':''}>${esc(c)}</option>`).join('')}</select>` : ''}
+      </div>
+      <button class="btn-sm primary" onclick="printReport()" title="Print અથવા Save as PDF">🖨 PDF / Print</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      ${stat('ખેડૂત', nF)}${stat('પ્રોડક્ટ', nP)}${stat('કુલ લાવ્યા', qfmt(tB)+' kg')}${stat('વેચાયું', qfmt(tS)+' kg')}${stat('અંદાજિત વેચાણ', rupee(tE))}
+    </div>
+    <div class="card" style="padding:14px 16px">${reportBodyHtml()}</div>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5">📊 Phase 1 — read-only. અંદાજિત વેચાણ = વેચાયું × ભાવ ('બાકી' ન ભર્યું હોય તો વેચાયું = લાવ્યા). આવનારા: month-wise, capacity red-flags, વધુ insights.</div>
+  `;
+}
+window.setReportWeek = v => { REPORT_WEEK = v; setTabBodyHtml(); };
+window.setReportView = v => { REPORT_VIEW = v; setTabBodyHtml(); };
+window.setReportCrop = v => { REPORT_CROP = v; setTabBodyHtml(); };
+window.printReport = () => {
+  const win = window.open('', '_blank');
+  if(!win) return toast("Popup block થયું — allow કરો","err");
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(reportTitle())}</title>
+    <style>
+      body{font-family:'Hind Vadodara','Noto Sans Gujarati',Arial,sans-serif;color:#222;margin:24px;font-size:13px}
+      h1{font-size:18px;margin:0 0 2px} .meta{color:#666;font-size:12px;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse} @media print{button{display:none}}
+    </style></head><body>
+    <h1>🌿 સૃષ્ટિ ખેડૂત હાટ — ${esc(reportTitle())}</h1>
+    <div class="meta">${esc(reportPeriodLabel())} · generated ${new Date().toLocaleDateString('en-IN')}</div>
+    ${reportBodyHtml()}
+    <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
+    </body></html>`);
+  win.document.close();
 };
 
 /* ════════ TAB: DESIGN — 🎨 brand the customer page ════════ */
