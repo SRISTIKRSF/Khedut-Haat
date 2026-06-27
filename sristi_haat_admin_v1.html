@@ -146,6 +146,19 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .preview-items .pi-row{display:flex;justify-content:space-between;gap:8px}
 .preview-items .pi-row .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .preview-items .pi-row .pr{font-weight:700;color:var(--orange);white-space:nowrap}
+/* Compact review (Sameeksha) rows — one product per line, uniform 13.5px; per-haat detail expands at 12px */
+.rv-row{display:flex;align-items:center;gap:8px;padding:10px 14px;white-space:nowrap;font-size:13.5px;overflow:hidden}
+.rv-nm{font-weight:600;color:var(--text)}
+.rv-cat{color:var(--muted)}
+.rv-chip{padding:2px 9px;border-radius:10px;font-size:13.5px;white-space:nowrap;flex-shrink:0}
+.rv-amt{width:64px;text-align:right;color:var(--orange);font-weight:700;font-variant-numeric:tabular-nums;flex-shrink:0}
+.rv-unt{width:58px;text-align:left;color:var(--muted);margin-left:2px;flex-shrink:0;font-size:13.5px}
+.rv-d>summary{list-style:none;cursor:pointer}
+.rv-d>summary::-webkit-details-marker{display:none}
+.rv-d[open] .rv-chev{transform:rotate(90deg)}
+.rv-chev{transition:transform .15s;color:#aaa;font-size:13px;width:14px;text-align:center;flex-shrink:0;display:inline-block}
+.rv-det{padding:0 14px 11px 38px;display:flex;flex-direction:column;gap:5px;font-size:12px}
+.rv-det .dr{display:flex;align-items:center;color:var(--text)}
 .preview-empty{color:var(--muted);font-size:12px;font-style:italic;margin-top:3px}
 
 /* STATES & TOAST */
@@ -1428,76 +1441,59 @@ function renderReviewCard(fid){
     : [];
   const lastWkByName = new Map(lastWkItems.map(it => [it.name, {price: +it.price||0, qty: +it.qty||0}]));
 
-  // Per-item rows with per-haat qty breakdown + vs-last-week deltas
+  // Per-item rows — compact one-line; multi-haat products collapse, expanding to per-haat detail.
   const itemRows = items.map(it => {
-    const prev = reEdited && prevItems.find(p => p.name === it.name);
-    const priceChanged = prev && prev.price !== it.price;
     const lw = lastWkByName.get(it.name);
-    // Price delta
-    let priceDelta = '';
-    if(lw && lw.price > 0 && +it.price > 0){
-      const diff = +it.price - lw.price;
-      const pct = Math.round((diff / lw.price) * 100);
-      if(diff === 0) priceDelta = `<span style="color:var(--muted);font-size:10.5px">= ₹${lw.price}</span>`;
-      else if(Math.abs(pct) >= 30) priceDelta = `<span style="color:var(--red);font-weight:600;font-size:10.5px">${diff>0?'↑':'↓'} ${Math.abs(pct)}% (was ₹${lw.price})</span>`;
-      else priceDelta = `<span style="color:var(--green2);font-size:10.5px">${diff>0?'↑':'↓'} ${Math.abs(pct)}%</span>`;
-    } else if(lw && lw.price > 0){
-      priceDelta = `<span style="color:var(--muted);font-size:10.5px">was ₹${lw.price}</span>`;
-    } else if(!lw){
-      priceDelta = `<span style="color:var(--green2);font-size:10.5px;font-weight:600">NEW</span>`;
-    }
-    // Qty anomaly flag
-    let qtyFlag = '';
-    if(it.qty && lw && lw.qty > 0){
-      const ratio = +it.qty / lw.qty;
-      if(ratio >= 5 || ratio <= 0.2) qtyFlag = ` <span title="last week: ${lw.qty}" style="color:var(--red);font-weight:700">⚠️</span>`;
-    }
+    const unit = esc(it.unit || '');
+    const pbh = it.priceByHaat || {};
+    const qbh = it.qtyByHaat || {};
+    const codes = [...new Set([...Object.keys(qbh), ...Object.keys(pbh)])].filter(c => (+qbh[c] > 0) || (+pbh[c] > 0));
+    const isMulti = codes.length > 1;
+    const totalQty = Object.keys(qbh).length ? Object.values(qbh).reduce((s,v) => s + (+v||0), 0) : (+it.qty||0);
 
-    // Quantity display: per-haat split if available, else single qty
-    let qtyHtml = '';
-    if(it.qtyByHaat && Object.keys(it.qtyByHaat).length){
-      const breakdown = Object.entries(it.qtyByHaat)
-        .filter(([_,v]) => +v > 0)
-        .map(([code, q]) => {
-          const name = HAATS[code]?.nameGu || HAATS[code]?.name || code;
-          return `<span style="background:#fff;border:1px solid var(--border);border-radius:5px;padding:2px 7px;font-size:11.5px;font-weight:600">${esc(name)}: <span style="color:var(--green2)">${esc(q)} ${esc(it.unit)}</span></span>`;
-        }).join(' ');
-      const total = Object.values(it.qtyByHaat).reduce((s,v) => s + (+v||0), 0);
-      qtyHtml = `<div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap;align-items:center">${breakdown}<span style="font-size:11.5px;color:var(--muted);margin-left:4px">કુલ <b style="color:var(--text)">${total} ${esc(it.unit)}</b></span></div>`;
-    } else if(it.qty){
-      qtyHtml = `<div style="font-size:12px;color:var(--green2);font-weight:600;margin-top:2px">${esc(it.qty)} ${esc(it.unit)}</div>`;
+    // Price: single, or a min–max range when per-haat prices differ
+    let priceStr;
+    if(isMulti){
+      const ps = codes.map(c => +pbh[c] || +it.price || 0).filter(x => x > 0);
+      const mn = ps.length ? Math.min(...ps) : (+it.price||0), mx = ps.length ? Math.max(...ps) : (+it.price||0);
+      priceStr = (mn !== mx) ? `₹${mn}–${mx}` : `₹${mn}`;
     } else {
-      qtyHtml = `<div style="font-size:11px;color:var(--orange);font-style:italic;margin-top:2px">જથ્થો નથી ભર્યો</div>`;
+      priceStr = `₹${esc(it.price)}`;
     }
 
-    return `
-      <div style="display:flex;align-items:center;gap:11px;padding:9px 14px;border-bottom:1px solid var(--border)">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:14px;font-weight:600;line-height:1.3">${esc(it.emoji||'🌿')} ${esc(it.name)}${qtyFlag} <span style="color:var(--muted);font-size:11px;font-weight:400">${esc(it.cat||'')}</span></div>
-          ${qtyHtml}
-        </div>
-        <div style="text-align:right;flex-shrink:0">
-          ${(() => {
-            const pbh = it.priceByHaat;
-            const distinct = pbh ? [...new Set(Object.values(pbh).map(x=>+x||0).filter(x=>x>0))] : [];
-            if(pbh && distinct.length > 1){
-              // Per-haat prices differ — show each so admin sees before approving.
-              return `<div style="display:flex;flex-direction:column;gap:1px;align-items:flex-end">
-                ${Object.entries(pbh).filter(([,v])=>+v>0).map(([code,v]) => {
-                  const name = HAATS[code]?.nameGu || HAATS[code]?.name || code;
-                  return `<div style="font-size:11.5px;white-space:nowrap"><span style="color:var(--muted)">${esc(name)}:</span> <b style="color:var(--orange)">₹${esc(v)}</b></div>`;
-                }).join('')}
-                <div style="font-size:10px;color:var(--muted)">/${esc(it.unit)}</div>
-              </div>`;
-            }
-            return `<div style="font-size:15.5px;font-weight:800;color:var(--orange);line-height:1">₹${esc(it.price)}</div>
-              <div style="font-size:10.5px;color:var(--muted);margin-top:2px">/${esc(it.unit)}</div>
-              ${priceChanged?`<div style="font-size:10px;color:var(--muted);margin-top:2px"><s>₹${esc(prev.price)}</s></div>`:''}
-              ${priceDelta?`<div style="margin-top:3px">${priceDelta}</div>`:''}`;
-          })()}
-        </div>
-      </div>
-    `;
+    // Status badge (vs last week): NEW, or ↑/↓ % change
+    let badge = '';
+    if(!lw){
+      badge = `<span class="rv-chip" style="color:var(--green2);background:var(--green-pale);font-weight:600">NEW</span>`;
+    } else if(lw.price > 0 && +it.price > 0 && +it.price !== lw.price){
+      const diff = +it.price - lw.price, pct = Math.round(diff / lw.price * 100), big = Math.abs(pct) >= 30;
+      badge = `<span class="rv-chip" title="ગયા હાટે ₹${lw.price}" style="color:${big?'var(--red)':'var(--muted)'};background:${big?'#fdeaea':'#f0efe9'}">${diff>0?'↑':'↓'}${Math.abs(pct)}%</span>`;
+    }
+    // Qty anomaly flag (⚠️) — far above/below last week
+    let flag = '';
+    if(it.qty && lw && lw.qty > 0){
+      const r = +it.qty / lw.qty;
+      if(r >= 5 || r <= 0.2) flag = ` <span title="ગયા હાટે ${lw.qty}" style="color:var(--red);font-weight:700">⚠️</span>`;
+    }
+
+    const priceCell = `<span class="rv-amt">${priceStr}</span><span class="rv-unt">/${unit}</span>`;
+    const head = `<span style="font-size:15px">${esc(it.emoji||'🌿')}</span><span class="rv-nm">${esc(it.name)}${flag}</span><span class="rv-cat">${esc(it.cat||'')}</span>`;
+
+    if(!isMulti){
+      const qtyChip = totalQty > 0
+        ? `<span class="rv-chip" style="color:var(--green2);background:var(--green-pale)">${totalQty} ${unit}</span>`
+        : `<span class="rv-chip" style="color:var(--orange);background:#fbe9dd">જથ્થો નથી</span>`;
+      return `<div class="rv-row" style="border-bottom:1px solid var(--border)">${head}${qtyChip}${badge}<span style="flex:1"></span>${priceCell}<span style="width:14px;flex-shrink:0"></span></div>`;
+    }
+
+    // Multi-haat → collapsible: summary one-liner, expand for per-haat price + qty
+    const totalChip = `<span class="rv-chip" style="color:var(--muted);background:#f2f0ea">${codes.length} હાટ · ${totalQty>0?`${totalQty} ${unit}`:'જથ્થો નથી'}</span>`;
+    const det = codes.map(c => {
+      const nm = HAATS[c]?.nameGu || HAATS[c]?.name || c;
+      const q = +qbh[c] || 0, p = +pbh[c] || +it.price || 0;
+      return `<div class="dr"><span style="width:108px;color:var(--muted)">📍 ${esc(nm)}</span><span style="width:100px;color:var(--orange);font-weight:600">₹${p}/${unit}</span><span style="color:var(--green2)">${q?`${q} ${unit}`:'—'}</span></div>`;
+    }).join('');
+    return `<details class="rv-d" style="border-bottom:1px solid var(--border)"><summary class="rv-row">${head}${totalChip}${badge}<span style="flex:1"></span>${priceCell}<span class="rv-chev">▸</span></summary><div class="rv-det">${det}</div></details>`;
   }).join('');
 
   // Per-haat totals (sum of qtyByHaat across items)
