@@ -688,7 +688,7 @@ async function loadSubmission(){
       ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", remaining: it.qtyRemaining||"", qtyByHaat: it.qtyByHaat || {}, priceByHaat: it.priceByHaat || {}, unit:it.unit, cat:it.cat, emoji:it.emoji, custom:!!it.custom});
       ROUTINE_ITEMS.set(it.name, {
         lastPrice: it.price||"",
-        unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom
+        unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom, photo: it.photo||''
       });
     });
   }
@@ -712,7 +712,7 @@ async function loadSubmission(){
             if(!it || !it.name) return;
             ROUTINE_ITEMS.set(it.name, {
               lastPrice: it.price||"",
-              unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom
+              unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom, photo: it.photo||''
             });
           });
         }
@@ -727,7 +727,7 @@ async function loadSubmission(){
     FARMER.myProductIds.forEach(pid => {
       const p = byId[pid];
       if(p && !ROUTINE_ITEMS.has(p.n)){
-        ROUTINE_ITEMS.set(p.n, {lastPrice:"", unit:p.u, cat:p.c, emoji:p.e, custom:false});
+        ROUTINE_ITEMS.set(p.n, {lastPrice:"", unit:p.u, cat:p.c, emoji:p.e, custom:false, photo:p.photo||''});
       }
     });
   }
@@ -891,7 +891,7 @@ function renderItems(){
   if(ROUTINE_ITEMS.size > 0){
     const routineList = [...ROUTINE_ITEMS.entries()].map(([name, r]) => ({
       n: name, u: r.unit, c: r.cat, e: r.emoji || '🌿',
-      custom: r.custom, lastPrice: r.lastPrice,
+      custom: r.custom, lastPrice: r.lastPrice, photo: r.photo || '',
     }));
     const isOpen = EXPANDED.has('__routine__');
     const safeKey = btoa(unescape(encodeURIComponent('__routine__'))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
