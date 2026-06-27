@@ -85,10 +85,10 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .item-inputs{display:flex;gap:6px;flex-shrink:0;align-items:flex-start}
 .input-col{display:flex;flex-direction:column;gap:2px;align-items:center}
 .input-col-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.input-wrap{display:flex;align-items:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:0 6px;transition:.15s}
+.input-wrap{display:flex;align-items:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:0 9px;gap:3px;transition:.15s}
 .input-wrap.has-val{background:#fff;border-color:var(--green2)}
-.input-wrap .pfx{font-size:12px;color:var(--muted);font-weight:600;padding-right:2px}
-.input-wrap input{width:48px;min-height:44px;border:none;background:none;outline:none;font-family:inherit;font-size:14px;font-weight:600;padding:7px 0;color:var(--text);text-align:center;-moz-appearance:textfield;touch-action:manipulation}
+.input-wrap .pfx{font-size:13px;color:var(--muted);font-weight:600;flex-shrink:0}
+.input-wrap input{width:44px;min-height:44px;border:none;background:none;outline:none;font-family:inherit;font-size:14px;font-weight:600;padding:7px 0;color:var(--text);text-align:center;-moz-appearance:textfield;touch-action:manipulation}
 .input-wrap:focus-within{outline:2px solid var(--green2);outline-offset:1px}
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
@@ -97,7 +97,7 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--green2);outline-offset:2px;border-radius:6px}
 .input-wrap input::-webkit-outer-spin-button,
 .input-wrap input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.input-wrap .sfx{font-size:10.5px;color:var(--muted);padding-left:3px;font-weight:500}
+.input-wrap .sfx{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap;flex-shrink:0}
 
 /* CUSTOM ADD */
 .add-row{padding:16px 14px 6px;text-align:center}
