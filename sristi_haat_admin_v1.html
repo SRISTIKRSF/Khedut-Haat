@@ -3464,8 +3464,8 @@ function openProductModal(existing, defaultCat){
       </div>
       <div style="display:flex;gap:8px;margin-top:18px">
         <button class="btn-sm" onclick="closeModal()" style="flex:1">રદ</button>
-        ${isEdit?`<button class="btn-sm" onclick="deleteProduct('${esc(existing.id)}')" style="background:var(--red-pale);color:var(--red);border-color:#f5c4c4">🗑️ Delete</button>`:''}
-        <button class="btn-sm primary" onclick="saveProduct('${esc(existing?.id||'')}')" style="flex:1">✓ સાચવો</button>
+        ${isEdit?`<button class="btn-sm" onclick="deleteProduct('${esc(existing._fbKey||existing.id)}')" style="background:var(--red-pale);color:var(--red);border-color:#f5c4c4">🗑️ Delete</button>`:''}
+        <button class="btn-sm primary" onclick="saveProduct('${esc(existing?._fbKey||existing?.id||'')}')" style="flex:1">✓ સાચવો</button>
       </div>
     </div>
   `);
