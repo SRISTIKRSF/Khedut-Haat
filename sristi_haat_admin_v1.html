@@ -676,6 +676,8 @@ async function loadProductsDB(){
   // ALL_PRODUCTS_MAP (~line 2248/2574); loadProductsDB itself no longer uses it.
   Object.keys(masterDB).forEach(id => { if(DELETED_PRODUCT_IDS.has(id)) delete masterDB[id]; });
   PRODUCTS_DB = masterDB;
+  // Stamp each product with its Firebase key — old records were saved without an id field.
+  Object.entries(PRODUCTS_DB).forEach(([id, p]) => { if(p && !p.id) p.id = id; });
 }
 
 async function loadAll(){
@@ -3889,6 +3891,7 @@ function reportRowsFromSubs(subs){
     if(!sub) return;
     if(sub.status && sub.status !== 'approved') return;   // approved (or legacy no-status) only
     (sub.items || []).forEach(it => {
+      if(!it) return;
       const cf = qtyConvFactor(it);
       let brought = 0;
       if(it.qtyByHaat && typeof it.qtyByHaat === 'object') Object.values(it.qtyByHaat).forEach(v => brought += +v || 0);
@@ -5033,6 +5036,7 @@ window.exportExcel = async () => {
       Object.entries(w.submissions).forEach(([fid, sub]) => {
         if(!sub) return;
         (sub.items||[]).forEach(it => {
+          if(!it) return;
           const cf = qtyConvFactor(it);
           let brought = 0;
           if(it.qtyByHaat) Object.values(it.qtyByHaat).forEach(v => brought += +v||0); else brought = +it.qty||0;
