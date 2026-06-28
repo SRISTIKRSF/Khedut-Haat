@@ -87,9 +87,15 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .input-col-lbl{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 .input-wrap{display:flex;align-items:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:0 9px;gap:3px;transition:.15s}
 .input-wrap.has-val{background:#fff;border-color:var(--green2)}
-.input-wrap .pfx{font-size:13px;color:var(--muted);font-weight:600;flex-shrink:0}
-.input-wrap input{width:44px;min-height:44px;border:none;background:none;outline:none;font-family:inherit;font-size:14px;font-weight:600;padding:7px 0;color:var(--text);text-align:center;-moz-appearance:textfield;touch-action:manipulation}
+.input-wrap .pfx{font-size:13px;color:var(--muted);font-weight:600;flex-shrink:0;margin-left:-2px;margin-right:5px}
+.input-wrap input{flex:1;min-width:0;width:44px;min-height:44px;border:none;background:none;outline:none;font-family:inherit;font-size:14px;font-weight:600;padding:7px 0;color:var(--text);text-align:center;-moz-appearance:textfield;touch-action:manipulation}
+/* V36: single-haat boxes — wider ભાવ (fits ₹9999 /250gm), narrower જથ્થો */
+.wrap-bhav{width:130px}
+.wrap-qty{width:88px}
 .input-wrap:focus-within{outline:2px solid var(--green2);outline-offset:1px}
+/* V36.1: the wrap's green ring above IS the focus cue — kill the redundant inner
+   outline on the number input that boxed-in and crowded the ₹ symbol. */
+.input-wrap input:focus-visible{outline:none;border-radius:0}
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
 }
@@ -97,7 +103,8 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--green2);outline-offset:2px;border-radius:6px}
 .input-wrap input::-webkit-outer-spin-button,
 .input-wrap input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.input-wrap .sfx{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap;flex-shrink:0}
+.input-wrap .sfx{font-size:10.5px;color:#374151;font-weight:600;white-space:nowrap;flex-shrink:0}
+.input-wrap .sfx.qty-sfx{color:var(--green2);font-weight:700}
 
 /* CUSTOM ADD */
 .add-row{padding:16px 14px 6px;text-align:center}
@@ -269,7 +276,7 @@ function itemQtyStr(it){
   let t = 0;
   if(it.qtyByHaat) Object.values(it.qtyByHaat).forEach(v => t += +v || 0);
   else t = +it.qty || 0;
-  return t > 0 ? (t + ' ' + (it.unit||'')) : '';
+  return t > 0 ? (t + ' ' + (it.qtyUnit||it.unit||'')) : '';   // V36: prefer qtyUnit (kg/Lt) when present
 }
 function submissionSummaryHtml(items){
   const rows = (items||[]).map(it => `<tr>
@@ -932,6 +939,18 @@ function renderItems(){
   return html;
 }
 
+// V36 (2026-06-27): pricing unit vs quantity-entry unit. The PRICE stays per the
+// pricing unit (e.g. ₹30 /250gm), but the farmer enters the QUANTITY in kg for any
+// gm-priced product and in Lt for any ml-priced product. Other units (kg, જુડી,
+// નંગ, પેકેટ…) are unchanged. Submitted items carry a qtyUnit field so the admin /
+// customer / reports know how to read the quantity (legacy items have no qtyUnit).
+function qtyUnitOf(u){
+  u = String(u||'').trim();
+  if(/^\d+\s*gm$/i.test(u)) return 'kg';
+  if(/^\d+\s*ml$/i.test(u)) return 'Lt';
+  return u || 'kg';
+}
+
 function itemRow(p, isRoutine){
   const e = ENTRIES.get(p.n) || {price:"", qty:"", qtyByHaat:{}, priceByHaat:{}};
   const active = (+e.price)>0;
@@ -947,7 +966,7 @@ function itemRow(p, isRoutine){
   const priceCol = `
     <div class="input-col">
       <div class="input-col-lbl">ભાવ${priceLocked?' 🔒':''}</div>
-      <div class="input-wrap ${pHas}"${priceLocked?' style="opacity:.7;background:#f2f2ef"':''}>
+      <div class="input-wrap wrap-bhav ${pHas}"${priceLocked?' style="opacity:.7;background:#f2f2ef"':''}>
         <span class="pfx">₹</span>
         <input type="number" inputmode="numeric" min="0" placeholder="${esc(pricePlaceholder)}" value="${esc(e.price)}" ${priceLocked?'readonly title="ભાવ મંજૂર થયો — બદલી શકાતો નથી"':`oninput="onPrice('${esc(p.n).replace(/'/g,"\\'")}',this.value)"`}>
         <span class="sfx">/${esc(p.u)}</span>
@@ -962,7 +981,7 @@ function itemRow(p, isRoutine){
       <div class="input-col-lbl">બાકી જથ્થો</div>
       <div class="input-wrap ${rHas}">
         <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.remaining||'')}" oninput="onRemaining('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
-        <span class="sfx">${esc(p.u)}</span>
+        <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
       </div>
     </div>` : '';
 
@@ -988,7 +1007,7 @@ function itemRow(p, isRoutine){
           </div>
           <div class="input-wrap ${has}" style="flex:0 0 92px">
             <input type="number" inputmode="numeric" min="0" data-qty="1" data-code="${esc(code)}" placeholder="0" value="${esc(val)}" oninput="onQtyForHaat('${jsName}','${esc(code)}',this.value)">
-            <span class="sfx">${esc(p.u)}</span>
+            <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
           </div>
         </div>
       `;
@@ -1005,13 +1024,13 @@ function itemRow(p, isRoutine){
           ${haatRows}
           <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px dotted var(--border);font-size:11.5px">
             <span style="color:var(--muted)">કુલ</span>
-            <span id="tot_${safeId}" style="font-weight:700;color:var(--green2)">${total ? total + ' ' + esc(p.u) : '—'}</span>
+            <span id="tot_${safeId}" style="font-weight:700;color:var(--green2)">${total ? total + ' ' + esc(qtyUnitOf(p.u)) : '—'}</span>
           </div>
           ${showRemaining ? `<div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding-top:5px;border-top:1px dotted var(--border)">
             <span style="font-size:11px;color:#5a5a5a;flex:1;font-weight:600">બાકી જથ્થો</span>
             <div class="input-wrap ${(+e.remaining)>0?'has-val':''}" style="flex:0 0 110px">
               <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.remaining||'')}" oninput="onRemaining('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
-              <span class="sfx">${esc(p.u)}</span>
+              <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
             </div>
           </div>` : ''}
         </div>
@@ -1029,9 +1048,9 @@ function itemRow(p, isRoutine){
         ${priceCol}
         <div class="input-col">
           <div class="input-col-lbl">${showRemaining?'કુલ જથ્થો':'જથ્થો'}</div>
-          <div class="input-wrap ${qHas}">
+          <div class="input-wrap wrap-qty ${qHas}">
             <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.qty)}" oninput="onQty('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
-            <span class="sfx">${esc(p.u)}</span>
+            <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
           </div>
         </div>
         ${remainingCol}
@@ -1103,7 +1122,7 @@ function refreshRow(name){
     const tot = document.getElementById('tot_'+safeId);
     if(tot){
       const p = PRODUCT_LIB.find(x => x.n === name);
-      const unit = p ? p.u : (e.unit || 'kg');
+      const unit = qtyUnitOf(p ? p.u : (e.unit || 'kg'));
       tot.textContent = total ? total + ' ' + unit : '—';
     }
   } else {
@@ -1251,7 +1270,7 @@ window.submitAll = async () => {
       if(ovs.length) price = Math.max(...ovs);
     }
     if(!(price>0)) return;
-    const it = {name, price, unit:e.unit||"kg", cat:e.cat||"અન્ય", available:true};
+    const it = {name, price, unit:e.unit||"kg", qtyUnit:qtyUnitOf(e.unit||"kg"), cat:e.cat||"અન્ય", available:true};   // V36: qtyUnit = the unit the entered quantity is in (kg/Lt for gm/ml-priced)
     if(idByName[name]) it.productId = idByName[name];   // Part A: stamp master productId (renames propagate by id)
     if(isMulti && e.qtyByHaat){
       const qbh = {};
