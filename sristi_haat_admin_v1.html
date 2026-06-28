@@ -1445,6 +1445,7 @@ function renderReviewCard(fid){
   const itemRows = items.map(it => {
     const lw = lastWkByName.get(it.name);
     const unit = esc(it.unit || '');
+    const qtyUnit = esc(it.qtyUnit || it.unit || '');
     const pbh = it.priceByHaat || {};
     const qbh = it.qtyByHaat || {};
     const codes = [...new Set([...Object.keys(qbh), ...Object.keys(pbh)])].filter(c => (+qbh[c] > 0) || (+pbh[c] > 0));
@@ -1481,17 +1482,17 @@ function renderReviewCard(fid){
 
     if(!isMulti){
       const qtyChip = totalQty > 0
-        ? `<span class="rv-chip" style="color:var(--green2);background:var(--green-pale)">${totalQty} ${unit}</span>`
+        ? `<span class="rv-chip" style="color:var(--green2);background:var(--green-pale)">${totalQty} ${qtyUnit}</span>`
         : `<span class="rv-chip" style="color:var(--orange);background:#fbe9dd">જથ્થો નથી</span>`;
       return `<div class="rv-row" style="border-bottom:1px solid var(--border)">${head}${qtyChip}${badge}<span style="flex:1"></span>${priceCell}<span style="width:14px;flex-shrink:0"></span></div>`;
     }
 
     // Multi-haat → collapsible: summary one-liner, expand for per-haat price + qty
-    const totalChip = `<span class="rv-chip" style="color:var(--muted);background:#f2f0ea">${codes.length} હાટ · ${totalQty>0?`${totalQty} ${unit}`:'જથ્થો નથી'}</span>`;
+    const totalChip = `<span class="rv-chip" style="color:var(--muted);background:#f2f0ea">${codes.length} હાટ · ${totalQty>0?`${totalQty} ${qtyUnit}`:'જથ્થો નથી'}</span>`;
     const det = codes.map(c => {
       const nm = HAATS[c]?.nameGu || HAATS[c]?.name || c;
       const q = +qbh[c] || 0, p = +pbh[c] || +it.price || 0;
-      return `<div class="dr"><span style="width:108px;color:var(--muted)">📍 ${esc(nm)}</span><span style="width:100px;color:var(--orange);font-weight:600">₹${p}/${unit}</span><span style="color:var(--green2)">${q?`${q} ${unit}`:'—'}</span></div>`;
+      return `<div class="dr"><span style="width:108px;color:var(--muted)">📍 ${esc(nm)}</span><span style="width:100px;color:var(--orange);font-weight:600">₹${p}/${unit}</span><span style="color:var(--green2)">${q?`${q} ${qtyUnit}`:'—'}</span></div>`;
     }).join('');
     return `<details class="rv-d" style="border-bottom:1px solid var(--border)"><summary class="rv-row">${head}${totalChip}${badge}<span style="flex:1"></span>${priceCell}<span class="rv-chev">▸</span></summary><div class="rv-det">${det}</div></details>`;
   }).join('');
@@ -3869,6 +3870,18 @@ async function loadReportsData(){
   finally{ REPORTS_LOADING = false; setTabBodyHtml(); }
 }
 
+// V37: factor to convert V36 qty (entered in qtyUnit, e.g. kg) → pricing units (e.g. 250gm).
+// Legacy items have no qtyUnit field → factor = 1 (no change).
+function qtyConvFactor(it){
+  if(!it.qtyUnit || it.qtyUnit === it.unit) return 1;
+  const u = String(it.unit || '').trim();
+  const gm = u.match(/^(\d+)\s*gm$/i);
+  if(gm) return 1000 / +gm[1];
+  const ml = u.match(/^(\d+)\s*ml$/i);
+  if(ml) return 1000 / +ml[1];
+  return 1;
+}
+
 // Flatten approved submissions of a week into product rows.
 function reportRowsFromSubs(subs){
   const rows = [];
@@ -3876,10 +3889,12 @@ function reportRowsFromSubs(subs){
     if(!sub) return;
     if(sub.status && sub.status !== 'approved') return;   // approved (or legacy no-status) only
     (sub.items || []).forEach(it => {
+      const cf = qtyConvFactor(it);
       let brought = 0;
       if(it.qtyByHaat && typeof it.qtyByHaat === 'object') Object.values(it.qtyByHaat).forEach(v => brought += +v || 0);
       else brought = +it.qty || 0;
-      const remaining = (it.qtyRemaining != null && it.qtyRemaining !== '') ? (+it.qtyRemaining || 0) : null;
+      brought *= cf;
+      const remaining = (it.qtyRemaining != null && it.qtyRemaining !== '') ? (+it.qtyRemaining || 0) * cf : null;
       // sold is KNOWN only once the farmer fills 'remaining' (post-haat). Before that it's unknown (null) — NOT brought.
       const sold = remaining != null ? Math.max(0, brought - remaining) : null;
       const price = +it.price || 0;
@@ -5018,9 +5033,11 @@ window.exportExcel = async () => {
       Object.entries(w.submissions).forEach(([fid, sub]) => {
         if(!sub) return;
         (sub.items||[]).forEach(it => {
+          const cf = qtyConvFactor(it);
           let brought = 0;
           if(it.qtyByHaat) Object.values(it.qtyByHaat).forEach(v => brought += +v||0); else brought = +it.qty||0;
-          const rem = (it.qtyRemaining!=null && it.qtyRemaining!=='') ? (+it.qtyRemaining||0) : '';
+          brought *= cf;
+          const rem = (it.qtyRemaining!=null && it.qtyRemaining!=='') ? (+it.qtyRemaining||0) * cf : '';
           const sold = rem!=='' ? Math.max(0, brought-rem) : '';
           const price = +it.price||0;
           const est = (sold!==''?sold:brought) * price;
