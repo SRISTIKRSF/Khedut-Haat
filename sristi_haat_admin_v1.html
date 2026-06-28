@@ -3311,8 +3311,9 @@ function renderGuideCustomer(){
 function productsByCategory(){
   const groups = {};
   CATEGORY_DISPLAY.forEach(d => { groups[d.key] = {def:d, items:[]}; });
-  Object.values(PRODUCTS_DB).forEach(p => {
+  Object.entries(PRODUCTS_DB).forEach(([fbKey, p]) => {
     if(!p || p.active === false) return;
+    p._fbKey = fbKey;
     const ck = categoryKeyOf({cat:p.cat});
     groups[ck].items.push(p);
   });
@@ -3369,7 +3370,7 @@ function renderProductRow(p, idx){
         <div style="font-weight:700;font-size:14.5px">${esc(p.name)}</div>
         <div style="font-size:12px;color:var(--muted)">${esc(p.unit||'kg')}</div>
       </div>
-      <button class="btn-sm" onclick="openEditProduct('${esc(p.id)}')" style="font-size:13px;padding:6px 11px">✏️ Edit</button>
+      <button class="btn-sm" onclick="openEditProduct('${esc(p._fbKey||p.id)}')" style="font-size:13px;padding:6px 11px">✏️ Edit</button>
     </div>
   `;
 }
@@ -3415,10 +3416,7 @@ function initProductSortables(){
 }
 
 window.openAddProduct = (catKey) => { openProductModal(null, catKey); };
-window.openEditProduct = (id) => {
-  const product = PRODUCTS_DB[id] || Object.values(PRODUCTS_DB).find(p => p && p.id === id) || null;
-  openProductModal(product);
-};
+window.openEditProduct = (id) => { openProductModal(PRODUCTS_DB[id] || null); };
 
 function openProductModal(existing, defaultCat){
   const isEdit = !!existing;
