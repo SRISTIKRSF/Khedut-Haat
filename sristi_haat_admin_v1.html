@@ -3415,7 +3415,10 @@ function initProductSortables(){
 }
 
 window.openAddProduct = (catKey) => { openProductModal(null, catKey); };
-window.openEditProduct = (id) => { openProductModal(PRODUCTS_DB[id] || null); };
+window.openEditProduct = (id) => {
+  const product = PRODUCTS_DB[id] || Object.values(PRODUCTS_DB).find(p => p && p.id === id) || null;
+  openProductModal(product);
+};
 
 function openProductModal(existing, defaultCat){
   const isEdit = !!existing;
