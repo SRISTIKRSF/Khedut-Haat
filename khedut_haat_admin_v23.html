@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · v22</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · v23</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -151,7 +151,7 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .rv-nm{font-weight:600;color:var(--text)}
 .rv-cat{color:var(--muted)}
 .rv-chip{padding:2px 9px;border-radius:10px;font-size:13.5px;white-space:nowrap;flex-shrink:0}
-.rv-amt{width:64px;text-align:right;color:var(--orange);font-weight:700;font-variant-numeric:tabular-nums;flex-shrink:0}
+.rv-amt{min-width:64px;text-align:right;color:var(--orange);font-weight:700;font-variant-numeric:tabular-nums;flex-shrink:0;white-space:nowrap}
 .rv-unt{width:58px;text-align:left;color:var(--muted);margin-left:2px;flex-shrink:0;font-size:13.5px}
 .rv-d>summary{list-style:none;cursor:pointer}
 .rv-d>summary::-webkit-details-marker{display:none}
@@ -1374,7 +1374,7 @@ function reviewNotYetList(ids){
   const rows = ids.map(fid => {
     const f = FARMERS.find(x => x.id === fid) || {};
     const phone = String(f.phone||'').replace(/[^0-9]/g,'');
-    const submitUrl = location.origin + (location.pathname.includes('admin') ? location.pathname.replace('admin','submit') : '/khedut_haat_farmer_v22.html');
+    const submitUrl = location.origin + (location.pathname.includes('admin') ? location.pathname.replace('admin','submit') : '/khedut_haat_farmer_v23.html');
     const msg = encodeURIComponent(`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${wkDisp()}\n\nનમસ્તે ${f.name||""},\nઆ અઠવાડિયે હાટ માટે તમારી પેદાશ ની યાદી નીચે link થી મોકલશો:\n${submitUrl}\n\nUsername: ${phone}\nPassword: તમારો પાસવર્ડ`);
     const waUrl = phone ? `https://wa.me/91${phone}?text=${msg}` : null;
     return `
@@ -3941,6 +3941,24 @@ function qtyConvFactor(it){
   return 1;
 }
 
+// Admin farmer DB (marketFarmers) is the source of truth for farmer identity.
+// Resolve a submission's farmer to the canonical DB record by PHONE (stable across
+// fid-scheme changes), then by fid. Returns the canonical name + a stable group key.
+let _farmerDbCache = null;
+function farmerDb(){
+  if(_farmerDbCache && _farmerDbCache._n === FARMERS.length) return _farmerDbCache;
+  const byPhone = {}, byId = {};
+  FARMERS.forEach(f => { const ph = String(f.phone||'').replace(/\D/g,''); if(ph) byPhone[ph] = f; if(f.id) byId[f.id] = f; });
+  _farmerDbCache = { byPhone, byId, _n: FARMERS.length };
+  return _farmerDbCache;
+}
+function canonicalFarmer(phone, fid, fallbackName){
+  const db = farmerDb();
+  const ph = String(phone||'').replace(/\D/g,'');
+  const rec = (ph && db.byPhone[ph]) || (fid && db.byId[fid]) || null;
+  return { name: (rec && rec.name) || fallbackName || fid || '?', key: ph || (rec && rec.id) || fid || (fallbackName||'?') };
+}
+
 // Flatten approved submissions of a week into product rows.
 function reportRowsFromSubs(subs){
   const rows = [];
@@ -3966,10 +3984,13 @@ function reportRowsFromSubs(subs){
       if(it.qtyByHaat && typeof it.qtyByHaat === 'object'){
         Object.entries(it.qtyByHaat).forEach(([code,q]) => { q = +q||0; if(q<=0) return; const hp = (pbh[code]!=null ? +pbh[code] : basePrice)||0; pNum += hp*q; pDen += q; });
       }
-      const price = pDen>0 ? Math.round(pNum/pDen) : basePrice;
-      // estimated sale = actual sold×price where known, else brought×price as a projection (so the column stays meaningful)
-      const estSale = (sold != null ? sold : brought) * price;
-      rows.push({ fid, farmerName: sub.farmerName || fid, farmerPhone: sub.farmerPhone || '', product: it.name || '?', cat: it.cat || 'અન્ય', unit: it.unit || 'kg', brought, remaining, sold, price, estSale });
+      const price = pDen>0 ? Math.round(pNum/pDen) : basePrice;   // weighted avg, for the price column
+      // estimated sale = જથ્થો × that market's price, summed across markets (exact per-haat); when 'sold'
+      // is known (remaining filled) scale proportionally, else use the brought-based estimate.
+      const gross = (pDen>0 ? pNum*cf : brought*basePrice);
+      const estSale = (sold != null && brought > 0) ? gross * (sold/brought) : gross;
+      const cf2 = canonicalFarmer(sub.farmerPhone, fid, sub.farmerName);
+      rows.push({ fid, farmerKey: cf2.key, farmerName: cf2.name, farmerPhone: sub.farmerPhone || '', product: it.name || '?', cat: it.cat || 'અન્ય', unit: it.unit || 'kg', brought, remaining, sold, price, estSale });
     });
   });
   return rows;
@@ -4003,7 +4024,7 @@ function reportFarmerHtml(){
   const rows = reportActiveRows();
   if(!rows.length) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
   const byFarmer = {};
-  rows.forEach(r => { const key = r.farmerPhone || r.fid; (byFarmer[key] = byFarmer[key] || { name:r.farmerName, phone:r.farmerPhone, items:[] }).items.push(r); });
+  rows.forEach(r => { const key = r.farmerKey; (byFarmer[key] = byFarmer[key] || { name:r.farmerName, phone:r.farmerPhone, items:[] }).items.push(r); });
   const farmers = Object.values(byFarmer).sort((a,b) => a.name.localeCompare(b.name,'gu'));
   let gTot = 0;
   const blocks = farmers.map((f, i) => {
@@ -4131,7 +4152,7 @@ function reportMonthHtml(){
     const mk = monthKeyOf(w.createdAt);
     monthsSet.add(mk);
     reportRowsFromSubs(w.subs).forEach(r => {
-      const f = data[r.fid] = data[r.fid] || { name: r.farmerName, months: {} };
+      const f = data[r.farmerKey] = data[r.farmerKey] || { name: r.farmerName, months: {} };
       const c = f.months[mk] = f.months[mk] || { sold: 0, rev: 0 };
       c.sold += (r.sold || 0); c.rev += r.estSale;
     });
@@ -4181,11 +4202,11 @@ function reportInsightsHtml(){
   if(!REPORTS_DATA || !REPORTS_DATA.weeks.length) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
   const allRows = REPORTS_DATA.weeks.flatMap(w => reportRowsFromSubs(w.subs));
 
-  // 1. Top farmers by revenue
-  const fRev = {}; allRows.forEach(r => fRev[r.farmerName] = (fRev[r.farmerName]||0) + r.estSale);
-  const totRev = Object.values(fRev).reduce((a,b)=>a+b,0) || 1;
-  const topFarmers = Object.entries(fRev).sort((a,b)=>b[1]-a[1]).slice(0,10)
-    .map(([n,v]) => [esc(n), rupee(v), Math.round(v/totRev*100)+'%']);
+  // 1. Top farmers by revenue (grouped by stable farmerKey; canonical DB name)
+  const fRev = {}; allRows.forEach(r => { const k = r.farmerKey; (fRev[k] = fRev[k] || {name:r.farmerName, v:0}).v += r.estSale; });
+  const totRev = Object.values(fRev).reduce((a,b)=>a+b.v,0) || 1;
+  const topFarmers = Object.values(fRev).sort((a,b)=>b.v-a.v).slice(0,10)
+    .map(o => [esc(o.name), rupee(o.v), Math.round(o.v/totRev*100)+'%']);
 
   // 2. Top products (volume + revenue)
   const prod = {}; allRows.forEach(r => { const p = prod[r.product] = prod[r.product] || {vol:0,rev:0,unit:r.unit}; p.vol+=r.brought; p.rev+=r.estSale; });
@@ -4219,10 +4240,10 @@ function reportInsightsHtml(){
   const haatRows = Object.entries(haat).sort((a,b)=>b[1].v-a[1].v)
     .map(([code,h]) => [esc(HAATS[code]?.nameGu || HAATS[code]?.name || code), qfmt(h.b)+' kg', rupee(h.v)]);
 
-  // 6. Farmer consistency (distinct weeks submitted)
-  const fw = {}; REPORTS_DATA.weeks.forEach(w => Object.entries(w.subs).forEach(([fid,sub]) => { if(sub.status&&sub.status!=='approved')return; const nm=sub.farmerName||fid; (fw[nm]=fw[nm]||new Set()).add(w.key); }));
+  // 6. Farmer consistency (distinct weeks submitted) — grouped by stable farmerKey, canonical DB name
+  const fw = {}; REPORTS_DATA.weeks.forEach(w => Object.entries(w.subs).forEach(([fid,sub]) => { if(sub.status&&sub.status!=='approved')return; const cf=canonicalFarmer(sub.farmerPhone,fid,sub.farmerName); const o=fw[cf.key]=fw[cf.key]||{name:cf.name,weeks:new Set()}; o.weeks.add(w.key); }));
   const totW = REPORTS_DATA.weeks.length;
-  const consist = Object.entries(fw).map(([n,s])=>[n,s.size]).sort((a,b)=>b[1]-a[1]).slice(0,12)
+  const consist = Object.values(fw).map(o=>[o.name,o.weeks.size]).sort((a,b)=>b[1]-a[1]).slice(0,12)
     .map(([n,c]) => [esc(n), c+' / '+totW, Math.round(c/totW*100)+'%']);
 
   // 7. Week-over-week trend (chronological)
