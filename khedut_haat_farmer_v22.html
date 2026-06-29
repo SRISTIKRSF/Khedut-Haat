@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · v21</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · v22</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -79,6 +79,8 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .ph-price{display:none!important}
 .item.ph-on .ph-price{display:flex!important}
 .ph-toggle{background:none;border:none;color:var(--green2);font-family:inherit;font-size:10.5px;font-weight:700;cursor:pointer;padding:2px 0;white-space:nowrap}
+.phc-row{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:12.5px;color:var(--green);font-weight:600;padding:8px 11px;margin:7px 0 9px;background:var(--green-pale);border:1px solid var(--green2);border-radius:9px}
+.phc-row input{width:16px;height:16px;accent-color:var(--green2);margin:0;cursor:pointer;flex-shrink:0}
 .item-emo{width:38px;height:38px;border-radius:8px;background:var(--green-pale);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;overflow:hidden}
 .item-emo img{width:100%;height:100%;object-fit:cover}
 .item.active .item-emo{background:var(--green3)}
@@ -997,8 +999,8 @@ function itemRow(p, isRoutine){
   if(isMulti){
     const qbh = e.qtyByHaat || {};
     const pbh = e.priceByHaat || {};
-    // per-haat price is OPT-IN per product: shown only if farmer enabled it, prices already exist, or locked
-    const showPHP = priceLocked || Object.values(pbh).some(v => +v > 0);
+    // per-haat price is OPT-IN per product: shown only if farmer ticked the box, prices already exist, or locked
+    const showPHP = priceLocked || PERHAAT_ON.has(p.n) || Object.values(pbh).some(v => +v > 0);
     const jsName = esc(p.n).replace(/'/g,"\\'");
     let total = 0;
     Object.values(qbh).forEach(v => { if(+v>0) total += +v; });
@@ -1012,9 +1014,10 @@ function itemRow(p, isRoutine){
       return `
         <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
           <span style="font-size:11px;color:#5a5a5a;flex:1;min-width:0;font-weight:600">${esc(haatName)}</span>
-          <div class="input-wrap ph-price ${pHasH}" style="flex:0 0 82px"${priceLocked?' style="flex:0 0 82px;opacity:.7;background:#f2f2ef"':''}>
+          <div class="input-wrap ph-price ${pHasH}" style="flex:0 0 100px"${priceLocked?' style="flex:0 0 100px;opacity:.7;background:#f2f2ef"':''}>
             <span class="pfx">₹</span>
             <input type="number" inputmode="numeric" min="0" data-price="1" data-code="${esc(code)}" placeholder="${esc(e.price||'ભાવ')}" value="${esc(pv)}" ${priceLocked?'readonly title="ભાવ મંજૂર — બદલી શકાતો નથી"':`oninput="onPriceForHaat('${jsName}','${esc(code)}',this.value)"`}>
+            <span class="sfx">/${esc(p.u)}</span>
           </div>
           <div class="input-wrap ${has}" style="flex:0 0 92px">
             <input type="number" inputmode="numeric" min="0" data-qty="1" data-code="${esc(code)}" placeholder="0" value="${esc(val)}" oninput="onQtyForHaat('${jsName}','${esc(code)}',this.value)">
@@ -1030,8 +1033,9 @@ function itemRow(p, isRoutine){
           <div class="item-body" style="flex:1">${nameHtml}</div>
           <div style="flex:0 0 130px">${priceCol}</div>
         </div>
+        ${priceLocked ? '' : `<label class="phc-row"><input type="checkbox" ${showPHP?'checked':''} onchange="togglePHP('${jsName}',this)"> દરેક હાટ માટે અલગ ભાવ રાખવો છે?</label>`}
         <div style="background:var(--bg);border-radius:8px;padding:7px 10px;border:1px dashed var(--border)">
-          <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.3px"><span>હાટ વાર જથ્થો</span>${priceLocked?'<span style="font-weight:500;color:#999">ભાવ મંજૂર 🔒</span>':`<button type="button" class="ph-toggle" onclick="togglePHP('${jsName}',this)">${showPHP?'− બધા હાટે સરખો ભાવ':'+ હાટ વાર અલગ ભાવ'}</button>`}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.3px"><span>હાટ વાર જથ્થો</span>${priceLocked?'<span style="font-weight:500;color:#999">ભાવ મંજૂર 🔒</span>':''}</div>
           ${haatRows}
           <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px dotted var(--border);font-size:11.5px">
             <span style="color:var(--muted)">કુલ</span>
@@ -1103,15 +1107,17 @@ window.onPriceForHaat = (name, haatCode, val) => {   // per-haat price override 
   ENTRIES.set(name, e);
   refreshRow(name);
 };
-window.togglePHP = (name, btn) => {   // opt-in per-haat pricing toggle (per product)
-  const row = btn.closest('.item');
-  const on = row.classList.toggle('ph-on');
-  btn.textContent = on ? '− બધા હાટે સરખો ભાવ' : '+ હાટ વાર અલગ ભાવ';
+const PERHAAT_ON = new Set();   // product names with per-haat pricing opted-in (survives row re-render)
+window.togglePHP = (name, cb) => {   // opt-in per-haat pricing (checkbox per product)
+  const on = !!cb.checked;
+  if(on) PERHAAT_ON.add(name); else PERHAAT_ON.delete(name);
+  const row = cb.closest('.item');
+  if(row) row.classList.toggle('ph-on', on);
   if(!on){
     // turned off → drop any per-haat price overrides so the common price applies everywhere
     const e = ENTRIES.get(name);
     if(e){ e.priceByHaat = {}; ENTRIES.set(name, e); }
-    row.querySelectorAll('input[data-price]').forEach(inp => { inp.value=''; });
+    if(row) row.querySelectorAll('input[data-price]').forEach(inp => { inp.value=''; });
     refreshRow(name);
   }
 };

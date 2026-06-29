@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · v21</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · v22</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1374,7 +1374,7 @@ function reviewNotYetList(ids){
   const rows = ids.map(fid => {
     const f = FARMERS.find(x => x.id === fid) || {};
     const phone = String(f.phone||'').replace(/[^0-9]/g,'');
-    const submitUrl = location.origin + (location.pathname.includes('admin') ? location.pathname.replace('admin','submit') : '/khedut_haat_farmer_v21.html');
+    const submitUrl = location.origin + (location.pathname.includes('admin') ? location.pathname.replace('admin','submit') : '/khedut_haat_farmer_v22.html');
     const msg = encodeURIComponent(`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${wkDisp()}\n\nનમસ્તે ${f.name||""},\nઆ અઠવાડિયે હાટ માટે તમારી પેદાશ ની યાદી નીચે link થી મોકલશો:\n${submitUrl}\n\nUsername: ${phone}\nPassword: તમારો પાસવર્ડ`);
     const waUrl = phone ? `https://wa.me/91${phone}?text=${msg}` : null;
     return `
