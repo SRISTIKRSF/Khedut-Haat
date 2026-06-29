@@ -83,9 +83,9 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .item-card{background:var(--card);border:1px solid var(--border);border-radius:9px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.04);transition:transform .15s;display:flex;flex-direction:column}
 .item-card:active{transform:scale(.95)}
 .item-card-img{width:100%;aspect-ratio:1;background:var(--green-pale);display:flex;align-items:center;justify-content:center;font-size:26px;overflow:hidden}
-.item-card-img img{width:100%;height:100%;object-fit:cover}
-.item-card-body{padding:4px 5px 5px;text-align:center}
-.item-card-name{font-size:10.5px;font-weight:500;line-height:1.2;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
+.item-card-img img{width:100%;height:100%;object-fit:contain;object-position:center}
+.item-card-body{padding:8px 5px 6px;text-align:center}
+.item-card-name{font-size:10.5px;font-weight:500;line-height:1.5;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
 .item-card-price{font-size:11.5px;font-weight:700;color:var(--orange);white-space:nowrap}
 .item-card-unit{font-size:8.5px;color:var(--muted);font-weight:400}
 .item-card-qty{font-size:8.5px;color:var(--green2);font-weight:600;margin-top:2px;line-height:1}
@@ -230,6 +230,8 @@ function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{f
 let WK=null, WK_META={}, SUBMISSIONS={}, FARMERS_MAP={};
 let SITE_CFG=null;            // settings/siteConfig — admin Design tab branding (banner/logo/text)
 let HAAT_NAME_BY_CODE={};     // haat code -> display name (to map per-haat prices, keyed by code, onto venue names)
+let HAATS={};                 // haat code -> full haat object (incl. open flag)
+let HAAT_OPEN_BY_NAME={};     // haat display name (nameGu/name) -> true, only for OPEN haats (legacy venue-name lookup)
 let PRODUCTS_MASTER={}, PRODUCTS_BY_NAME={};   // Part A: master catalogue (id -> product, normName -> product)
 function normName(s){ return String(s==null?'':s).trim().toLowerCase(); }
 function resolveMaster(it){
@@ -255,7 +257,7 @@ function photoFor(name){
 function cloudinaryThumb(url, w){
   if(!url) return '';
   if(url.indexOf('res.cloudinary.com') !== -1 && url.indexOf('/upload/') !== -1 && url.indexOf('/upload/w_') === -1){
-    return url.replace('/upload/', '/upload/w_'+(w||200)+',q_auto,f_auto,c_fill/');
+    return url.replace('/upload/', '/upload/w_'+(w||200)+',h_'+(w||200)+',q_auto,f_auto,c_fill,g_auto/');
   }
   return url;
 }
@@ -335,8 +337,12 @@ async function init(){
     ]);
     WK_META = metaSnap.val() || {weekNum:WK};
     SITE_CFG = scSnap.val() || null;
-    HAAT_NAME_BY_CODE = {};
-    Object.entries(haatSnap.val() || {}).forEach(([code, h]) => { HAAT_NAME_BY_CODE[code] = (h && (h.nameGu || h.name)) || code; });
+    HAATS = haatSnap.val() || {};
+    HAAT_NAME_BY_CODE = {}; HAAT_OPEN_BY_NAME = {};
+    Object.entries(HAATS).forEach(([code, h]) => {
+      HAAT_NAME_BY_CODE[code] = (h && (h.nameGu || h.name)) || code;
+      if(h && h.open){ if(h.nameGu) HAAT_OPEN_BY_NAME[h.nameGu]=true; if(h.name) HAAT_OPEN_BY_NAME[h.name]=true; }
+    });
     { const cc = {}; Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; }); mergeCustomCats(cc); CAT_LABELS = clSnap.val() || {}; applyCategoryOrder(coSnap.val() || []); }
     SUBMISSIONS = subSnap.val() || {};
     PRODUCT_PHOTOS = pSnap.val() || {};
@@ -373,23 +379,33 @@ function buildLists(){
     const sub = SUBMISSIONS[fid];
     if(sub.status === 'pending' || sub.status === 'rejected') return;
     const f = FARMERS_MAP[fid] || {id:fid, name: sub.farmerName || "ખેડૂત"};
-    // V15: venues come from THIS week's submission (the haat(s) the farmer actually submitted for),
-    // NOT the farmer's full enrollment — so a closed haat doesn't show. Fallback to enrollment for legacy subs.
-    const venues = (sub.farmerHaat && String(sub.farmerHaat).trim())
-      ? String(sub.farmerHaat).split(/[,;|\/]/).map(s=>s.trim()).filter(Boolean)
-      : farmerVenues(f);
+    // Show products ONLY for haats that are currently OPEN. A product submitted to a
+    // closed haat is hidden; a product submitted to [open, closed] shows under the open one only.
+    const subCodes = Array.isArray(sub.farmerHaatCodes) ? sub.farmerHaatCodes : [];
+    let openCodes = [], venues = [];
+    if(subCodes.length){
+      // Primary path: keep only the codes whose haat is open.
+      openCodes = subCodes.filter(c => HAATS[c] && HAATS[c].open);
+      if(!openCodes.length) return;                       // all of this farmer's haats closed → hide
+      venues = openCodes.map(c => HAAT_NAME_BY_CODE[c] || c);
+    } else {
+      // Legacy path (no codes): match venue NAMES against open haats; hide if none open.
+      const rawVenues = (sub.farmerHaat && String(sub.farmerHaat).trim())
+        ? String(sub.farmerHaat).split(/[,;|\/]/).map(s=>s.trim()).filter(Boolean)
+        : farmerVenues(f);
+      venues = rawVenues.filter(nm => HAAT_OPEN_BY_NAME[nm]);
+      if(!venues.length) return;                          // no open venue → hide
+    }
     const items = (sub.items||[]).filter(it=>it.available!==false);
     if(!items.length) return;
     // Part A: resolve each item to its MASTER product → display the master name + category.
     // Legacy items with no master match keep their typed name but fall into "અન્ય" (Other).
-    const subCodes = Array.isArray(sub.farmerHaatCodes) ? sub.farmerHaatCodes : [];
     const resolved = items.map(it => {
       const m = resolveMaster(it);
-      // Per-venue price keyed by venue NAME: use the per-haat price if set, else the base price.
-      // (priceByHaat is keyed by haat CODE; map code -> name here so display can look it up by venue.)
+      // Per-venue price keyed by venue NAME — only OPEN venues. Use per-haat price if set, else base.
       const pbv = {};
-      if(subCodes.length){
-        subCodes.forEach(code => {
+      if(openCodes.length){
+        openCodes.forEach(code => {
           const nm = HAAT_NAME_BY_CODE[code] || code;
           pbv[nm] = (it.priceByHaat && it.priceByHaat[code] != null) ? +it.priceByHaat[code] : (+it.price||0);
         });
@@ -404,7 +420,7 @@ function buildLists(){
         _photo:    (m && m.photo) || '',
         _priceByVenue: pbv,
       };
-    });
+    }).filter(it => it._masterId); // Only show products in the admin catalogue
     resolved.forEach(it=>{
       allRaw.push({...it, farmerName: f.name || sub.farmerName || "ખેડૂત", farmerFid: fid, venues});
     });
@@ -432,7 +448,7 @@ function buildLists(){
         unitCounts: {}, cat: it._dispCat || it.cat || 'અન્ય', emoji: it._emoji || it.emoji, photoUrl: it._photo || '',
         prices: [], totalQty: 0,
         venueSet: new Set(), farmers: [],
-        _k: 'agg_'+btoa(unescape(encodeURIComponent(groupId))).replace(/[^a-zA-Z0-9]/g,'').slice(0,32)
+        _k: 'agg_'+btoa(unescape(encodeURIComponent(groupId))).replace(/\+/g,'p').replace(/\//g,'q').replace(/=/g,'')
       };
       aggMap.set(groupId, agg);
     } else {
