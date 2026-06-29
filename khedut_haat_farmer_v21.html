@@ -897,11 +897,14 @@ function renderItems(){
 
   // Top section: "મારી પ્રોડક્ટ્સ"
   if(ROUTINE_ITEMS.size > 0){
-    const _aliasByName = {}; PRODUCT_LIB.forEach(p => { _aliasByName[p.n] = p.a || ''; });
+    // Resolve photo + alias from the live catalogue by name — routine items loaded from a previous
+    // submission have no stored photo, so fall back to the master catalogue photo (else emoji).
+    const _libByName = {}; PRODUCT_LIB.forEach(p => { _libByName[p.n] = p; });
     const routineList = [...ROUTINE_ITEMS.entries()].map(([name, r]) => ({
       n: name, u: r.unit, c: r.cat, e: r.emoji || '🌿',
-      custom: r.custom, lastPrice: r.lastPrice, photo: r.photo || '',
-      a: _aliasByName[name] || '',
+      custom: r.custom, lastPrice: r.lastPrice,
+      photo: r.photo || (_libByName[name] && _libByName[name].photo) || '',
+      a: (_libByName[name] && _libByName[name].a) || '',
     }));
     const isOpen = EXPANDED.has('__routine__');
     const safeKey = btoa(unescape(encodeURIComponent('__routine__'))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
