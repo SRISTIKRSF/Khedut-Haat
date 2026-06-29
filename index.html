@@ -418,6 +418,7 @@ function buildLists(){
         _masterId: m ? m.id : null,
         _emoji:    (m && m.emoji) || it.emoji,
         _photo:    (m && m.photo) || '',
+        _aliases:  (m && m.aliases) || '',
         _priceByVenue: pbv,
       };
     }).filter(it => it._masterId); // Only show products in the admin catalogue
@@ -446,6 +447,7 @@ function buildLists(){
       agg = {
         name: dispName, isMaster, nameOptions: new Set([dispName]),
         unitCounts: {}, cat: it._dispCat || it.cat || 'અન્ય', emoji: it._emoji || it.emoji, photoUrl: it._photo || '',
+        aliases: it._aliases || '',
         prices: [], totalQty: 0,
         venueSet: new Set(), farmers: [],
         _k: 'agg_'+btoa(unescape(encodeURIComponent(groupId))).replace(/\+/g,'p').replace(/\//g,'q').replace(/=/g,'')
@@ -480,6 +482,7 @@ function buildLists(){
       venues: [...agg.venueSet],
       farmers: agg.farmers,
       variantNames,
+      aliases: agg.aliases || '',
       _k: agg._k
     };
   });
@@ -491,7 +494,7 @@ function filteredItems(){
     if(CAT!=='all' && it.cat!==CAT) return false;
     if(!venueMatch(it.venues, VENUE)) return false;
     if(q){
-      const hay = (it.name+' '+(it.cat||'')).toLowerCase();
+      const hay = (it.name+' '+(it.cat||'')+' '+(it.aliases||'')).toLowerCase();
       if(!hay.includes(q)) return false;
     }
     return true;
@@ -503,7 +506,7 @@ function filteredFarmers(){
     if(CAT!=='all' && !f.items.some(it=>it.cat===CAT)) return false;
     if(!venueMatch(f.venues, VENUE)) return false;
     if(q){
-      const hay = (f.name+' '+f.loc+' '+f.farm+' '+f.items.map(i=>i.name).join(' ')).toLowerCase();
+      const hay = (f.name+' '+f.loc+' '+f.farm+' '+f.items.map(i=>i.name+' '+(i._aliases||'')).join(' ')).toLowerCase();
       if(!hay.includes(q)) return false;
     }
     return true;
