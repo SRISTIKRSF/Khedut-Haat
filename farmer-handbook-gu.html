@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>સૃષ્ટિ ખેડૂત હાટ — ઍપ વાપરવાની રીત</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Hind Vadodara',sans-serif;
+    background:#f5f5f5;
+    color:#1a1a1a;
+    font-size:18px;
+    line-height:1.6;
+  }
+
+  /* ─── Page shell ─── */
+  .page{max-width:420px;margin:0 auto;background:#fff;min-height:100vh}
+
+  /* ─── Cover ─── */
+  .cover{
+    background:linear-gradient(160deg,#1b4332 0%,#2d6a4f 100%);
+    padding:36px 24px 40px;
+    text-align:center;
+    color:#fff;
+  }
+  .cover-logo{font-size:52px;margin-bottom:8px}
+  .cover-title{font-size:28px;font-weight:700;line-height:1.2;margin-bottom:6px}
+  .cover-sub{font-size:16px;opacity:.82;margin-bottom:20px}
+  .cover-badge{
+    display:inline-block;background:rgba(255,255,255,.15);
+    border:1px solid rgba(255,255,255,.3);border-radius:20px;
+    padding:6px 18px;font-size:14px;font-weight:600
+  }
+
+  /* ─── Steps ─── */
+  .step{padding:28px 20px 0}
+  .step:last-child{padding-bottom:40px}
+  .step-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .step-num{
+    width:42px;height:42px;border-radius:50%;
+    background:#2d6a4f;color:#fff;
+    font-size:20px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0
+  }
+  .step-title{font-size:22px;font-weight:700;color:#1b4332;line-height:1.2}
+
+  /* ─── Instruction box ─── */
+  .instr{
+    background:#f0faf4;border-left:4px solid #52b788;
+    border-radius:0 10px 10px 0;
+    padding:14px 16px;margin-bottom:18px;
+    font-size:18px;line-height:1.65
+  }
+  .instr b{color:#1b4332;font-weight:700}
+  .instr .arrow{color:#e36414;font-weight:700}
+  .tip{
+    background:#fff8d6;border:1.5px solid #f7c800;
+    border-radius:10px;padding:12px 14px;
+    margin-bottom:18px;font-size:17px
+  }
+  .tip b{color:#7a5800}
+  .warn{
+    background:#fff0e0;border-left:4px solid #e36414;
+    border-radius:0 10px 10px 0;
+    padding:12px 14px;margin-bottom:18px;font-size:17px;color:#7a3010
+  }
+
+  /* ─── Phone frame ─── */
+  .phone{
+    border:2px solid #d0cfc9;
+    border-radius:20px;
+    overflow:hidden;
+    box-shadow:0 6px 24px rgba(0,0,0,.12);
+    margin-bottom:20px;
+    background:#fffbf4;
+    position:relative;
+  }
+  .phone-label{
+    position:absolute;top:8px;right:10px;z-index:10;
+    background:rgba(0,0,0,.55);color:#fff;
+    font-size:11px;border-radius:6px;padding:2px 7px;letter-spacing:.3px
+  }
+
+  /* ─── Highlight ring around a UI element ─── */
+  .hl{
+    display:inline-block;
+    outline:3px solid #e36414;
+    outline-offset:2px;
+    border-radius:8px;
+    animation:pulse 1.6s infinite;
+  }
+  @keyframes pulse{
+    0%,100%{outline-color:#e36414}
+    50%{outline-color:#ff8c00}
+  }
+  .tap-arrow{
+    text-align:center;font-size:28px;color:#e36414;
+    margin:-6px 0 4px;line-height:1
+  }
+
+  /* ─── Divider ─── */
+  .divider{height:1px;background:#e8e8e8;margin:0 20px}
+
+  /* ══════════════════════════════════════
+     APP SCREEN MOCKUPS
+     (colours match sristi_haat_submit_v1)
+  ══════════════════════════════════════ */
+
+  /* shared app vars */
+  :root{
+    --g:#1b4332; --g2:#2d6a4f; --g3:#52b788;
+    --gp:#d8f3dc; --or:#e36414; --orp:#fff0e0;
+    --bg:#fffbf4; --brd:#e8e0d0; --mu:#6b7280
+  }
+
+  /* ── LOGIN SCREEN ── */
+  .app-login{
+    background:var(--bg);padding:32px 20px 28px;text-align:center;
+  }
+  .app-login-logo{font-size:38px;margin-bottom:6px}
+  .app-login-title{
+    font-family:'Hind Vadodara',sans-serif;
+    font-size:22px;font-weight:700;color:var(--g);line-height:1.1;margin-bottom:3px
+  }
+  .app-login-sub{font-size:12px;color:var(--mu);margin-bottom:20px}
+  .app-card{
+    background:#fff;border:1px solid var(--brd);border-radius:14px;
+    padding:18px 16px;box-shadow:0 4px 16px rgba(27,67,50,.07);
+    text-align:left
+  }
+  .app-label{font-size:12px;font-weight:600;color:var(--g);margin-bottom:5px}
+  .app-input{
+    border:1.5px solid var(--brd);border-radius:9px;padding:11px 12px;
+    font-size:15px;font-family:'Hind Vadodara',sans-serif;
+    background:#fff;width:100%;display:block;margin-bottom:14px;color:#1a1a1a
+  }
+  .app-input.filled{color:#1a1a1a;border-color:var(--g2)}
+  .app-input.pwd{letter-spacing:4px;color:#1a1a1a}
+  .app-input.placeholder{color:#aaa}
+  .app-btn-primary{
+    background:var(--g2);color:#fff;border:none;border-radius:9px;
+    padding:13px;font-size:14.5px;font-weight:700;width:100%;
+    font-family:'Hind Vadodara',sans-serif;display:block;
+    box-shadow:0 4px 12px rgba(45,106,79,.3)
+  }
+  .app-hint{font-size:11px;color:var(--mu);text-align:center;margin-top:12px;line-height:1.5}
+  .app-hint b{color:var(--g2)}
+
+  /* ── MAIN FORM SCREEN ── */
+  .app-hdr{
+    background:linear-gradient(135deg,var(--g) 0%,var(--g2) 100%);
+    color:#fff;padding:12px 14px 14px;
+  }
+  .app-hdr-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .app-hdr-title{font-size:16px;font-weight:700}
+  .app-logout-btn{
+    background:rgba(255,255,255,.15);color:#fff;
+    border:1px solid rgba(255,255,255,.25);border-radius:12px;
+    padding:3px 9px;font-size:11px;font-weight:600;
+    font-family:'Hind Vadodara',sans-serif
+  }
+  .app-farmer-card{
+    background:rgba(255,255,255,.12);border-radius:10px;
+    padding:8px 10px;display:flex;align-items:center;gap:8px
+  }
+  .app-avatar{
+    width:34px;height:34px;border-radius:50%;
+    background:var(--g3);display:flex;align-items:center;justify-content:center;
+    font-size:15px;font-weight:700;color:var(--g);flex-shrink:0
+  }
+  .app-farmer-name{font-size:13px;font-weight:700}
+  .app-farmer-haats{font-size:10px;opacity:.8;margin-top:1px}
+
+  .app-deadline{
+    background:var(--orp);border-left:4px solid var(--or);
+    padding:8px 14px;font-size:11.5px;color:#7a3010;font-weight:500
+  }
+  .app-haat-info{
+    background:#ebfbf0;border-left:4px solid var(--g3);
+    padding:8px 14px;font-size:11px;color:#1b4332
+  }
+
+  .app-search{
+    background:#fff;padding:9px 12px;
+    border-bottom:1px solid var(--brd);
+  }
+  .app-search-inner{
+    display:flex;align-items:center;gap:8px;
+    background:var(--bg);border:1.5px solid var(--brd);
+    border-radius:9px;padding:7px 11px;
+    font-size:13px;color:#aaa
+  }
+  .app-search-meta{
+    font-size:11px;color:var(--mu);margin-top:6px;
+    display:flex;justify-content:space-between
+  }
+  .app-search-meta b{color:var(--g2)}
+
+  .app-cat-header{
+    display:flex;align-items:center;gap:8px;
+    padding:10px 14px 6px;background:var(--bg);
+    border-bottom:1px solid var(--brd)
+  }
+  .app-cat-name{font-size:14px;font-weight:700;color:var(--g)}
+  .app-cat-count{
+    font-size:10px;color:var(--mu);
+    background:#fff;border-radius:20px;padding:2px 7px;
+    margin-left:auto;border:1px solid var(--brd)
+  }
+
+  .app-product{
+    background:#fff;border:1.5px solid var(--brd);border-radius:10px;
+    padding:8px 10px;margin:6px 12px;display:flex;align-items:center;gap:8px
+  }
+  .app-product.active{border-color:var(--g3);background:#f3fbf5}
+  .app-emo{
+    width:36px;height:36px;border-radius:8px;background:var(--gp);
+    display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0
+  }
+  .app-product.active .app-emo{background:var(--g3)}
+  .app-item-name{font-size:13px;font-weight:600;flex:1;min-width:0}
+  .app-inputs{display:flex;gap:5px;flex-shrink:0}
+  .app-inp-wrap{
+    display:flex;align-items:center;background:var(--bg);
+    border:1.5px solid var(--brd);border-radius:7px;
+    padding:0 6px;gap:2px;font-size:12px
+  }
+  .app-inp-wrap.has-val{background:#fff;border-color:var(--g2)}
+  .app-inp-val{
+    width:32px;text-align:center;border:none;background:transparent;
+    font-size:13px;font-weight:700;color:#1a1a1a;font-family:'Hind Vadodara',sans-serif;
+    padding:7px 0
+  }
+  .app-inp-pfx{font-size:10px;color:var(--mu);font-weight:600}
+  .app-inp-sfx{font-size:10px;color:var(--g2);font-weight:700}
+
+  .app-inp-labels{
+    display:flex;gap:5px;padding:3px 12px 0;
+    justify-content:flex-end
+  }
+  .app-inp-lbl{
+    width:44px;text-align:center;font-size:10px;color:var(--mu);font-weight:600
+  }
+
+  /* submit bar */
+  .app-submit-bar{
+    background:#fff;border-top:1px solid var(--brd);
+    padding:10px 14px;display:flex;align-items:center;justify-content:space-between;
+    box-shadow:0 -3px 12px rgba(0,0,0,.06)
+  }
+  .app-submit-count{font-size:13px;font-weight:700;color:var(--g)}
+  .app-submit-sub{font-size:10.5px;color:var(--mu)}
+  .app-submit-btn{
+    background:var(--g2);color:#fff;border:none;border-radius:9px;
+    padding:11px 18px;font-size:14px;font-weight:700;
+    font-family:'Hind Vadodara',sans-serif;
+    box-shadow:0 4px 12px rgba(45,106,79,.3)
+  }
+
+  /* success screen */
+  .app-success{background:var(--bg);padding:40px 24px;text-align:center}
+  .app-success-icon{
+    width:64px;height:64px;background:#2d6a4f;border-radius:16px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:32px;margin:0 auto 16px
+  }
+  .app-success-title{font-size:22px;font-weight:700;color:var(--g);margin-bottom:6px}
+  .app-success-msg{font-size:12.5px;color:var(--mu);margin-bottom:18px;line-height:1.5}
+  .app-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px}
+  .app-table th{
+    background:#f0f0f0;padding:7px 10px;text-align:left;
+    font-size:11px;font-weight:700;color:#555;
+    border-bottom:1px solid #e0e0e0
+  }
+  .app-table td{
+    padding:8px 10px;border-bottom:1px solid #f0f0f0;text-align:left
+  }
+  .app-wa-btn{
+    display:block;width:100%;background:#25D366;color:#fff;
+    border:none;border-radius:9px;padding:12px;
+    font-size:14px;font-weight:700;font-family:'Hind Vadodara',sans-serif;
+    margin-bottom:10px
+  }
+  .app-back-btn{
+    display:block;width:100%;background:var(--g2);color:#fff;
+    border:none;border-radius:9px;padding:11px;
+    font-size:13px;font-weight:700;font-family:'Hind Vadodara',sans-serif
+  }
+
+  /* ─── Footer ─── */
+  .footer{
+    background:#1b4332;color:rgba(255,255,255,.7);
+    text-align:center;padding:24px 20px;font-size:14px
+  }
+  .footer b{color:#fff}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ══ COVER ══ -->
+  <div class="cover">
+    <div class="cover-logo">🌿</div>
+    <div class="cover-title">ઍપ વાપરવાની રીત</div>
+    <div class="cover-sub">સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ</div>
+    <div class="cover-badge">📱 Step-by-Step માર્ગદર્શિકા</div>
+  </div>
+
+  <!-- ══ STEP 1 — ઍપ ખોલો ══ -->
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">1</div>
+      <div class="step-title">ઍપ ખોલો</div>
+    </div>
+    <div class="instr">
+      📱 તમારા ફોનમાં <b>Chrome</b> browser ખોલો.<br><br>
+      🔗 Address bar માં link type કરો અથવા<br>
+      <b>સૃષ્ટિ ઑફિસ</b> આપેલ QR code scan કરો.
+    </div>
+    <div class="phone">
+      <span class="phone-label">ઍપ</span>
+      <div class="app-login">
+        <div class="app-login-logo">🌿</div>
+        <div class="app-login-title">મારી પેદાશ<br>મોકલો</div>
+        <div class="app-login-sub">સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ</div>
+        <div class="app-card">
+          <div class="app-label">મોબાઈલ નંબર</div>
+          <input class="app-input placeholder" readonly value="દા.ત. 9016810831">
+          <div class="app-label">પાસવર્ડ</div>
+          <input class="app-input placeholder" readonly value="તમારો પાસવર્ડ">
+          <button class="app-btn-primary">આગળ વધો →</button>
+          <div class="app-hint">
+            પહેલી વાર લોગ-ઇન કરો છો?<br>
+            <b>પાસવર્ડ = મોબાઈલ ના છેલ્લા 4 અંક</b>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tip">💡 <b>ટીપ:</b> ઍપ bookmark કરો — દર અઠવાડિયે ઝડપથી ખૂલશે.</div>
+  </div>
+  <div class="divider"></div>
+
+  <!-- ══ STEP 2 — નંબર નાખો ══ -->
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">2</div>
+      <div class="step-title">મોબાઈલ નંબર નાખો</div>
+    </div>
+    <div class="instr">
+      👆 <b>મોબાઈલ નંબર</b> box પર tap કરો.<br><br>
+      📞 તમારો <b>10 અંકનો</b> નંબર type કરો.<br>
+      <span class="arrow">↓ નીચે બતાવ્યા પ્રમાણે</span>
+    </div>
+    <div class="phone">
+      <span class="phone-label">Step 2</span>
+      <div class="app-login">
+        <div class="app-login-logo">🌿</div>
+        <div class="app-login-title">મારી પેદાશ<br>મોકલો</div>
+        <div class="app-login-sub">સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ</div>
+        <div class="app-card">
+          <div class="app-label">મોબાઈલ નંબર</div>
+          <div class="hl">
+            <input class="app-input filled" readonly value="9876543210" style="margin-bottom:0">
+          </div>
+          <div style="height:14px"></div>
+          <div class="app-label">પાસવર્ડ</div>
+          <input class="app-input placeholder" readonly value="તમારો પાસવર્ડ">
+          <button class="app-btn-primary">આગળ વધો →</button>
+          <div class="app-hint">
+            પહેલી વાર? <b>છેલ્લા 4 અંક</b> = પાસવર્ડ
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="divider"></div>
+
+  <!-- ══ STEP 3 — પાસવર્ડ નાખો ══ -->
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">3</div>
+      <div class="step-title">પાસવર્ડ નાખો</div>
+    </div>
+    <div class="instr">
+      🔒 <b>પાસવર્ડ</b> box પર tap કરો.<br><br>
+      🔑 <b>પ્રથમ વખત:</b> નંબરના <b>છેલ્લા 4 અંક</b> type કરો.<br>
+      <i>દા.ત. 9876543210 → પાસવર્ડ: <b>3210</b></i><br><br>
+      ✅ પછી <b>લીલો button</b> "આગળ વધો" tap કરો.
+    </div>
+    <div class="phone">
+      <span class="phone-label">Step 3</span>
+      <div class="app-login">
+        <div class="app-login-logo">🌿</div>
+        <div class="app-login-title">મારી પેદાશ<br>મોકલો</div>
+        <div class="app-login-sub">સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ</div>
+        <div class="app-card">
+          <div class="app-label">મોબાઈલ નંબર</div>
+          <input class="app-input filled" readonly value="9876543210">
+          <div class="app-label">પાસવર્ડ</div>
+          <div class="hl">
+            <input class="app-input pwd filled" readonly value="••••" style="margin-bottom:0;letter-spacing:8px;font-size:20px">
+          </div>
+          <div style="height:14px"></div>
+          <div class="hl">
+            <button class="app-btn-primary" style="margin:0">આગળ વધો →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tap-arrow">👆</div>
+    <div class="instr" style="margin-bottom:0"><b>આ button tap કરો!</b></div>
+  </div>
+  <div class="divider"></div>
+
+  <!-- ══ STEP 4 — મારી પ્રોડક્ટ્સ જુઓ ══ -->
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">4</div>
+      <div class="step-title">તમારી વસ્તુ જુઓ</div>
+    </div>
+    <div class="instr">
+      🎉 Login થઈ ગયા!<br><br>
+      ⭐ <b>"મારી પ્રોડક્ટ્સ"</b> — ગયા અઠવાડિયે<br>
+      મોકલેલ વસ્તુ અહીં પહેલાં દેખાશે.<br><br>
+      🔍 ન દેખાય? <b>ઉપર search box</b> માં નામ type કરો.
+    </div>
+    <div class="phone">
+      <span class="phone-label">Step 4</span>
+      <!-- header -->
+      <div class="app-hdr">
+        <div class="app-hdr-row">
+          <span class="app-hdr-title">તમારી પેદાશ મોકલો 🌿</span>
+          <button class="app-logout-btn">⎋ લોગ-આઉટ</button>
+        </div>
+        <div class="app-farmer-card">
+          <div class="app-avatar">D</div>
+          <div>
+            <div class="app-farmer-name">Demo - Farmer</div>
+            <div class="app-farmer-haats">BAOU છારોડી, નવજીવન (આશ્રમ રોડ)…</div>
+          </div>
+        </div>
+      </div>
+      <div class="app-deadline">⏰ <b>છેલ્લો સમય:</b> શનિવાર સાંજે 4 વાગ્યા સુધી</div>
+      <div class="app-haat-info">📍 નવજીવન (આશ્રમ રોડ) · 28 June 2026</div>
+      <div class="app-search">
+        <div class="app-search-inner">🔍 &nbsp;વસ્તુ શોધો (દા.ત. ભીંડા, કેરી)…</div>
+        <div class="app-search-meta"><span>258 વસ્તુ યાદીમાં</span><b>0 વસ્તુ ભરી</b></div>
+      </div>
+      <!-- My Products -->
+      <div class="hl" style="display:block;margin:0">
+        <div class="app-cat-header">
+          <span style="font-size:16px">⭐</span>
+          <span class="app-cat-name">મારી પ્રોડક્ટ્સ</span>
+          <span class="app-cat-count">13</span>
+        </div>
+      </div>
+      <!-- 2 products empty -->
+      <div class="app-inp-labels">
+        <div class="app-inp-lbl">ભાવ</div>
+        <div class="app-inp-lbl">જથ્થો</div>
+      </div>
+      <div class="app-product">
+        <div class="app-emo">🫘</div>
+        <div class="app-item-name">ગૃવાર</div>
+        <div class="app-inputs">
+          <div class="app-inp-wrap">
+            <span class="app-inp-pfx">₹</span>
+            <input class="app-inp-val" readonly value="0">
+            <span class="app-inp-pfx">/kg</span>
+          </div>
+          <div class="app-inp-wrap">
+            <input class="app-inp-val" readonly value="0">
+            <span class="app-inp-sfx">kg</span>
+          </div>
+        </div>
+      </div>
+      <div class="app-product" style="margin-bottom:8px">
+        <div class="app-emo">🥒</div>
+        <div class="app-item-name">ટીડોળા</div>
+        <div class="app-inputs">
+          <div class="app-inp-wrap">
+            <span class="app-inp-pfx">₹</span>
+            <input class="app-inp-val" readonly value="0">
+            <span class="app-inp-pfx">/kg</span>
+          </div>
+          <div class="app-inp-wrap">
+            <input class="app-inp-val" readonly value="0">
+            <span class="app-inp-sfx">kg</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="divider"></div>
+
+  <!-- ══ STEP 5 — ભાવ નાખો ══ -->
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">5</div>
+      <div class="step-title">ભાવ type કરો</div>
+    </div>
+    <div class="instr">
+      👆 <b>₹ box</b> (ભાવ) પર tap કરો.<br><br>
+      💰 વસ્તુનો ભાવ type કરો.<br>
+      <i>દા.ત. ગૃવાર → <b>40</b></i>
+    </div>
+    <div class="phone">
+      <span class="phone-label">Step 5</span>
+      <div class="app-hdr">
+        <div class="app-hdr-row">
+          <span class="app-hdr-title">તમારી પેદાશ મોકલો 🌿</span>
+          <button class="app-logout-btn">⎋ લોગ-આઉટ</button>
+        </div>
+        <div class="app-farmer-card">
+          <div class="app-avatar">D</div>
+          <div>
+            <div class="app-farmer-name">Demo - Farmer</div>
+            <div class="app-farmer-haats">BAOU છારોડી, નવજીવન (આશ્રમ રોડ)…</div>
+          </div>
+        </div>
+      </div>
+      <div class="app-inp-labels">
+        <div class="app-inp-lbl">ભાવ</div>
+        <div class="app-inp-lbl">જથ્થો</div>
+      </div>
+      <!-- first product with price highlighted -->
+      <div class="app-product active">
+        <div class="app-emo">🫘</div>
+        <div class="app-item-name">ગૃવાર</div>
+        <div class="app-inputs">
+          <div class="hl">
+            <div class="app-inp-wrap has-val">
+              <span class="app-inp-pfx">₹</span>
+              <input class="app-inp-val" readonly value="40">
+              <span class="app-inp-pfx">/kg</span>
+            </div>
+          </div>
+          <div class="app-inp-wrap">
+            <input class="app-inp-val" readonly value="0">
+            <span class="app-inp-sfx">kg</span>
+          </div>
+        </div>
+      </div>
+      <div class="app-product" style="margin-bottom:8px">
+        <div class="app-emo">🥒</div>
+        <div class="app-item-name">ટીડોળા</div>
+        <div class="app-inputs">
+          <div class="app-inp-wrap">
+            <span class="app-inp-pfx">₹</span>
+            <input class="app-inp-val" readonly value="0">
+            <span class="app-inp-pfx">/kg</span>
+          </div>
+          <div class="app-inp-wrap">
+            <input class="app-inp-val" readonly value="0">
+            <span class="app-inp-sfx">kg</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tip">💡 <b>ટીપ:</b> ₹ box orange border = active (type mode). Box green = ભર્યું.</div>
+  </div>
+  <div class="divider"></div>
+
+  <!-- ══ STEP 6 — જથ્થો નાખો ══ -->
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">6</div>
+      <div class="step-title">જથ્થો type કરો</div>
+    </div>
+    <div class="instr">
+      👆 ભાવ ની <b>બાજુ box</b> (જથ્થો) tap કરો.<br><br>
+      ⚖️ <b>kg/Lt/piece</b> — quantity type કરો.<br>
+      <i>દા.ત. <b>10</b> kg</i><br><br>
+      🔁 <b>બધી વસ્તુ</b> માટે Step 5–6 repeat કરો.
+    </div>
+    <div class="phone">
+      <span class="phone-label">Step 6</span>
+      <div class="app-hdr">
+        <div class="app-hdr-row">
+          <span class="app-hdr-title">તમારી પેદાશ મોકલો 🌿</span>
+          <button class="app-logout-btn">⎋ લોગ-આઉટ</button>
+        </div>
+        <div class="app-farmer-card">
+          <div class="app-avatar">D</div>
+          <div>
+            <div class="app-farmer-name">Demo - Farmer</div>
+            <div class="app-farmer-haats">BAOU છારોડી, નવજીવન (આશ્રમ રોડ)…</div>
+          </div>
+        </div>
+      </div>
+      <div class="app-inp-labels">
+        <div class="app-inp-lbl">ભાવ</div>
+        <div class="app-inp-lbl">જથ્થો</div>
+      </div>
+      <!-- both products filled -->
+      <div class="app-product active">
+        <div class="app-emo">🫘</div>
+        <div class="app-item-name">ગૃવાર</div>
+        <div class="app-inputs">
+          <div class="app-inp-wrap has-val">
+            <span class="app-inp-pfx">₹</span>
+            <input class="app-inp-val" readonly value="40">
+            <span class="app-inp-pfx">/kg</span>
+          </div>
+          <div class="hl">
+            <div class="app-inp-wrap has-val">
+              <input class="app-inp-val" readonly value="10">
+              <span class="app-inp-sfx">kg</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="app-product active" style="margin-bottom:8px">
+        <div class="app-emo">🥒</div>
+        <div class="app-item-name">ટીડોળા</div>
+        <div class="app-inputs">
+          <div class="app-inp-wrap has-val">
+            <span class="app-inp-pfx">₹</span>
+            <input class="app-inp-val" readonly value="35">
+            <span class="app-inp-pfx">/kg</span>
+          </div>
+          <div class="app-inp-wrap has-val">
+            <input class="app-inp-val" readonly value="5">
+            <span class="app-inp-sfx">kg</span>
+          </div>
+        </div>
+      </div>
+      <div class="app-submit-bar">
+        <div>
+          <div class="app-submit-count">2 વસ્તુ ભરી</div>
+          <div class="app-submit-sub">હાટ #497 માટે</div>
+        </div>
+        <button class="app-submit-btn">મોકલો ✓</button>
+      </div>
+    </div>
+  </div>
+  <div class="divider"></div>
+
+  <!-- ══ STEP 7 — મોકલો ══ -->
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">7</div>
+      <div class="step-title">"મોકલો" button tap કરો</div>
+    </div>
+    <div class="instr">
+      👀 Screen ના <b>નીચે</b> જુઓ:<br>
+      "X વસ્તુ ભરી" — number check કરો.<br><br>
+      ✅ <b>સાચો</b> હોય તો <b>લીલો "મોકલો ✓" button</b> tap કરો.
+    </div>
+    <div class="phone">
+      <span class="phone-label">Step 7</span>
+      <div style="padding:20px 12px 4px;background:#fffbf4">
+        <div style="font-size:12px;color:#6b7280;text-align:center;margin-bottom:8px">— ↑ ઉપર વસ્તુ ભરેલ છે —</div>
+      </div>
+      <div class="app-submit-bar" style="position:relative;box-shadow:none;border:2px solid #e36414;border-radius:10px;margin:0 8px 8px">
+        <div>
+          <div class="app-submit-count" style="font-size:16px">2 વસ્તુ ભરી</div>
+          <div class="app-submit-sub">હાટ #497 માટે</div>
+        </div>
+        <div class="hl">
+          <button class="app-submit-btn" style="font-size:16px;padding:13px 22px">મોકલો ✓</button>
+        </div>
+      </div>
+    </div>
+    <div class="tap-arrow">👆</div>
+    <div class="warn"><b>⚠️ ધ્યાન:</b> "મોકલો" tap કર્યા <b>પછી</b> "ધન્યવાદ!" screen ન આવે તો — internet check કરો અને ફરી try કરો.</div>
+  </div>
+  <div class="divider"></div>
+
+  <!-- ══ STEP 8 — ધન્યવાદ ══ -->
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num">8</div>
+      <div class="step-title">ધન્યવાદ! — Done 🎉</div>
+    </div>
+    <div class="instr">
+      ✅ <b>"ધન્યવાદ!" screen</b> આવે = submit successful!<br><br>
+      📋 Table માં <b>તમારી વસ્તુ, ભાવ, જથ્થો</b> confirm થશે.<br><br>
+      📲 <b>"WhatsApp પર સાચવો"</b> tap કરીને receipt save કરો.
+    </div>
+    <div class="phone">
+      <span class="phone-label">Step 8</span>
+      <div class="app-success">
+        <div class="app-success-icon">✅</div>
+        <div class="app-success-title">ધન્યવાદ!</div>
+        <div class="app-success-msg">
+          તમારી પેદાશ હાટ #497 માટે મોકલાઈ ગઈ છે. <b>2 વસ્તુ</b><br>
+          ⏳ સૃષ્ટિ ટીમ approve કરે ત્યારે catalog માં દેખાશે.
+        </div>
+        <table class="app-table">
+          <tr><th>વસ્તુ</th><th>ભાવ</th><th>જથ્થો</th></tr>
+          <tr><td>ગૃવાર</td><td>₹40/kg</td><td>10 kg</td></tr>
+          <tr><td>ટીડોળા</td><td>₹35/kg</td><td>5 kg</td></tr>
+        </table>
+        <button class="app-wa-btn">📤 WhatsApp પર સાચવો</button>
+        <button class="app-back-btn">↻ બદલવા જાઓ</button>
+      </div>
+    </div>
+    <div class="tip">💡 <b>ટીપ:</b> Receipt WhatsApp પર save કરો — proof રહે.</div>
+  </div>
+  <div class="divider"></div>
+
+  <!-- ══ EXTRA — વારંવાર પૂછાતા સવાલ ══ -->
+  <div class="step">
+    <div class="step-head">
+      <div class="step-num" style="background:#e36414">?</div>
+      <div class="step-title">વારંવાર પૂછાતા સવાલ</div>
+    </div>
+
+    <div style="padding-bottom:24px">
+      <div style="background:#f5f5f5;border-radius:12px;padding:16px;margin-bottom:12px;font-size:17px">
+        <b>❓ પાસવર્ડ ભૂલ્યા?</b><br>
+        સૃષ્ટિ ઑફિસ (xyz) ને ફોન કરો.
+      </div>
+      <div style="background:#f5f5f5;border-radius:12px;padding:16px;margin-bottom:12px;font-size:17px">
+        <b>❓ ભાવ submit પછી change કરવો છે?</b><br>
+        <b>શનિવાર સાંજ સુધી</b> ફરી login → ફેરફાર → "મોકલો".
+      </div>
+      <div style="background:#f5f5f5;border-radius:12px;padding:16px;margin-bottom:12px;font-size:17px">
+        <b>❓ "ધન્યવાદ!" ન આવ્યું?</b><br>
+        📶 Internet check કરો → ફરી "મોકલો" tap.
+      </div>
+      <div style="background:#f5f5f5;border-radius:12px;padding:16px;font-size:17px">
+        <b>❓ વસ્તુ list માં ન દેખાઈ?</b><br>
+        🔍 Search box માં Gujarati / English name type કરો.
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ FOOTER ══ -->
+  <div class="footer">
+    <b>સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ</b><br>
+    <span>મદદ માટે ઑફિસ સંપર્ક કરો</span>
+  </div>
+
+</div>
+</body>
+</html>
