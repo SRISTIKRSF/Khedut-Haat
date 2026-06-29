@@ -3958,7 +3958,15 @@ function reportRowsFromSubs(subs){
       const remaining = (it.qtyRemaining != null && it.qtyRemaining !== '') ? (+it.qtyRemaining || 0) * cf : null;
       // sold is KNOWN only once the farmer fills 'remaining' (post-haat). Before that it's unknown (null) — NOT brought.
       const sold = remaining != null ? Math.max(0, brought - remaining) : null;
-      const price = +it.price || 0;
+      // price = qty-weighted average of per-haat prices (falling back to the base price for haats
+      // without an override), so reports match what customers actually see. [[per-haat pricing]]
+      const basePrice = +it.price || 0;
+      const pbh = (it.priceByHaat && typeof it.priceByHaat === 'object') ? it.priceByHaat : {};
+      let pNum = 0, pDen = 0;
+      if(it.qtyByHaat && typeof it.qtyByHaat === 'object'){
+        Object.entries(it.qtyByHaat).forEach(([code,q]) => { q = +q||0; if(q<=0) return; const hp = (pbh[code]!=null ? +pbh[code] : basePrice)||0; pNum += hp*q; pDen += q; });
+      }
+      const price = pDen>0 ? Math.round(pNum/pDen) : basePrice;
       // estimated sale = actual sold×price where known, else brought×price as a projection (so the column stays meaningful)
       const estSale = (sold != null ? sold : brought) * price;
       rows.push({ fid, farmerName: sub.farmerName || fid, farmerPhone: sub.farmerPhone || '', product: it.name || '?', cat: it.cat || 'અન્ય', unit: it.unit || 'kg', brought, remaining, sold, price, estSale });
