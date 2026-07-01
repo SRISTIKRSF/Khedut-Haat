@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · v23</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1b4332">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="મારી પેદાશ">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -277,6 +284,15 @@ let CAT_LABELS = {};   // categoryKey -> custom display label (settings/category
 function catLabel(name){ return (CAT_LABELS && CAT_LABELS[name]) || name; }
 // Display week number (editable meta.weekNum, e.g. 497) instead of the raw RTDB key (may be a test name).
 function wkDisp(){ return (typeof WK_META!=='undefined' && WK_META && WK_META.weekNum) || WK; }
+// Live Mon→Sun date range of the current week (DD-MM-YYYY to DD-MM-YYYY) — replaces the confusing #number.
+function weekRange(d){
+  d = d || new Date();
+  const day = (d.getDay()+6)%7;
+  const mon = new Date(d); mon.setDate(d.getDate()-day);
+  const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+  const f = x => String(x.getDate()).padStart(2,'0')+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+x.getFullYear();
+  return f(mon)+' to '+f(sun);
+}
 // Post-submit summary of the farmer's own products (name · price · quantity).
 function itemQtyStr(it){
   let t = 0;
@@ -295,7 +311,7 @@ function submissionSummaryHtml(items){
       <tbody>${rows}</tbody></table></div>`;
 }
 function submissionSummaryText(items){
-  let t = `🌿 સૃષ્ટિ ખેડૂત હાટ #${wkDisp()} — મારી યાદી\n${FARMER.name||''}\n\n`;
+  let t = `🌿 સૃષ્ટિ ખેડૂત હાટ ${weekRange()} — મારી યાદી\n${FARMER.name||''}\n\n`;
   (items||[]).forEach(it => { const q = itemQtyStr(it); t += `• ${it.name} — ₹${it.price}/${it.unit||''}${q?(' · '+q):''}\n`; });
   return t.trim();
 }
@@ -628,7 +644,7 @@ async function loadSubmission(){
   }
   const metaSnap = await fbRef('weekly/'+WK+'/meta').get();
   WK_META = metaSnap.val() || {weekNum:WK};
-  if(WK_META.frozen) return showState("🔒","હાટ બંધ થઈ ગઈ",`હાટ #${esc(wkDisp())} માટેનો સમય પૂરો થયો છે. આગલા હાટ માટે રાહ જુઓ.`);
+  if(WK_META.frozen) return showState("🔒","હાટ બંધ થઈ ગઈ",`હાટ ${esc(weekRange())} માટેનો સમય પૂરો થયો છે. આગલા હાટ માટે રાહ જુઓ.`);
 
   // Load product order (set by admin) — used to sort within each category
   try{
@@ -868,7 +884,7 @@ function renderForm(){
       <div class="submit-bar-inner">
         <div class="submit-summary">
           <b id="submitCt">${activeCount()} વસ્તુ ભરી</b>
-          ${CUR_STATUS==='approved'?'— ભાવ મંજૂર 🔒, જથ્થો અપડેટ કરો':'હાટ #'+esc(wkDisp())+' માટે'}
+          ${CUR_STATUS==='approved'?'— ભાવ મંજૂર 🔒, જથ્થો અપડેટ કરો':'હાટ '+esc(weekRange())+' માટે'}
         </div>
         <button class="btn-submit" id="btnSubmit" onclick="submitAll()">${CUR_STATUS==='approved'?'જથ્થો અપડેટ કરો':'મોકલો ✓'}</button>
       </div>
@@ -975,12 +991,16 @@ function itemRow(p, isRoutine){
   const nameHtml = `<div class="item-name">${esc(p.n)}${p.custom?' <span style="font-size:9.5px;background:var(--green-pale);color:var(--green2);padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:700">CUSTOM</span>':''}${isRoutine&&lastPrice?` <span style="font-size:9.5px;color:#7a7a7a;margin-left:4px">ગયા હાટે ₹${esc(lastPrice)}</span>`:''}</div>`;
 
   const priceLocked = (CUR_STATUS === 'approved');   // Part B: price frozen once admin approves
+  const pbh = e.priceByHaat || {};
+  // per-haat pricing only applies in multi-haat mode; decides whether the base price field is blanked.
+  // Must be computed here (top scope) because priceCol below references it for BOTH single & multi layouts.
+  const showPHP = isMulti && (priceLocked || PERHAAT_ON.has(p.n) || Object.values(pbh).some(v => +v > 0));
   const priceCol = `
     <div class="input-col">
       <div class="input-col-lbl">ભાવ${priceLocked?' 🔒':''}</div>
       <div class="input-wrap wrap-bhav ${pHas}"${priceLocked?' style="opacity:.7;background:#f2f2ef"':''}>
         <span class="pfx">₹</span>
-        <input type="number" inputmode="numeric" min="0" placeholder="${esc(pricePlaceholder)}" value="${esc(e.price)}" ${priceLocked?'readonly title="ભાવ મંજૂર થયો — બદલી શકાતો નથી"':`oninput="onPrice('${esc(p.n).replace(/'/g,"\\'")}',this.value)"`}>
+        <input type="number" inputmode="numeric" min="0" placeholder="${showPHP?'—':esc(pricePlaceholder)}" value="${showPHP?'':esc(e.price)}" ${priceLocked?'readonly title="ભાવ મંજૂર થયો — બદલી શકાતો નથી"':`oninput="onPrice('${esc(p.n).replace(/'/g,"\\'")}',this.value)"`}>
         <span class="sfx">/${esc(p.u)}</span>
       </div>
     </div>
@@ -999,9 +1019,6 @@ function itemRow(p, isRoutine){
 
   if(isMulti){
     const qbh = e.qtyByHaat || {};
-    const pbh = e.priceByHaat || {};
-    // per-haat price is OPT-IN per product: shown only if farmer ticked the box, prices already exist, or locked
-    const showPHP = priceLocked || PERHAAT_ON.has(p.n) || Object.values(pbh).some(v => +v > 0);
     const jsName = esc(p.n).replace(/'/g,"\\'");
     let total = 0;
     Object.values(qbh).forEach(v => { if(+v>0) total += +v; });
@@ -1036,7 +1053,7 @@ function itemRow(p, isRoutine){
         </div>
         ${priceLocked ? '' : `<label class="phc-row"><input type="checkbox" ${showPHP?'checked':''} onchange="togglePHP('${jsName}',this)"> દરેક હાટ માટે અલગ ભાવ રાખવો છે?</label>`}
         <div style="background:var(--bg);border-radius:8px;padding:7px 10px;border:1px dashed var(--border)">
-          <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.3px"><span>હાટ વાર જથ્થો</span>${priceLocked?'<span style="font-weight:500;color:#999">ભાવ મંજૂર 🔒</span>':''}</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.3px"><span style="flex:1">હાટ</span><span class="ph-price" style="flex:0 0 100px;text-align:center;justify-content:center;align-items:center">${priceLocked?'ભાવ 🔒':'ભાવ'}</span><span style="flex:0 0 92px;text-align:center">${priceLocked?'જથ્થો':'જથ્થો'}</span></div>
           ${haatRows}
           <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px dotted var(--border);font-size:11.5px">
             <span style="color:var(--muted)">કુલ</span>
@@ -1114,12 +1131,17 @@ window.togglePHP = (name, cb) => {   // opt-in per-haat pricing (checkbox per pr
   if(on) PERHAAT_ON.add(name); else PERHAAT_ON.delete(name);
   const row = cb.closest('.item');
   if(row) row.classList.toggle('ph-on', on);
+  const commonIn = row ? row.querySelector('.wrap-bhav input') : null;
+  if(on){
+    // show "—" in the common price box: per-haat prices apply, common price is not used
+    if(commonIn){ commonIn.value = ''; commonIn.placeholder = '—'; }
+  }
   if(!on){
     // turned off → drop any per-haat price overrides so the common price applies everywhere
     const e = ENTRIES.get(name);
     if(e){ e.priceByHaat = {}; ENTRIES.set(name, e); }
     if(row) row.querySelectorAll('input[data-price]').forEach(inp => { inp.value=''; });
-    refreshRow(name);
+    refreshRow(name);  // re-renders with correct value + placeholder restored
   }
 };
 function pristine(name){
@@ -1388,7 +1410,7 @@ window.submitAll = async () => {
       }catch(e){ /* non-fatal */ }
       logAudit('submit', 'weekly/'+WK+'/submissions/'+subFid(), { items: items.length });
       showState("✅","ધન્યવાદ!",
-        `તમારી પેદાશ હાટ #${esc(wkDisp())} માટે મોકલાઈ ગઈ છે. <b>${items.length} વસ્તુ</b>
+        `તમારી પેદાશ હાટ ${esc(weekRange())} માટે મોકલાઈ ગઈ છે. <b>${items.length} વસ્તુ</b>
          ${submissionSummaryHtml(items)}
          <div style="font-size:12.5px;color:#555;margin:6px 0">⏳ <b>સૃષ્ટિ ટીમની સમીક્ષા બાકી</b></div>
          ${summaryShareBtn(items)}<br>

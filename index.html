@@ -186,8 +186,8 @@ const VENUES = [
   {key:"વસ્ત્રાપુર",name:"વસ્ત્રાપુર તળાવ",                 sub:"રવિવાર સવાર 7–10",  map:"https://maps.app.goo.gl/3AKiFjbcEXE8fxzN8"},
   {key:"ગાંધીનગર",name:"ગાંધીનગર — કડી કેમ્પસ",          sub:"રવિવાર સવાર 7–10",  map:"https://maps.app.goo.gl/ELVbCJr9cWA2YHUj9"},
   {key:"વલ્લભ વિદ્યાનગર",name:"વલ્લભ વિદ્યાનગર — SPU",   sub:"રવિવાર બપોર 4–6",   map:"https://maps.app.goo.gl/AMutfxUVpVdypVFQ8"},
+  {key:"સૃષ્ટિ",  name:"સૃષ્ટિ સંસ્થા પરિસર",        sub:"ગુરુવાર સવાર 7–10", map:"https://g.co/kgs/xM53taj"},
   {key:"નડિયાદ", name:"નડિયાદ — ચેતક પેટ્રોલ પંપ",      sub:"ગુરુવાર સાંજ 5–6",  map:"https://maps.app.goo.gl/itkmde2uFir4j5Zm9"},
-  {key:"સૃષ્ટિ",  name:"સૃષ્ટિ — ગુ. યુનિવર્સિટી",        sub:"ગુરુવાર સવાર 7–10", map:"https://g.co/kgs/xM53taj"},
   {key:"વડોદરા", name:"વડોદરા — MS યુનિ. કોમર્સ",       sub:"રવિવાર બપોર 4–6",   map:"https://maps.app.goo.gl/uaxh7SrzCjVusFw59"},
   {key:"હિંમતનગર",name:"હિંમતનગર — કેનાલ ફ્રન્ટ",      sub:"રવિ + ગુરુ બપોર 3–6",map:"https://maps.app.goo.gl/KSu1P2qixM4oHnbR7"},
   {key:"મોડાસા", name:"મોડાસા — અન્નપૂર્ણા",             sub:"રવિવાર બપોર 4–6",   map:"https://maps.app.goo.gl/xAguJZtChUodXA3E9"},
@@ -228,6 +228,15 @@ const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{folder:'svg',ext:'.svg'}),0); }
 
 let WK=null, WK_META={}, SUBMISSIONS={}, FARMERS_MAP={};
+// Live Mon→Sun date range of the current week (DD-MM-YYYY to DD-MM-YYYY) — replaces the confusing #number.
+function weekRange(d){
+  d = d || new Date();
+  const day = (d.getDay()+6)%7;
+  const mon = new Date(d); mon.setDate(d.getDate()-day);
+  const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+  const f = x => String(x.getDate()).padStart(2,'0')+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+x.getFullYear();
+  return f(mon)+' to '+f(sun);
+}
 let SITE_CFG=null;            // settings/siteConfig — admin Design tab branding (banner/logo/text)
 let HAAT_NAME_BY_CODE={};     // haat code -> display name (to map per-haat prices, keyed by code, onto venue names)
 let HAATS={};                 // haat code -> full haat object (incl. open flag)
@@ -649,9 +658,19 @@ function renderItems(){
   `).join('');
 }
 
+// priceByVenue is keyed by the haat's full display name (e.g. "હિંમતનગર (કેનાલ ફ્રન્ટ ફુડ કોર્ટ)"),
+// but the selected VENUE chip holds the short key (e.g. "હિંમતનગર") — same fuzzy substring
+// match venueChips() already uses to connect the two, so a short chip key finds its haat's price.
+function venuePriceKey(priceByVenue, venue){
+  if(!priceByVenue) return null;
+  return Object.keys(priceByVenue).find(k => k.includes(venue) || venue.includes(k)) || null;
+}
 // Per-haat pricing: a farmer's effective price at the currently selected venue (base when 'all').
 function farmerEffPrice(f){
-  if(VENUE !== 'all' && f.priceByVenue && f.priceByVenue[VENUE] != null) return +f.priceByVenue[VENUE]||0;
+  if(VENUE !== 'all'){
+    const k = venuePriceKey(f.priceByVenue, VENUE);
+    if(k) return +f.priceByVenue[k]||0;
+  }
   return +f.price||0;
 }
 // Item price min/max, scoped to the selected venue (only farmers present at that venue).
@@ -660,13 +679,20 @@ function itemPriceRange(it){
   if(VENUE === 'all'){
     prices = (it.farmers||[]).map(f => +f.price||0).filter(p=>p>0);
   } else {
-    prices = (it.farmers||[]).filter(f => f.priceByVenue && f.priceByVenue[VENUE] != null)
-                             .map(f => +f.priceByVenue[VENUE]||0).filter(p=>p>0);
+    prices = (it.farmers||[])
+      .map(f => { const k = venuePriceKey(f.priceByVenue, VENUE); return k ? +f.priceByVenue[k]||0 : 0; })
+      .filter(p=>p>0);
   }
   if(!prices.length) return {min: it.minPrice||it.price||0, max: it.maxPrice||it.price||0};
   return {min: Math.min(...prices), max: Math.max(...prices)};
 }
 
+// it.farmerCount is a STATIC total set once at data-load time (all open haats combined) —
+// doesn't update when the customer picks a venue. Scope it live, same as the price range.
+function venueFarmerCount(it){
+  if(VENUE === 'all') return it.farmerCount;
+  return (it.farmers||[]).filter(f => venuePriceKey(f.priceByVenue, VENUE)).length;
+}
 function itemCard(it){
   const emo = it.emoji || CAT_EMOJI[it.cat] || '🌿';
   const photo = it.photoUrl || photoFor(it.name);
@@ -675,8 +701,9 @@ function itemCard(it){
   const priceTxt = (_pr.min && _pr.max && _pr.min !== _pr.max)
     ? `₹${esc(_pr.min)}-${esc(_pr.max)}`
     : `₹${esc(_pr.min || it.price)}`;
-  const farmerBadge = it.farmerCount > 1
-    ? `<div style="position:absolute;top:3px;right:3px;background:rgba(0,0,0,.78);color:#fff;border-radius:9999px;padding:0 5px;font-size:8.5px;font-weight:700;line-height:1.35">${it.farmerCount}</div>`
+  const scopedFarmerCount = venueFarmerCount(it);
+  const farmerBadge = scopedFarmerCount > 1
+    ? `<div style="position:absolute;top:3px;right:3px;background:rgba(0,0,0,.78);color:#fff;border-radius:9999px;padding:0 5px;font-size:8.5px;font-weight:700;line-height:1.35">${scopedFarmerCount}</div>`
     : '';
   return `
     <div class="item-card" onclick="openProductSheet('${esc(it._k).replace(/'/g,"\\'")}')" style="cursor:pointer">
@@ -694,7 +721,14 @@ window.openProductSheet = (productKey) => {
   if(!it) return;
   const _shr = itemPriceRange(it);   // venue-scoped price range for the sheet header
   // Sort farmers by price (cheapest first) — use the price for the selected venue.
-  const sorted = [...(it.farmers||[])].sort((a,b) => (farmerEffPrice(a)||0) - (farmerEffPrice(b)||0));
+  // V25 fix: only list farmers whose ACTUAL submission covers the currently selected venue —
+  // same venuePriceKey() match itemPriceRange() already uses above for the price range, so the
+  // farmer list and the header price never disagree. Previously this showed every farmer who
+  // had ANY open-haat submission for this product, regardless of the venue being viewed.
+  const venueFiltered = VENUE === 'all'
+    ? (it.farmers||[])
+    : (it.farmers||[]).filter(f => venuePriceKey(f.priceByVenue, VENUE));
+  const sorted = [...venueFiltered].sort((a,b) => (farmerEffPrice(a)||0) - (farmerEffPrice(b)||0));
   const cheapest = farmerEffPrice(sorted[0]||{}) || 0;
   // Resolve farmer details from FARMERS_MAP
   const enriched = sorted.map(f => {
@@ -704,7 +738,6 @@ window.openProductSheet = (productKey) => {
       price: farmerEffPrice(f),
       unit: f.unit,
       phone: meta?.phone || '',
-      venues: meta ? farmerVenues(meta) : [],
       photo: meta?.photoUrl || ''
     };
   });
@@ -722,7 +755,6 @@ window.openProductSheet = (productKey) => {
   const farmerRowsHTML = enriched.map((f, idx) => {
     const isCheap = f.price > 0 && f.price === cheapest && enriched.length > 1;
     const initial = (f.name||'?').charAt(0);
-    const venueText = f.venues.length ? f.venues.slice(0,2).join(' · ') : '';
     const waLink = f.phone
       ? `https://wa.me/91${esc(String(f.phone).replace(/[^0-9]/g,'').slice(-10))}?text=${encodeURIComponent('નમસ્તે, '+f.name+' — સૃષ્ટિ હાટ માટે '+it.name+' જોઈએ છે. કિંમત ₹'+f.price+'/'+f.unit)}`
       : '';
@@ -732,7 +764,6 @@ window.openProductSheet = (productKey) => {
         <div style="width:34px;height:34px;border-radius:50%;background:#52b788;color:#1b4332;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${esc(initial)}</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:12.5px;font-weight:600">${esc(f.name)}</div>
-          ${venueText ? `<div style="font-size:10px;color:#6b7280;margin-top:1px">📍 ${esc(venueText)}</div>` : ''}
         </div>
         <div style="font-size:13.5px;color:#e36414;font-weight:700;flex-shrink:0">₹${esc(f.price)}<span style="font-size:9.5px;color:#6b7280;font-weight:500">/${esc(f.unit)}</span></div>
         ${waLink ? `<a href="${waLink}" target="_blank" rel="noopener" style="background:#25d366;color:#fff;border-radius:6px;padding:6px 9px;font-size:11px;font-weight:700;text-decoration:none;flex-shrink:0">📞</a>` : ''}
@@ -819,7 +850,8 @@ function renderFarmers(){
           <div class="farmer-items ${open?'open':''}">
             ${f.items.map(it=>{
               // show this farmer's price for the selected venue (base when 'all')
-              const fp = (VENUE!=='all' && it._priceByVenue && it._priceByVenue[VENUE]!=null) ? it._priceByVenue[VENUE] : it.price;
+              const _vk = VENUE!=='all' ? venuePriceKey(it._priceByVenue, VENUE) : null;
+              const fp = _vk ? it._priceByVenue[_vk] : it.price;
               return `
               <div class="farmer-item-row">
                 <div style="flex:1;min-width:0">
@@ -867,7 +899,7 @@ window.toggleFarmer = id => { if(OPEN_FARMERS.has(id)) OPEN_FARMERS.delete(id); 
 
 window.shareWA = () => {
   const msg = encodeURIComponent(
-    `🌿 *સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${WK}*\n${WK_META.dateLabel?WK_META.dateLabel+'\n':''}\n`+
+    `🌿 *સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ ${weekRange()}*\n${WK_META.dateLabel?WK_META.dateLabel+'\n':''}\n`+
     `ઝેરમુક્ત શાક • ફળ • ઘી • મધ — સીધું વેરિફાઈડ ખેડૂત પાસેથી.\n\n`+
     `બધી પેદાશ અને ભાવ:\n`+location.href+`\n\n`+
     `મિત્રો, સોસાયટી ગ્રુપમાં ફોરવર્ડ કરજો. 🙏`

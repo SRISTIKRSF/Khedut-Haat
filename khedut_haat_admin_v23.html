@@ -25,6 +25,12 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .login-title{font-family:"Fraunces","Noto Sans Gujarati",serif;font-size:26px;font-weight:900;color:var(--green);line-height:1.1;margin-bottom:6px}
 .login-sub{font-size:13px;color:var(--muted)}
 .login-card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:22px 20px;box-shadow:0 6px 24px rgba(27,67,50,.08)}
+/* Admin login screen — SCOPED to renderLogin() only, does not touch
+   .login/.login-hero/.login-title/.login-sub/.login-card (shared with the password-change
+   screen). Plain background (no image) — kept simple per user request. */
+.admin-login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.admin-login-box{width:100%;max-width:360px;background:#fff;border:1px solid var(--border);border-radius:16px;padding:24px 20px;box-shadow:0 6px 24px rgba(27,67,50,.08)}
+.admin-login-title{text-align:center;font-family:"Fraunces","Noto Sans Gujarati",serif;font-size:19px;font-weight:900;color:var(--green);line-height:1.2;white-space:nowrap;margin-bottom:18px}
 .frm{display:flex;flex-direction:column;gap:12px}
 .frm-label{font-size:12px;font-weight:600;color:var(--muted)}
 .frm-in{border:1.5px solid var(--border);border-radius:9px;padding:12px 13px;font-size:15px;font-family:inherit;outline:none;background:#fff;width:100%}
@@ -378,7 +384,7 @@ Now parse the messages below. Return ONLY the JSON object — no other text.
 `;
 
 /* ════════ State ════════ */
-let WK=null, WK_META={}, FARMERS=[], SUBS={}, PREV_SUBS={};
+let WK=null, WK_META={}, FARMERS=[], SUBS={}, PREV_SUBS={}, FRESH_LAST_ARCHIVE=null;
 let PRODUCT_PHOTOS={};      // safeKey OR cellKey -> Cloudinary URL
 let PRODUCT_PHOTO_MAP={};   // safeKey -> cellKey (slicer mapping)
 let PRODUCT_ORDER={};       // categoryKey -> [productName, ...]
@@ -436,13 +442,9 @@ async function init(){
 /* ════════ Login ════════ */
 function renderLogin(errMsg){
   $('#wrap').innerHTML = `
-    <div class="login">
-      <div class="login-hero">
-        <div style="font-size:54px;margin-bottom:8px">🔧</div>
-        <div class="login-title">સૃષ્ટિ હાટ<br>એડમિન</div>
-        <div class="login-sub">ઓફિસ ટીમ માટે</div>
-      </div>
-      <div class="login-card">
+    <div class="admin-login-screen">
+      <div class="admin-login-box">
+        <div class="admin-login-title">સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ એડમિન</div>
         <div class="frm">
           <div>
             <label class="frm-label">યુઝરનેમ</label>
@@ -703,6 +705,7 @@ async function loadAll(){
     ]);
     WK_META = metaSnap.val() || {weekNum:WK};
     SUBS = subSnap.val() || {};
+    try{ FRESH_LAST_ARCHIVE = (await fbRef('weekly/'+WK+'/_lastArchive').get()).val() || null; }catch{ FRESH_LAST_ARCHIVE = null; }
     // Load previous week's submissions for "vs last week" comparison in review cards
     try{
       const prevSnap = await fbRef('weekly/'+(WK-1)+'/submissions').get();
@@ -1106,7 +1109,7 @@ function renderCatalogStatsCard(){
         <div style="background:var(--bg);padding:12px 14px;border-radius:10px">
           <div style="font-size:11.5px;color:var(--muted);font-weight:500">આ અઠવાડિયે</div>
           <div style="font-size:26px;font-weight:800;color:var(--text);line-height:1.1">${weekCount}</div>
-          <div style="font-size:10.5px;color:var(--muted);margin-top:2px">હાટ #${esc(wkDisp())}</div>
+          <div style="font-size:10.5px;color:var(--muted);margin-top:2px">હાટ ${esc(weekRange())}</div>
         </div>
         <div style="background:var(--bg);padding:12px 14px;border-radius:10px">
           <div style="font-size:11.5px;color:var(--muted);font-weight:500">કુલ visits</div>
@@ -1375,7 +1378,7 @@ function reviewNotYetList(ids){
     const f = FARMERS.find(x => x.id === fid) || {};
     const phone = String(f.phone||'').replace(/[^0-9]/g,'');
     const submitUrl = location.origin + (location.pathname.includes('admin') ? location.pathname.replace('admin','submit') : '/khedut_haat_farmer_v23.html');
-    const msg = encodeURIComponent(`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${wkDisp()}\n\nનમસ્તે ${f.name||""},\nઆ અઠવાડિયે હાટ માટે તમારી પેદાશ ની યાદી નીચે link થી મોકલશો:\n${submitUrl}\n\nUsername: ${phone}\nPassword: તમારો પાસવર્ડ`);
+    const msg = encodeURIComponent(`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ ${weekRange()}\n\nનમસ્તે ${f.name||""},\nઆ અઠવાડિયે હાટ માટે તમારી પેદાશ ની યાદી નીચે link થી મોકલશો:\n${submitUrl}\n\nUsername: ${phone}\nPassword: તમારો પાસવર્ડ`);
     const waUrl = phone ? `https://wa.me/91${phone}?text=${msg}` : null;
     return `
       <div style="display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border)">
@@ -4731,7 +4734,7 @@ function renderFarmers(){
   return `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:6px">
-        <h3 style="margin:0">🌾 સક્રિય ખેડૂત — હાટ #${esc(wkDisp())}</h3>
+        <h3 style="margin:0">🌾 સક્રિય ખેડૂત — હાટ ${esc(weekRange())}</h3>
         <button class="btn-sm primary" onclick="openAddFarmer()">+ ખેડૂત ઉમેરો</button>
       </div>
       <div class="card-sub">ખેડૂત રજિસ્ટ્રેશન Farm Verification app માં થાય છે. અહીં ફક્ત haat-enrolled ખેડૂતો અને તેમની submissions જોવા/સંપાદન માટે છે.</div>
@@ -4745,6 +4748,12 @@ function renderFarmers(){
       </div>
 
       ${haatFilterRow(FARMER_HAATS, 'toggleFarmerHaat', fCounts)}
+
+      <div style="display:flex;gap:8px;margin:2px 0 12px;flex-wrap:wrap;align-items:center">
+        <button class="btn-sm" style="background:#b45309;color:#fff;border-color:#b45309" onclick="askFreshHaat()">&#10227; Start fresh for this haat</button>
+        <button class="btn-sm" id="v25UndoBtn" onclick="undoFreshHaat()" ${FRESH_LAST_ARCHIVE?'':'disabled'}>&#8634; Undo last reset</button>
+        <span style="font-size:11.5px;color:var(--muted)">resets everyone to pending — archived, not deleted</span>
+      </div>
 
       <div>
         ${shown.length?shown.map((f,idx)=>renderFarmerRow(f,idx+1)).join(''):'<div class="state"><div class="state-icon">🔍</div><div class="state-title">કોઈ ખેડૂત મળ્યો નહીં</div></div>'}
@@ -4767,19 +4776,36 @@ function renderFarmerRow(f, num){
   const hasPub = !!(sub && Array.isArray(sub.items) && sub.items.length);
   const phoneClean = String(f.phone||"").replace(/[^0-9]/g,"");
   const submitUrl = location.origin + location.pathname.replace('admin','submit');
+  // V25: pull this farmer's REAL haat day/time + the editable deadline, instead of
+  // hardcoded "આ રવિવારે" / "શનિવાર સાંજે 8" — same data buildFarmerMessage() already uses.
+  const fHaatCodes = Array.isArray(f.haatCodes) ? f.haatCodes : [];
+  const fOpenCodes = fHaatCodes.filter(c => HAATS[c]?.open);
+  const fShowCodes = fOpenCodes.length ? fOpenCodes : fHaatCodes;
+  // Each haat carries its OWN deadline (set once in ✏️ haat edit) — falls back to the
+  // shared week deadline only if that haat hasn't been given one yet. This avoids having
+  // to flip one shared box back and forth between a Sunday haat and a Thursday haat.
+  const weekDeadline = WK_META.deadline || 'શનિવાર સાંજે 8 વાગ્યા સુધી';
+  const fDeadlineOf = c => (HAATS[c]?.deadline || weekDeadline);
+  const fDeadlines = fShowCodes.map(fDeadlineOf);
+  const fSameDeadline = fDeadlines.length>0 && fDeadlines.every(d => d===fDeadlines[0]);
+  const fHaatLines = fShowCodes.length
+    ? fShowCodes.map(c => { const h=HAATS[c]||{}; return `📍 ${h.nameGu||h.name||c}${h.days?' — '+h.days:''}${h.time?' • '+h.time:''}${fSameDeadline?'':' • છેલ્લો સમય: '+fDeadlineOf(c)}`; }).join('\n')
+    : 'આ અઠવાડિયા ના હાટ માટે';
+  // Bottom "છેલ્લો સમય" line ONLY when every shown haat shares one deadline (the common case);
+  // when they differ, each haat line above already carries its own — no contradicting footer.
+  const fDeadlineFooter = fSameDeadline ? `\n\nછેલ્લો સમય: ${fDeadlines[0]}` : '';
   const waMsg = encodeURIComponent(
-`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ #${wkDisp()}
+`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ ${weekRange()}
 
 નમસ્તે ${f.name||"ખેડૂતભાઈ"},
 
-આ રવિવારે હાટ માટે તમારી પેદાશની યાદી નીચેની લિંક પરથી મોકલશો:
+${fHaatLines}
+તમારી પેદાશની યાદી નીચેની લિંક પરથી મોકલશો:
 
 ${submitUrl}
 
 મોબાઈલ નંબર = username
-પાસવર્ડ = તમારો પાસવર્ડ
-
-છેલ્લો સમય: શનિવાર સાંજે 8
+પાસવર્ડ = તમારો પાસવર્ડ${fDeadlineFooter}
 
 — સૃષ્ટિ ટીમ`
   );
@@ -5092,7 +5118,7 @@ window.previewSub = (fid) => {
 window.openWeekSettings = () => {
   modal(`
     <div class="modal-hdr">
-      <div class="modal-title">હાટ #${esc(wkDisp())} સેટિંગ્સ</div>
+      <div class="modal-title">હાટ ${esc(weekRange())} સેટિંગ્સ</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
@@ -5215,10 +5241,18 @@ window.openNewWeek = () => {
   `);
 };
 window.confirmNewWeek = async () => {
-  await fbRef('weekly/'+WK+'/meta').update({frozen:true});
-  const nx = (typeof WK==='number'?WK:parseInt(WK,10))+1;
+  // Derive the next week number robustly. The current key may be a non-numeric
+  // label like "test_probe", so fall back to the editable meta.weekNum rather
+  // than parseInt-ing the key (which yields NaN and crashed the advance).
+  let base = (typeof WK==='number') ? WK : parseInt(WK,10);
+  if(!Number.isFinite(base)) base = parseInt((WK_META&&WK_META.weekNum),10);
+  if(!Number.isFinite(base)) base = 0;
+  const nx = base + 1;
   await fbRef('weekly/'+nx+'/meta').set({weekNum:nx, dateLabel:weekRange(), timeLabel:"7–10 AM", frozen:false, createdAt:Date.now()});
   await fbRef('weekly/current').set(nx);
+  // Freeze the old week LAST — only after the new week exists and is current,
+  // so a failure can never leave the old week closed with no replacement.
+  await fbRef('weekly/'+WK+'/meta').update({frozen:true});
   closeModal(); toast("નવો અઠવાડિયો ખુલ્યો","ok"); await loadAll();
 };
 
@@ -5303,10 +5337,17 @@ window.shareCustomerMessageWA = () => {
 function buildFarmerMessage(){
   const openHaats = Object.values(HAATS).filter(h => h.open);
   const submitUrl = location.origin.replace('localhost:8746','prakrutik-kheti-c0a89.web.app').replace(/\/sristi_haat_admin_v1\.html$/,'') + '/submit';
+  // Same per-haat-deadline-with-fallback logic as renderFarmerRow(): each open haat may carry
+  // its OWN deadline; only show one shared footer line when they all agree, else put each
+  // haat's deadline on its own line so a Sunday haat and a Thursday haat never share a wrong date.
+  const weekDeadline = WK_META.deadline || 'શનિવાર સાંજે 8 વાગ્યા સુધી';
+  const haatDeadlineOf = h => (h.deadline || weekDeadline);
+  const haatDeadlines = openHaats.map(haatDeadlineOf);
+  const sameDeadline = haatDeadlines.length>0 && haatDeadlines.every(d => d===haatDeadlines[0]);
   const haatLines = openHaats.length
-    ? openHaats.map(h => `📍 ${h.nameGu || h.name}${h.weekDateLabel ? ' — '+h.weekDateLabel : ''}${h.time ? ' • '+h.time : ''}`)
+    ? openHaats.map(h => `📍 ${h.nameGu || h.name}${h.weekDateLabel ? ' — '+h.weekDateLabel : ''}${h.time ? ' • '+h.time : ''}${sameDeadline?'':' • ⏰ '+haatDeadlineOf(h)}`)
     : ['(કોઈ હાટ હાલ ઓપન નથી — 📍 હાટ બટન થી ઓપન કરો)'];
-  const deadline = WK_META.deadline || 'શનિવાર સાંજે 8 વાગ્યા સુધી';
+  const deadlineFooter = sameDeadline ? [`⏰ *છેલ્લો સમય:* ${haatDeadlines[0]}`, ''] : [];
   return [
     '🌿 *સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ*',
     '',
@@ -5323,8 +5364,7 @@ function buildFarmerMessage(){
     '*🗓 આ અઠવાડિયા ના ઓપન હાટ:*',
     ...haatLines,
     '',
-    `⏰ *છેલ્લો સમય:* ${deadline}`,
-    '',
+    ...deadlineFooter,
     '⭐ ગયા હાટ ની પ્રોડક્ટ્સ ઉપર પ્રથમ દેખાશે — ભાવ બદલી મોકલશો.',
     '🆕 નવી પ્રોડક્ટ category expand કરી ઉમેરી શકો.',
     '',
@@ -5480,7 +5520,7 @@ function renderHaats(){
       <button onclick="toggleHaatOpenTab('${esc(h.code)}')" title="ઓપન/બંધ" style="cursor:pointer;border:none;font-family:inherit;font-size:11px;font-weight:700;padding:5px 9px;border-radius:8px;flex-shrink:0;${h.open?'background:var(--green-pale);color:var(--green2)':'background:#eee;color:#666'}">${h.open?'✅ ઓપન':'⚫ બંધ'}</button>
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:14.5px">${esc(h.nameGu||h.name||h.code)}</div>
-        <div style="font-size:11.5px;color:var(--muted)"><code>${esc(h.code)}</code>${h.days?' · '+esc(h.days):''}${h.time?' · '+esc(h.time):''}${h.weekDateLabel?' · 📅 '+esc(h.weekDateLabel):''}</div>
+        <div style="font-size:11.5px;color:var(--muted)"><code>${esc(h.code)}</code>${h.days?' · '+esc(h.days):''}${h.time?' · '+esc(h.time):''}${h.weekDateLabel?' · 📅 '+esc(h.weekDateLabel):''}${h.deadline?' · ⏰ '+esc(h.deadline):' · ⏰ (અઠવાડિયાનો સામાન્ય)'}</div>
       </div>
       <button class="btn-sm" onclick="openEditHaat('${esc(h.code)}')" style="font-size:13px;padding:6px 11px">✏️ Edit</button>
     </div>`).join('');
@@ -5530,6 +5570,9 @@ function openHaatForm(code){
         <select class="frm-in" id="hfDay"><option value="">— પસંદ કરો —</option>${dayOpts}</select></div>
       <div class="frm-row"><label class="frm-label">સમય</label>
         <input class="frm-in" id="hfTime" value="${esc(h.time||'')}" placeholder="દા.ત. 7–10 AM"></div>
+      <div class="frm-row"><label class="frm-label">છેલ્લો સમય (submission deadline)</label>
+        <input class="frm-in" id="hfDeadline" value="${esc(h.deadline||'')}" placeholder="દા.ત. શનિવાર સાંજે 8 વાગ્યા સુધી">
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">આ હાટ માટે ખાલી હોય તો અઠવાડિયાના સામાન્ય છેલ્લા સમય નો ઉપયોગ થશે</div></div>
       ${code?`<div style="font-size:11.5px;color:var(--muted)">કોડ: <code>${esc(code)}</code> · ઓપન/બંધ + અઠવાડિક તારીખ 📅 popup માં</div>`:'<div style="font-size:11.5px;color:var(--muted)">નવો હાટ ડિફોલ્ટ <b>બંધ</b> રહેશે — પછી ઓપન કરો.</div>'}
     </div>
     <div style="display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--border)">
@@ -5541,20 +5584,21 @@ function openHaatForm(code){
 }
 
 window.saveHaatForm = async (code) => {
-  const nameGu = ($('#hfName')?.value||'').trim();
-  const days   = ($('#hfDay')?.value||'').trim();
-  const time   = ($('#hfTime')?.value||'').trim();
+  const nameGu   = ($('#hfName')?.value||'').trim();
+  const days     = ($('#hfDay')?.value||'').trim();
+  const time     = ($('#hfTime')?.value||'').trim();
+  const deadline = ($('#hfDeadline')?.value||'').trim();
   if(!nameGu) return toast("નામ ભરો","err");
   if(_busy) return; _busy = true;
   try{
     if(code){
-      await fbRef('haats/'+code).update({nameGu, name:nameGu, days, time});
-      Object.assign(HAATS[code], {nameGu, name:nameGu, days, time});
+      await fbRef('haats/'+code).update({nameGu, name:nameGu, days, time, deadline});
+      Object.assign(HAATS[code], {nameGu, name:nameGu, days, time, deadline});
       logAudit('haat-edit','haats/'+code,{name:nameGu});
     } else {
       const newCode = 'H-'+Date.now().toString(36).toUpperCase();
       const seqOrder = Object.values(HAATS).reduce((m,h)=>Math.max(m,+h.seqOrder||0),0)+1;
-      const data = {code:newCode, nameGu, name:nameGu, days, time, open:false, seqOrder, createdAt:Date.now()};
+      const data = {code:newCode, nameGu, name:nameGu, days, time, deadline, open:false, seqOrder, createdAt:Date.now()};
       await fbRef('haats/'+newCode).set(data);
       HAATS[newCode] = data;
       logAudit('haat-add','haats/'+newCode,{name:nameGu});
@@ -5698,6 +5742,36 @@ window.saveHaatWeeks = async () => {
 function showState(icon,title,body){
   $('#wrap').innerHTML = `<div class="state"><div class="state-icon">${icon}</div><div class="state-title">${title}</div><div class="state-body">${body}</div></div>`;
 }
+
+/* ════════ V25: Start fresh for this haat (+ Undo) ════════ */
+window.askFreshHaat = async () => {
+  const ok = await asyncConfirm(
+    "Start fresh for this haat? Everyone resets to PENDING. The current submissions are archived (kept safe) — not deleted — so you can Undo.",
+    "Yes, start fresh", "Cancel", true);
+  if(!ok) return;
+  try{
+    const cur = (await fbRef('weekly/'+WK+'/submissions').get()).val() || {};
+    const key = 'arch_'+Date.now();
+    await fbRef('weekly/'+WK+'/_archive/'+key).set({ at: weekRange(), count: Object.keys(cur).length, submissions: cur });
+    await fbRef('weekly/'+WK+'/_lastArchive').set(key);
+    await fbRef('weekly/'+WK+'/submissions').remove();
+    toast("Fresh round started — everyone pending. Undo available.","ok");
+    await loadAll();
+  }catch(e){ console.error(e); toast("Start-fresh failed: "+(e.message||e),"err"); }
+};
+window.undoFreshHaat = async () => {
+  try{
+    const key = (await fbRef('weekly/'+WK+'/_lastArchive').get()).val();
+    if(!key) return toast("Nothing to undo","err");
+    const arch = (await fbRef('weekly/'+WK+'/_archive/'+key).get()).val();
+    if(!arch) return toast("Nothing to undo","err");
+    await fbRef('weekly/'+WK+'/submissions').set(arch.submissions || {});
+    await fbRef('weekly/'+WK+'/_archive/'+key).remove();
+    await fbRef('weekly/'+WK+'/_lastArchive').remove();
+    toast("Undone — submissions restored.","ok");
+    await loadAll();
+  }catch(e){ console.error(e); toast("Undo failed: "+(e.message||e),"err"); }
+};
 
 init().catch(e=>{ console.error(e); renderLogin(e.message||String(e)); });
 </script>
