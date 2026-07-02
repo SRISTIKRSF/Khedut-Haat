@@ -4303,7 +4303,10 @@ function renderReports(){
           <button class="btn-sm ${REPORT_VIEW==='insights'?'primary':''}" onclick="setReportView('insights')" style="font-size:12.5px">📈 Insights</button>
         </div>
       </div>
-      <button class="btn-sm primary" onclick="printReport()" title="Print અથવા Save as PDF">🖨 PDF / Print</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn-sm" onclick="exportReportExcel()" title="ખેડૂત-વાર Excel — ભાવ, લાવ્યા, વેચાયું, બાકી, અંદાજિત વેચાણ">📊 Excel</button>
+        <button class="btn-sm primary" onclick="printReport()" title="Print અથવા Save as PDF">🖨 PDF / Print</button>
+      </div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       ${stat('ખેડૂત', nF)}${stat('પ્રોડક્ટ', nP)}${stat('કુલ લાવ્યા', qfmt(tB)+' kg')}${stat('વેચાયું', qfmt(tS)+' kg')}${stat('અંદાજિત વેચાણ', rupee(tE))}
@@ -4331,6 +4334,33 @@ window.printReport = () => {
     <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
     </body></html>`);
   win.document.close();
+};
+
+// Farmer-wise Excel export — same rows the on-screen ખેડૂત×પ્રોડક્ટ report is built from
+// (reportActiveRows(), so it respects whichever week is currently selected), one flat sheet,
+// sorted by farmer so all of one farmer's items sit together.
+window.exportReportExcel = async () => {
+  const rows = reportActiveRows();
+  if(!rows.length) return toast("કોઈ approved data નથી","err");
+  toast("📊 Excel તૈયાર થાય છે…","ok");
+  try{
+    if(!_xlsxLib) _xlsxLib = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+    const XLSX = _xlsxLib;
+    const sorted = [...rows].sort((a,b) => a.farmerName.localeCompare(b.farmerName,'gu') || a.product.localeCompare(b.product,'gu'));
+    const sheetRows = sorted.map(r => ({
+      'ખેડૂત': r.farmerName, 'ફોન': r.farmerPhone||'', 'પ્રોડક્ટ': r.product, 'કેટેગરી': r.cat, 'એકમ': r.unit,
+      'ભાવ': r.price, 'લાવ્યા': Math.round(r.brought*10)/10,
+      'વેચાયું': r.sold!=null ? Math.round(r.sold*10)/10 : '',
+      'બાકી': r.remaining!=null ? Math.round(r.remaining*10)/10 : '',
+      'અંદાજિત વેચાણ': Math.round(r.estSale)
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetRows), 'FarmerReport');
+    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    XLSX.writeFile(wb, 'khedut-haat-farmer-report-'+ts+'.xlsx');
+    toast(`✅ Excel downloaded — ${sheetRows.length} rows`,"ok");
+    try{ logAudit('report-excel-export','', { rows: sheetRows.length, week: REPORT_WEEK }); }catch(e){}
+  }catch(e){ console.error(e); toast("Excel નિષ્ફળ: "+(e.message||e),"err"); }
 };
 
 /* ════════ TAB: DESIGN — 🎨 brand the customer page ════════ */
