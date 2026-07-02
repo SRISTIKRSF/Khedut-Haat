@@ -27,9 +27,11 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .login-card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:22px 20px;box-shadow:0 6px 24px rgba(27,67,50,.08)}
 /* Admin login screen — SCOPED to renderLogin() only, does not touch
    .login/.login-hero/.login-title/.login-sub/.login-card (shared with the password-change
-   screen). Plain background (no image) — kept simple per user request. */
+   screen). Background is blank by default; optionally set from Design tab → adminLoginBg. */
 .admin-login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.admin-login-box{width:100%;max-width:360px;background:#fff;border:1px solid var(--border);border-radius:16px;padding:24px 20px;box-shadow:0 6px 24px rgba(27,67,50,.08)}
+.admin-login-bg-img{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;display:none;z-index:0}
+.admin-login-bg-overlay{position:fixed;inset:0;display:none;z-index:0}
+.admin-login-box{position:relative;z-index:1;width:100%;max-width:360px;background:#fff;border:1px solid var(--border);border-radius:16px;padding:24px 20px;box-shadow:0 6px 24px rgba(27,67,50,.08)}
 .admin-login-title{text-align:center;font-family:"Fraunces","Noto Sans Gujarati",serif;font-size:19px;font-weight:900;color:var(--green);line-height:1.2;white-space:nowrap;margin-bottom:18px}
 .frm{display:flex;flex-direction:column;gap:12px}
 .frm-label{font-size:12px;font-weight:600;color:var(--muted)}
@@ -443,6 +445,8 @@ async function init(){
 function renderLogin(errMsg){
   $('#wrap').innerHTML = `
     <div class="admin-login-screen">
+      <img class="admin-login-bg-img" id="adminLoginBgImg" alt="">
+      <div class="admin-login-bg-overlay" id="adminLoginBgOverlay"></div>
       <div class="admin-login-box">
         <div class="admin-login-title">સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ એડમિન</div>
         <div class="frm">
@@ -466,6 +470,27 @@ function renderLogin(errMsg){
     if(u) u.focus();
     [u,p].forEach(el => el && el.addEventListener('keydown', e=>{if(e.key==='Enter')doLogin();}));
   },80);
+  applyLoginBg('adminLoginBg','adminLoginBgImg','adminLoginBgOverlay');
+}
+
+// Login-screen background — fetched once (pre-auth, same public-read pattern the customer
+// catalog already relies on for settings/siteConfig), cached, then applied on every renderLogin()
+// call (including failed-login re-renders) without a repeat network fetch. Purely additive DOM
+// layer behind the login box — never touches the form fields, so no risk to in-progress input.
+const LOGIN_BG_CACHE = {};
+async function applyLoginBg(cfgKey, imgId, overlayId){
+  if(!(cfgKey in LOGIN_BG_CACHE)){
+    try{ LOGIN_BG_CACHE[cfgKey] = (await fbRef('settings/siteConfig/'+cfgKey).get()).val() || null; }
+    catch(e){ LOGIN_BG_CACHE[cfgKey] = null; }
+  }
+  const cfg = LOGIN_BG_CACHE[cfgKey];
+  const img = document.getElementById(imgId), overlay = document.getElementById(overlayId);
+  if(!cfg || !img || !overlay) return;   // not configured, or screen no longer showing
+  const isMobile = window.innerWidth < 768;
+  const url = (isMobile && cfg.mobileUrl) ? cfg.mobileUrl : cfg.desktopUrl;
+  if(!url) return;
+  img.src = url; img.style.objectFit = cfg.fit||'cover'; img.style.filter = cfg.blur?`blur(${cfg.blur}px)`:''; img.style.display = 'block';
+  overlay.style.background = `rgba(0,0,0,${(cfg.overlay!=null?cfg.overlay:0)/100})`; overlay.style.display = 'block';
 }
 window.doLogin = async () => {
   const username = ($('#adminUser')?.value||'').trim().toLowerCase();
@@ -4373,13 +4398,21 @@ const SITE_DEFAULTS = {
 let DESIGN_DRAFT = null;          // in-progress edits (survives slider/upload tweaks without RTDB writes)
 let DESIGN_DRAFT_OVERRIDE = null; // set by reset() so the next render starts from defaults, not SITE_CFG
 
+// Shared shape for a login-screen background: separate optional mobile/desktop images,
+// one set of overlay/blur/fit (mobile is a crop override, not a separate tuning pass).
+function loginBgDraftFromCfg(c, key){
+  const lb = (c && c[key]) || {};
+  return { desktopUrl:lb.desktopUrl||'', mobileUrl:lb.mobileUrl||'', overlay:lb.overlay!=null?lb.overlay:SITE_DEFAULTS.overlay, blur:lb.blur!=null?lb.blur:SITE_DEFAULTS.blur, fit:lb.fit||SITE_DEFAULTS.fit };
+}
 function designDraftFromCfg(){
   const c = SITE_CFG || {};
   return {
     banner:   { url:(c.banner&&c.banner.url)||'', overlay:(c.banner&&c.banner.overlay!=null?c.banner.overlay:SITE_DEFAULTS.overlay), blur:(c.banner&&c.banner.blur!=null?c.banner.blur:SITE_DEFAULTS.blur), fit:(c.banner&&c.banner.fit)||SITE_DEFAULTS.fit },
     logoLeft: { url:(c.logoLeft&&c.logoLeft.url)||'' },
     logoRight:{ url:(c.logoRight&&c.logoRight.url)||'' },
-    text:     { title:(c.text&&c.text.title)||'', subtitle:(c.text&&c.text.subtitle)||'' }
+    text:     { title:(c.text&&c.text.title)||'', subtitle:(c.text&&c.text.subtitle)||'' },
+    adminLoginBg:  loginBgDraftFromCfg(c, 'adminLoginBg'),
+    farmerLoginBg: loginBgDraftFromCfg(c, 'farmerLoginBg')
   };
 }
 
@@ -4391,6 +4424,51 @@ function renderDesign(){
   const thumb = (url, fallbackLabel) => url
     ? `<img src="${esc(cloudinaryThumb(url,200))}" style="width:100%;height:100%;object-fit:contain;border-radius:8px">`
     : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#999;font-size:11.5px;text-align:center;padding:6px">${fallbackLabel}</div>`;
+  // One reusable section for a login-screen background (used for both admin's own login and
+  // the farmer app's login — same shape, different Firebase key + Design-tab element id prefix).
+  const loginBgSection = (key, prefix, icon, appLabel) => { const lb = d[key]; return `
+    <div class="card" style="margin-top:14px">
+      <h3 style="font-size:15px">${icon} ${appLabel} લોગિન બેકગ્રાઉન્ડ</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin:-2px 0 12px">લોગ-આઉટ કરો ત્યારે દેખાતી સ્ક્રીન. ખાલી રાખો તો સાદી (કોઈ ઇમેજ નહીં) રહેશે.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px">
+        <div>
+          <label class="frm-label">💻 Desktop ઇમેજ</label>
+          <div style="display:flex;gap:8px;align-items:flex-start;margin-top:4px">
+            <div style="width:90px;height:56px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#1b4332;flex-shrink:0">${thumb(lb.desktopUrl,'ડિફોલ્ટ (ખાલી)')}</div>
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <button class="btn-sm" onclick="uploadSiteImg('${key}','desktopUrl')" ${!cfgOK?'disabled':''}>📤</button>
+              ${lb.desktopUrl?`<button class="btn-sm" onclick="clearSiteImg('${key}','desktopUrl')">🗑️</button>`:''}
+            </div>
+          </div>
+        </div>
+        <div>
+          <label class="frm-label">📱 Mobile ઇમેજ (વૈકલ્પિક)</label>
+          <div style="display:flex;gap:8px;align-items:flex-start;margin-top:4px">
+            <div style="width:90px;height:56px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#1b4332;flex-shrink:0">${thumb(lb.mobileUrl,'Desktop જેવી જ')}</div>
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <button class="btn-sm" onclick="uploadSiteImg('${key}','mobileUrl')" ${!cfgOK?'disabled':''}>📤</button>
+              ${lb.mobileUrl?`<button class="btn-sm" onclick="clearSiteImg('${key}','mobileUrl')">🗑️</button>`:''}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="frm-row">
+        <label class="frm-label">અંધારું (overlay) — <span id="${prefix}OverlayVal">${lb.overlay}%</span></label>
+        <input type="range" id="${prefix}Overlay" min="0" max="100" value="${lb.overlay}" oninput="updateDesignPreview()" style="width:100%">
+      </div>
+      <div class="frm-row">
+        <label class="frm-label">ઝાંખું (blur) — <span id="${prefix}BlurVal">${lb.blur}px</span></label>
+        <input type="range" id="${prefix}Blur" min="0" max="8" step="0.5" value="${lb.blur}" oninput="updateDesignPreview()" style="width:100%">
+      </div>
+      <div class="frm-row" style="margin-bottom:0">
+        <label class="frm-label">ઇમેજ fit</label>
+        <select class="frm-in" id="${prefix}Fit" onchange="updateDesignPreview()">
+          <option value="cover" ${lb.fit==='cover'?'selected':''}>Cover (ભરો — crop થાય)</option>
+          <option value="contain" ${lb.fit==='contain'?'selected':''}>Contain (આખી દેખાય)</option>
+        </select>
+      </div>
+    </div>`;
+  };
   return `
     <div class="card">
       <h3>🎨 ડિઝાઇન — કસ્ટમર પેજ બ્રાન્ડિંગ</h3>
@@ -4476,6 +4554,9 @@ function renderDesign(){
         </div>
       </div>
 
+      ${loginBgSection('adminLoginBg','al','🔐','Admin')}
+      ${loginBgSection('farmerLoginBg','fl','🌾','ખેડૂત')}
+
       <div style="display:flex;gap:10px;margin-top:20px">
         <button class="btn-sm primary" onclick="saveSiteConfig()" style="flex:1">💾 સાચવો — customer પેજ પર લાગુ કરો</button>
         <button class="btn-sm" onclick="resetDesignDraft()">↩︎ બધું ડિફોલ્ટ</button>
@@ -4501,9 +4582,22 @@ window.updateDesignPreview = () => {
   const ovl=$('#dpOverlay'); if(ovl) ovl.style.background=`linear-gradient(to bottom,rgba(0,0,0,.1) 0%,rgba(27,67,50,${(ov/100).toFixed(2)}) 100%)`;
   const t=$('#dpTitle'); if(t) t.textContent=d.text.title||SITE_DEFAULTS.title;
   const s=$('#dpSub'); if(s) s.textContent=d.text.subtitle||SITE_DEFAULTS.subtitle;
+  // Login-screen background sections (adminLoginBg='al', farmerLoginBg='fl') — no live preview
+  // pane, just sync slider/select values into the draft + their %/px labels.
+  ['adminLoginBg','farmerLoginBg'].forEach((key,i) => {
+    const p = i===0 ? 'al' : 'fl';
+    const lb = d[key]; if(!lb) return;
+    const lov = $('#'+p+'Overlay')?.value, lbl = $('#'+p+'Blur')?.value, lft = $('#'+p+'Fit')?.value;
+    if(lov!=null) lb.overlay = +lov;
+    if(lbl!=null) lb.blur = +lbl;
+    if(lft) lb.fit = lft;
+    const lovv=$('#'+p+'OverlayVal'); if(lovv) lovv.textContent = lb.overlay+'%';
+    const lblv=$('#'+p+'BlurVal'); if(lblv) lblv.textContent = lb.blur+'px';
+  });
 };
 
-window.uploadSiteImg = async (field) => {
+window.uploadSiteImg = async (field, prop) => {
+  prop = prop || 'url';
   if(!CLOUDINARY_CFG || !CLOUDINARY_CFG.cloudName) return toast("Cloudinary સેટ નથી","err");
   const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
   inp.onchange=async()=>{
@@ -4511,18 +4605,18 @@ window.uploadSiteImg = async (field) => {
     updateDesignPreview(); // capture current text/slider edits before re-render-free upload
     toast("☁️ Upload…","ok");
     try{
-      const maxDim = field==='banner' ? 1280 : 256;
+      // banner + the 2 login backgrounds are full hero-size images; logos stay small icons.
+      const maxDim = (field==='banner' || field==='adminLoginBg' || field==='farmerLoginBg') ? 1280 : 256;
       const dataUrl = await resizePhoto(f, maxDim, 0.85);
       const blob = await (await fetch(dataUrl)).blob();
       const fd=new FormData();
-      fd.append('file',blob, field+'.webp');
+      fd.append('file',blob, field+'-'+prop+'.webp');
       fd.append('upload_preset',CLOUDINARY_CFG.uploadPreset);
       fd.append('folder','sristi/site');
       const r=await fetch('https://api.cloudinary.com/v1_1/'+CLOUDINARY_CFG.cloudName+'/image/upload',{method:'POST',body:fd});
       const j=await r.json();
       if(j.secure_url){
-        if(field==='banner') DESIGN_DRAFT.banner.url=j.secure_url;
-        else DESIGN_DRAFT[field].url=j.secure_url;
+        DESIGN_DRAFT[field][prop]=j.secure_url;
         DESIGN_DRAFT_OVERRIDE = DESIGN_DRAFT;  // keep the upload through the re-render
         setTabBodyHtml();
         toast("✓ Uploaded — હવે 💾 સાચવો","ok");
@@ -4532,17 +4626,19 @@ window.uploadSiteImg = async (field) => {
   inp.click();
 };
 
-window.clearSiteImg = (field) => {
+window.clearSiteImg = (field, prop) => {
   if(!DESIGN_DRAFT) return;
-  if(field==='banner') DESIGN_DRAFT.banner.url=''; else DESIGN_DRAFT[field].url='';
+  DESIGN_DRAFT[field][prop||'url']='';
   DESIGN_DRAFT_OVERRIDE = DESIGN_DRAFT;
   setTabBodyHtml();
 };
 
 window.resetDesignDraft = () => {
+  const blankLoginBg = () => ({desktopUrl:'',mobileUrl:'',overlay:SITE_DEFAULTS.overlay,blur:SITE_DEFAULTS.blur,fit:SITE_DEFAULTS.fit});
   DESIGN_DRAFT_OVERRIDE = {
     banner:{url:'',overlay:SITE_DEFAULTS.overlay,blur:SITE_DEFAULTS.blur,fit:SITE_DEFAULTS.fit},
-    logoLeft:{url:''}, logoRight:{url:''}, text:{title:'',subtitle:''}
+    logoLeft:{url:''}, logoRight:{url:''}, text:{title:'',subtitle:''},
+    adminLoginBg: blankLoginBg(), farmerLoginBg: blankLoginBg()
   };
   setTabBodyHtml();
   toast("ડિફોલ્ટ પર સેટ — સાચવવા 💾 દબાવો","ok");
@@ -4552,11 +4648,14 @@ window.saveSiteConfig = async () => {
   if(!DESIGN_DRAFT) return;
   updateDesignPreview();
   const d = DESIGN_DRAFT;
+  const loginBgPayload = (lb) => ({ desktopUrl:lb.desktopUrl||'', mobileUrl:lb.mobileUrl||'', overlay:+lb.overlay, blur:+lb.blur, fit:lb.fit||'cover' });
   const payload = {
     banner:   { url:d.banner.url||'', overlay:+d.banner.overlay, blur:+d.banner.blur, fit:d.banner.fit||'cover' },
     logoLeft: { url:d.logoLeft.url||'' },
     logoRight:{ url:d.logoRight.url||'' },
     text:     { title:(d.text.title||'').trim(), subtitle:(d.text.subtitle||'').trim() },
+    adminLoginBg:  loginBgPayload(d.adminLoginBg),
+    farmerLoginBg: loginBgPayload(d.farmerLoginBg),
     updatedAt: firebase.database.ServerValue.TIMESTAMP,
     updatedBy: auditActor()
   };
@@ -4564,7 +4663,7 @@ window.saveSiteConfig = async () => {
     await fbRef('settings/siteConfig').set(payload);
     SITE_CFG = payload;
     logAudit('design-update','settings/siteConfig',{ hasBanner:!!payload.banner.url });
-    toast("✓ ડિઝાઇન સાચવાઈ — customer પેજ રીલોડ થતાં લાગુ થશે","ok");
+    toast("✓ ડિઝાઇન સાચવાઈ — પેજ રીલોડ થતાં લાગુ થશે","ok");
   }catch(e){ console.error(e); toast("Save નિષ્ફળ — RTDB permission?","err"); }
 };
 

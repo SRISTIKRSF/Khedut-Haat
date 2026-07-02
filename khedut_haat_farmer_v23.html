@@ -25,13 +25,15 @@ body{font-family:"Inter","Hind Vadodara",sans-serif;background:var(--bg);color:v
 img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;display:inline-block}
 .wrap{max-width:560px;margin:0 auto;padding-bottom:110px}
 
-/* LOGIN */
-.login{padding:24px 22px;max-width:420px;margin:0 auto}
-.login-hero{text-align:center;padding:30px 10px 24px}
+/* LOGIN — background is blank by default; optionally set from Design tab → farmerLoginBg */
+.login{position:relative;min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:24px 22px;max-width:420px;margin:0 auto}
+.login-bg-img{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;display:none;z-index:0}
+.login-bg-overlay{position:fixed;inset:0;display:none;z-index:0}
+.login-hero{position:relative;z-index:1;text-align:center;padding:30px 10px 24px}
 .login-hero-emoji{font-size:62px;margin-bottom:10px}
 .login-title{font-family:"Fraunces","Noto Sans Gujarati",serif;font-size:28px;font-weight:900;color:var(--green);line-height:1.1;margin-bottom:6px}
 .login-sub{font-size:14px;color:var(--muted)}
-.login-card{background:#fff;border:1px solid var(--border);border-radius:16px;padding:22px 20px;box-shadow:0 6px 24px rgba(27,67,50,.08)}
+.login-card{position:relative;z-index:1;background:#fff;border:1px solid var(--border);border-radius:16px;padding:22px 20px;box-shadow:0 6px 24px rgba(27,67,50,.08)}
 .frm{display:flex;flex-direction:column;gap:14px}
 .frm-row{display:flex;flex-direction:column;gap:5px}
 .frm-label{font-size:12.5px;font-weight:600;color:var(--muted)}
@@ -474,6 +476,8 @@ function renderLogin(errMsg){
   try{ phoneHint = (localStorage.getItem(PHONE_HINT_KEY)||"").slice(-10); }catch{}
   $('#wrap').innerHTML = `
     <div class="login">
+      <img class="login-bg-img" id="farmerLoginBgImg" alt="">
+      <div class="login-bg-overlay" id="farmerLoginBgOverlay"></div>
       <div class="login-hero">
         <div class="login-hero-emoji">🌿</div>
         <div class="login-title">મારી પેદાશ<br>મોકલો</div>
@@ -509,6 +513,26 @@ function renderLogin(errMsg){
     const el=document.getElementById(id);
     if(el) el.addEventListener('keydown', e=>{if(e.key==='Enter')doLogin();});
   });
+  applyFarmerLoginBg();
+}
+
+// Login-screen background — fetched once pre-auth (settings/siteConfig is publicly readable,
+// same as the customer catalog already relies on), cached, applied as a purely additive DOM
+// layer behind the login card — never touches the form fields.
+let FARMER_LOGIN_BG_CACHE;
+async function applyFarmerLoginBg(){
+  if(FARMER_LOGIN_BG_CACHE === undefined){
+    try{ FARMER_LOGIN_BG_CACHE = (await fbRef('settings/siteConfig/farmerLoginBg').get()).val() || null; }
+    catch(e){ FARMER_LOGIN_BG_CACHE = null; }
+  }
+  const cfg = FARMER_LOGIN_BG_CACHE;
+  const img = document.getElementById('farmerLoginBgImg'), overlay = document.getElementById('farmerLoginBgOverlay');
+  if(!cfg || !img || !overlay) return;
+  const isMobile = window.innerWidth < 768;
+  const url = (isMobile && cfg.mobileUrl) ? cfg.mobileUrl : cfg.desktopUrl;
+  if(!url) return;
+  img.src = url; img.style.objectFit = cfg.fit||'cover'; img.style.filter = cfg.blur?`blur(${cfg.blur}px)`:''; img.style.display = 'block';
+  overlay.style.background = `rgba(0,0,0,${(cfg.overlay!=null?cfg.overlay:0)/100})`; overlay.style.display = 'block';
 }
 // Show login error inline WITHOUT clearing phone or losing focus — better than full re-render
 function showLoginError(msg){
