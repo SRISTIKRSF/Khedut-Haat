@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V41</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V42</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -171,6 +171,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
    સૃષ્ટિ ખેડૂત હાટ — Farmer submit v4 (structured checklist)
@@ -198,6 +199,12 @@ const FB_CONFIG = {
   appId:"1:269627097742:web:2d82d97f0621db87133fdf",
 };
 const FB_NAMESPACE='prakrutik_kheti';
+/* Phase 2 (Firebase Auth): synthetic email domain + password prefix — MUST match the Phase-1 migration tool EXACTLY, or logins break. */
+const AUTH_DOMAIN='@khedut-haat.app';
+const PWD_PREFIX='khedut-haat-';
+const authEmail=pc=>String(pc).replace(/\D/g,'')+AUTH_DOMAIN;
+const authPwdOf=pw=>PWD_PREFIX+String(pw==null?'':pw);
+let AUTH=null;
 const AUTH_KEY='sristi_farmer_auth_v2';      // bumped: no longer stores password
 const PHONE_HINT_KEY='sristi_farmer_phone';  // localStorage: phone-only for autofill
 const AUTH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days; re-PIN after expiry
@@ -440,6 +447,7 @@ let SEARCH_Q="";
 async function init(){
   FB.app = firebase.initializeApp(FB_CONFIG);
   FB.db  = firebase.database();
+  AUTH = firebase.auth();
   // Migration: clear v1 storage (which held plaintext password)
   try{ localStorage.removeItem("sristi_farmer_auth_v1"); }catch{}
   // v2: sessionStorage holds only {phone, expires} — no password
@@ -577,10 +585,12 @@ async function loginByPhone(phone, pwd, silent){
   if(!match) throw new Error("આ નંબર નોંધાયેલો નથી. કૃપા કરી ઑફિસ સંપર્ક કરો.");
   const phoneClean = String(match.phone||'').replace(/[^0-9]/g,'');
   const defaultPwd = phoneClean.slice(-4);
-  const authSnap = await fbRef('farmerAuth/'+phoneClean).get();
-  const customPwd = authSnap.exists()?String(authSnap.val().pwd||''):'';
-  const expected = customPwd || defaultPwd;
-  if(String(pwd) !== expected) throw new Error("પાસવર્ડ ખોટો છે");
+  // Phase 2: verify the password via Firebase Auth (was: read farmerAuth + compare in the clear).
+  try{
+    await AUTH.signInWithEmailAndPassword(authEmail(phoneClean), authPwdOf(pwd));
+  }catch(e){
+    throw new Error("પાસવર્ડ ખોટો છે");
+  }
 
   // Persist phone-only hint (NEVER password) in localStorage for autofill convenience
   try{ localStorage.setItem(PHONE_HINT_KEY, phoneClean); }catch{}
@@ -595,7 +605,7 @@ async function loginByPhone(phone, pwd, silent){
   // SECURITY: if farmer is still using the default password (last 4 digits of phone),
   // force them to set a new one before proceeding. One-time prompt; skips on subsequent
   // logins once a custom password is recorded.
-  if(!customPwd && String(pwd) === defaultPwd){
+  if(String(pwd) === defaultPwd){
     return renderForceChangePwd(phoneClean);
   }
   await loadSubmission();
@@ -648,6 +658,9 @@ window.saveNewPwd = async (phoneClean) => {
   if(p1 !== p2) return showErr("બંને પાસવર્ડ સરખા હોવા જોઈએ");
   if(p1 === phoneClean.slice(-4)) return showErr("મોબાઈલ ના છેલ્લા 4 અંક નહિ ચાલે — બીજો બનાવો");
   try{
+    // Phase 2: update the Firebase Auth password (farmer just signed in -> allowed), AND
+    // dual-write farmerAuth so a rollback to the OLD app still works with the new PIN during transition.
+    if(AUTH.currentUser) await AUTH.currentUser.updatePassword(authPwdOf(p1));
     await fbRef('farmerAuth/'+phoneClean).set({pwd: p1, updatedAt: firebase.database.ServerValue.TIMESTAMP});
     toast("પાસવર્ડ બદલાઈ ગયો", "ok");
     await loadSubmission();
@@ -657,6 +670,7 @@ window.saveNewPwd = async (phoneClean) => {
   }
 };
 window.doLogout = () => {
+  try{ if(AUTH) AUTH.signOut(); }catch{}
   try{ sessionStorage.removeItem(AUTH_KEY); }catch{}
   try{ localStorage.removeItem("sristi_farmer_auth_v1"); }catch{}
   // keep PHONE_HINT_KEY so phone field auto-fills next login

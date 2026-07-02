@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V41</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V42</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -213,6 +213,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
@@ -244,6 +245,10 @@ const FB_CONFIG = {
   appId:"1:269627097742:web:2d82d97f0621db87133fdf",
 };
 const FB_NAMESPACE='prakrutik_kheti';
+/* Phase 2 (Firebase Auth): synthetic email domain + password prefix — MUST match the Phase-1 migration tool EXACTLY. */
+const AUTH_DOMAIN='@khedut-haat.app';
+const PWD_PREFIX='khedut-haat-';
+let AUTH=null;
 const AUTH_KEY  = "sristi_admin_auth_v3";   // multi-admin via admins/{username}
 const AUTH_TTL_MS = 4 * 60 * 60 * 1000;     // 4 hours
 
@@ -434,6 +439,7 @@ function cloudinaryThumb(url, w){
 async function init(){
   FB.app = firebase.initializeApp(FB_CONFIG);
   FB.db  = firebase.database();
+  AUTH = firebase.auth();
   // Migration: clear old auth keys
   try{ localStorage.removeItem("sristi_admin_auth_v1"); }catch{}
   try{ sessionStorage.removeItem("sristi_admin_auth_v2"); }catch{}
@@ -505,7 +511,12 @@ window.doLogin = async () => {
   }catch(e){
     return renderLogin("લોગ-ઇન ભૂલ: " + (e.message||""));
   }
-  if(String(rec.pwd||'') !== pwd) return renderLogin("પાસવર્ડ ખોટો");
+  // Phase 2: verify password via Firebase Auth (was: compare rec.pwd in the clear).
+  try{
+    await AUTH.signInWithEmailAndPassword(username + AUTH_DOMAIN, PWD_PREFIX + pwd);
+  }catch(e){
+    return renderLogin("પાસવર્ડ ખોટો");
+  }
   try{
     sessionStorage.setItem(AUTH_KEY, JSON.stringify({
       username, name: rec.name||username, expires: Date.now() + AUTH_TTL_MS
@@ -555,6 +566,9 @@ window.saveAdminPwd = async (username) => {
   if(p1 !== p2)     return showErr("બંને પાસવર્ડ સરખા હોવા જોઈએ");
   if(p1 === "2026") return showErr("આ પાસવર્ડ વાપરી શકાય નહીં");
   try{
+    // Phase 2: update the Firebase Auth password (admin just signed in -> allowed), then
+    // dual-write admins so a rollback to the OLD app still works during transition.
+    if(AUTH.currentUser) await AUTH.currentUser.updatePassword(PWD_PREFIX + p1);
     const cur = (await fbRef('admins/'+username).get()).val() || {};
     await fbRef('admins/'+username).set({
       ...cur,
@@ -569,6 +583,7 @@ window.saveAdminPwd = async (username) => {
   }
 };
 window.doLogout = () => {
+  try{ if(AUTH) AUTH.signOut(); }catch{}
   try{ sessionStorage.removeItem(AUTH_KEY); }catch{}
   try{ localStorage.removeItem("sristi_admin_auth_v1"); }catch{}
   try{ sessionStorage.removeItem("sristi_admin_auth_v2"); }catch{}
@@ -5076,7 +5091,16 @@ window.resetFarmerPwd = async (fid, name, phoneClean) => {
       lastPwdResetBy: me?.username || 'unknown',
       lastPwdResetAt: firebase.database.ServerValue.TIMESTAMP
     });
-    toast(`🔑 Reset done — Send WhatsApp now`,"ok");
+    // Phase 2: the Auth password must ALSO be reset in Firebase Console (no server = client
+    // cannot reset another user's Auth password). Show the admin the exact steps + values.
+    alert(`⚠️ Firebase Console માં પણ reset કરો:
+
+1. Firebase Console → Authentication → Users
+2. શોધો: ${phoneClean}@khedut-haat.app
+3. ⋮ → Reset password → khedut-haat-${last4}
+
+પછી ખેડૂતને કહો: પાસવર્ડ = ${last4}`);
+    toast(`🔑 Reset — Console પણ કરો + WhatsApp`,"ok");
     showResetPwdWhatsAppHelper(name, phoneClean, last4);
     await loadAll();
   }catch(e){
@@ -5297,6 +5321,13 @@ window.addManualFarmer = async () => {
       applicationNo,
       active:true, addedAt:Date.now(),
     });
+    // Phase 2: create the farmer's Firebase Auth account (default pwd = last-4) on a SECONDARY
+    // app instance so the admin's own login session is not disturbed. Idempotent.
+    try{
+      let _sec; try{ _sec = firebase.initializeApp(FB_CONFIG, 'mkfarmer'); }catch(_){ _sec = firebase.app('mkfarmer'); }
+      await _sec.auth().createUserWithEmailAndPassword(ph + AUTH_DOMAIN, PWD_PREFIX + ph.slice(-4));
+      await _sec.auth().signOut().catch(()=>{});
+    }catch(_e){ if(_e && _e.code !== 'auth/email-already-in-use') console.warn('farmer auth create', _e); }
     toast(`✓ "${nm}" ઉમેરાયા (${applicationNo})`,"ok");
     closeModal(); await loadAll();
   }catch(e){
