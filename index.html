@@ -177,22 +177,10 @@ const FB_NAMESPACE='prakrutik_kheti';
 let FB={app:null,db:null};
 function fbRef(p){return FB.db.ref(FB_NAMESPACE+(p?'/'+p:''));}
 
-/* All 12 sristi haat venues (master list) */
-const VENUES = [
-  {key:"છારોડી",  name:"છારોડી — BAOU",                 sub:"રવિવાર સવાર 7–10",  map:"https://maps.app.goo.gl/3PmNvzmFYT7bBkv89"},
-  {key:"સોલા",    name:"સોલા — ભાગવત વિદ્યાપીઠ",       sub:"રવિવાર સવાર 7–10",  map:"https://maps.app.goo.gl/VBmfCShMacbVhHsU8"},
-  {key:"પલોડિયા",name:"પલોડિયા — આત્મ વિકાસ",          sub:"રવિવાર સવાર 7–10",  map:"https://maps.app.goo.gl/rHV9bT6FkDaagZHp7"},
-  {key:"નવજીવન", name:"નવજીવન — આશ્રમ રોડ",            sub:"રવિવાર સવાર 7–10",  map:"https://maps.app.goo.gl/opaWPCiT9VocZrVf6"},
-  {key:"વસ્ત્રાપુર",name:"વસ્ત્રાપુર તળાવ",                 sub:"રવિવાર સવાર 7–10",  map:"https://maps.app.goo.gl/3AKiFjbcEXE8fxzN8"},
-  {key:"ગાંધીનગર",name:"ગાંધીનગર — કડી કેમ્પસ",          sub:"રવિવાર સવાર 7–10",  map:"https://maps.app.goo.gl/ELVbCJr9cWA2YHUj9"},
-  {key:"વલ્લભ વિદ્યાનગર",name:"વલ્લભ વિદ્યાનગર — SPU",   sub:"રવિવાર બપોર 4–6",   map:"https://maps.app.goo.gl/AMutfxUVpVdypVFQ8"},
-  {key:"સૃષ્ટિ",  name:"સૃષ્ટિ સંસ્થા પરિસર",        sub:"ગુરુવાર સવાર 7–10", map:"https://g.co/kgs/xM53taj"},
-  {key:"નડિયાદ", name:"નડિયાદ — ચેતક પેટ્રોલ પંપ",      sub:"ગુરુવાર સાંજ 5–6",  map:"https://maps.app.goo.gl/itkmde2uFir4j5Zm9"},
-  {key:"વડોદરા", name:"વડોદરા — MS યુનિ. કોમર્સ",       sub:"રવિવાર બપોર 4–6",   map:"https://maps.app.goo.gl/uaxh7SrzCjVusFw59"},
-  {key:"હિંમતનગર",name:"હિંમતનગર — કેનાલ ફ્રન્ટ",      sub:"રવિ + ગુરુ બપોર 3–6",map:"https://maps.app.goo.gl/KSu1P2qixM4oHnbR7"},
-  {key:"મોડાસા", name:"મોડાસા — અન્નપૂર્ણા",             sub:"રવિવાર બપોર 4–6",   map:"https://maps.app.goo.gl/xAguJZtChUodXA3E9"},
-  {key:"Aaryans Corporate Park", name:"Aaryans Corporate Park",   sub:"TEST venue • રવિવાર 7–10",  map:"https://www.google.com/maps/search/?api=1&query=Aaryans+Corporate+Park+Ahmedabad"},
-];
+// V26: the hardcoded VENUES array (12 hand-typed names/map-links, previously the ONLY source
+// of venue order/names/map-links) is gone — it was a second, independent copy of data that
+// already lives on each haats/{code} record (nameGu, seqOrder, gmaps, days, time), and kept
+// drifting out of sync with it. allVenuesSorted() below reads directly from HAATS instead.
 
 const CAT_EMOJI = {
   "શાકભાજી":"🥬","ભાજી":"🌿","ફળ":"🥭","ડેરી":"🥛",
@@ -237,10 +225,33 @@ function weekRange(d){
   const f = x => String(x.getDate()).padStart(2,'0')+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+x.getFullYear();
   return f(mon)+' to '+f(sun);
 }
+// V26: auto-generate the little schedule line (e.g. "ગુરુવાર સવાર 7–10") from a
+// haat's day+time fields, instead of a separately hand-typed string. Derived + verified
+// against all 7 real live haat time patterns before use — see sristi-haat-v26 notes.
+function haatScheduleText(h){
+  const DAY_FULL  = {Sun:'રવિવાર',Mon:'સોમવાર',Tue:'મંગળવાર',Wed:'બુધવાર',Thu:'ગુરુવાર',Fri:'શુક્રવાર',Sat:'શનિવાર'};
+  const DAY_SHORT = {Sun:'રવિ',Mon:'સોમ',Tue:'મંગળ',Wed:'બુધ',Thu:'ગુરુ',Fri:'શુક્ર',Sat:'શનિ'};
+  const days = Array.isArray(h.days) ? h.days : (h.days ? [h.days] : []);
+  const dayText = days.length<=1
+    ? (days[0] ? (DAY_FULL[days[0]]||days[0]) : '')
+    : days.map(d=>DAY_SHORT[d]||d).join(' + ');
+  let periodText = '', timeRangeText = '';
+  if(h.time){
+    const m = /^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/.exec(h.time);
+    if(m){
+      const h1=+m[1], h2=+m[3], min1=+m[2], min2=+m[4];
+      periodText = h1<12?'સવાર':(h1<17?'બપોર':'સાંજ');
+      const fmt = (hh,mm)=>{ let disp=hh%12; if(disp===0) disp=12; return mm ? `${disp}:${String(mm).padStart(2,'0')}` : `${disp}`; };
+      timeRangeText = `${fmt(h1,min1)}–${fmt(h2,min2)}`;
+    }
+  }
+  return [dayText, periodText, timeRangeText].filter(Boolean).join(' ');
+}
 let SITE_CFG=null;            // settings/siteConfig — admin Design tab branding (banner/logo/text)
-let HAAT_NAME_BY_CODE={};     // haat code -> display name (to map per-haat prices, keyed by code, onto venue names)
-let HAATS={};                 // haat code -> full haat object (incl. open flag)
-let HAAT_OPEN_BY_NAME={};     // haat display name (nameGu/name) -> true, only for OPEN haats (legacy venue-name lookup)
+let HAAT_NAME_BY_CODE={};     // haat code -> display name
+let HAATS={};                 // haat code -> full haat object (incl. open flag, seqOrder, gmaps, days/time)
+let HAAT_OPEN_BY_NAME={};     // haat display name (nameGu/name) -> true, only for OPEN haats (legacy submission fallback)
+let HAAT_CODE_BY_NAME={};     // haat display name (nameGu/name) -> code, only for OPEN haats (legacy submission fallback)
 let PRODUCTS_MASTER={}, PRODUCTS_BY_NAME={};   // Part A: master catalogue (id -> product, normName -> product)
 function normName(s){ return String(s==null?'':s).trim().toLowerCase(); }
 function resolveMaster(it){
@@ -279,7 +290,7 @@ let OPEN_FARMERS = new Set();
 function venueMatch(itemVenues, venueKey){
   if(venueKey === 'all') return true;
   if(!Array.isArray(itemVenues)) return false;
-  return itemVenues.some(v => v.includes(venueKey) || venueKey.includes(v));
+  return itemVenues.includes(venueKey);
 }
 
 function renderSkeleton(){
@@ -347,10 +358,13 @@ async function init(){
     WK_META = metaSnap.val() || {weekNum:WK};
     SITE_CFG = scSnap.val() || null;
     HAATS = haatSnap.val() || {};
-    HAAT_NAME_BY_CODE = {}; HAAT_OPEN_BY_NAME = {};
+    HAAT_NAME_BY_CODE = {}; HAAT_OPEN_BY_NAME = {}; HAAT_CODE_BY_NAME = {};
     Object.entries(HAATS).forEach(([code, h]) => {
       HAAT_NAME_BY_CODE[code] = (h && (h.nameGu || h.name)) || code;
-      if(h && h.open){ if(h.nameGu) HAAT_OPEN_BY_NAME[h.nameGu]=true; if(h.name) HAAT_OPEN_BY_NAME[h.name]=true; }
+      if(h && h.open){
+        if(h.nameGu){ HAAT_OPEN_BY_NAME[h.nameGu]=true; HAAT_CODE_BY_NAME[h.nameGu]=code; }
+        if(h.name){ HAAT_OPEN_BY_NAME[h.name]=true; HAAT_CODE_BY_NAME[h.name]=code; }
+      }
     });
     { const cc = {}; Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; }); mergeCustomCats(cc); CAT_LABELS = clSnap.val() || {}; applyCategoryOrder(coSnap.val() || []); }
     SUBMISSIONS = subSnap.val() || {};
@@ -390,37 +404,37 @@ function buildLists(){
     const f = FARMERS_MAP[fid] || {id:fid, name: sub.farmerName || "ખેડૂત"};
     // Show products ONLY for haats that are currently OPEN. A product submitted to a
     // closed haat is hidden; a product submitted to [open, closed] shows under the open one only.
+    // V26: venues are haat CODES (stable, admin-assigned), not display names — names can be
+    // renamed/reordered freely without breaking this matching (was the root cause of 3 live
+    // regressions on 2026-07-01, all from fuzzy name-substring matching between two independent
+    // name strings for the same haat).
     const subCodes = Array.isArray(sub.farmerHaatCodes) ? sub.farmerHaatCodes : [];
-    let openCodes = [], venues = [];
+    let openCodes = [];
     if(subCodes.length){
       // Primary path: keep only the codes whose haat is open.
       openCodes = subCodes.filter(c => HAATS[c] && HAATS[c].open);
       if(!openCodes.length) return;                       // all of this farmer's haats closed → hide
-      venues = openCodes.map(c => HAAT_NAME_BY_CODE[c] || c);
     } else {
-      // Legacy path (no codes): match venue NAMES against open haats; hide if none open.
+      // Legacy path (no codes, pre-enforcement submissions): resolve venue NAMES to codes via
+      // the open-haat reverse map; hide if none resolve to an open haat.
       const rawVenues = (sub.farmerHaat && String(sub.farmerHaat).trim())
         ? String(sub.farmerHaat).split(/[,;|\/]/).map(s=>s.trim()).filter(Boolean)
         : farmerVenues(f);
-      venues = rawVenues.filter(nm => HAAT_OPEN_BY_NAME[nm]);
-      if(!venues.length) return;                          // no open venue → hide
+      openCodes = rawVenues.map(nm => HAAT_CODE_BY_NAME[nm]).filter(Boolean);
+      if(!openCodes.length) return;                       // no open venue → hide
     }
+    const venues = openCodes;
     const items = (sub.items||[]).filter(it=>it.available!==false);
     if(!items.length) return;
     // Part A: resolve each item to its MASTER product → display the master name + category.
     // Legacy items with no master match keep their typed name but fall into "અન્ય" (Other).
     const resolved = items.map(it => {
       const m = resolveMaster(it);
-      // Per-venue price keyed by venue NAME — only OPEN venues. Use per-haat price if set, else base.
+      // Per-venue price keyed by haat CODE — only OPEN venues. Use per-haat price if set, else base.
       const pbv = {};
-      if(openCodes.length){
-        openCodes.forEach(code => {
-          const nm = HAAT_NAME_BY_CODE[code] || code;
-          pbv[nm] = (it.priceByHaat && it.priceByHaat[code] != null) ? +it.priceByHaat[code] : (+it.price||0);
-        });
-      } else {
-        venues.forEach(nm => { pbv[nm] = +it.price||0; });
-      }
+      openCodes.forEach(code => {
+        pbv[code] = (it.priceByHaat && it.priceByHaat[code] != null) ? +it.priceByHaat[code] : (+it.price||0);
+      });
       return { ...it,
         _dispName: m ? m.name : (it.name||'').trim(),
         _dispCat:  m ? (m.cat||'અન્ય') : 'અન્ય',
@@ -541,6 +555,7 @@ function render(){
   const logoRight = (_sc.logoRight && _sc.logoRight.url) || 'sristi-logo.jpg';
   const heroTitle = (_sc.text && _sc.text.title) || 'સૃષ્ટિ ખેડૂત હાટ';
   const heroSub   = (_sc.text && _sc.text.subtitle) || 'ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી';
+  const totalVenueCount = Object.keys(HAATS).length;
 
   $('#wrap').innerHTML = `
     <div class="hero">
@@ -554,7 +569,7 @@ function render(){
         <div class="hero-title">${esc(heroTitle)}</div>
         <div class="hero-sub">${esc(heroSub)}</div>
         <div class="hero-chips">
-          <button class="hero-chip" onclick="showAllLocs()" style="cursor:pointer;border:1px solid rgba(255,255,255,.3);font-family:inherit" aria-label="બધા 12 સ્થળ જુઓ">📍 12 સ્થળે</button>
+          <button class="hero-chip" onclick="showAllLocs()" style="cursor:pointer;border:1px solid rgba(255,255,255,.3);font-family:inherit" aria-label="બધા ${totalVenueCount} સ્થળ જુઓ">📍 ${totalVenueCount} સ્થળે</button>
           ${farmerCount?`<button class="hero-chip" onclick="scrollToList('farmers')" style="cursor:pointer;border:1px solid rgba(255,255,255,.3);font-family:inherit" aria-label="${farmerCount} ખેડૂત જુઓ">🌾 ${farmerCount} ખેડૂત</button>`:''}
           ${itemCount?`<button class="hero-chip" onclick="scrollToList('items')" style="cursor:pointer;border:1px solid rgba(255,255,255,.3);font-family:inherit" aria-label="${itemCount} પ્રોડક્ટ્સ જુઓ">📦 ${itemCount} પ્રોડક્ટ્સ</button>`:''}
           <span class="hero-chip" role="note">🛍️ થેલી લઈ આવજો</span>
@@ -564,7 +579,7 @@ function render(){
 
     <div class="locations-strip">
       <div class="loc-cards">
-        ${(activeVenues.length?activeVenues:VENUES).slice(0,3).map(v=>`
+        ${(activeVenues.length?activeVenues:allVenuesSorted()).slice(0,3).map(v=>`
           <div class="loc-card">
             <div><div class="loc-name">${esc(v.name)}</div><div class="loc-sub">${esc(v.sub)}</div></div>
             <a class="loc-link" href="${esc(v.map)}" target="_blank" rel="noopener">નક્શો ↗</a>
@@ -589,7 +604,7 @@ function render(){
       </div>
       <div class="filters" style="margin-bottom:7px">
         <button class="filter-btn ${VENUE==='all'?'active':''}" onclick="setVenue('all')">📍 બધા સ્થળ</button>
-        ${venueChips().map(v=>`<button class="filter-btn ${VENUE===v.key?'active':''}" onclick="setVenue('${esc(v.key)}')">${esc(v.key)} <span style="opacity:.6;font-size:10.5px">(${v.count})</span></button>`).join('')}
+        ${venueChips().map(v=>`<button class="filter-btn ${VENUE===v.key?'active':''}" onclick="setVenue('${esc(v.key)}')">${esc(v.label)} <span style="opacity:.6;font-size:10.5px">(${v.count})</span></button>`).join('')}
       </div>
       <div class="filters">
         <button class="filter-btn ${CAT==='all'?'active':''}" onclick="setCat('all')">બધું</button>
@@ -607,12 +622,18 @@ function render(){
   twe();
 }
 
+// All physical haat locations, ordered by admin's seqOrder — used for the informational
+// "all locations" panels (hero location strip, showAllLocs), independent of weekly open status.
+function allVenuesSorted(){
+  return Object.entries(HAATS)
+    .map(([code,h]) => ({key:code, name:(h&&(h.nameGu||h.name))||code, sub:haatScheduleText(h||{}), map:(h&&h.gmaps)||''}))
+    .sort((a,b) => ((HAATS[a.key]&&HAATS[a.key].seqOrder)||999) - ((HAATS[b.key]&&HAATS[b.key].seqOrder)||999));
+}
+// Venues that actually have something for sale this week (drives the location strip preview).
 function uniqueActiveVenues(){
   const set = new Set();
-  FARMER_LIST.forEach(f=>f.venues.forEach(v=>set.add(v)));
-  return VENUES.filter(v=>{
-    return [...set].some(s => s.includes(v.key) || v.key.includes(s));
-  });
+  FARMER_LIST.forEach(f=>(f.venues||[]).forEach(v=>set.add(v)));
+  return allVenuesSorted().filter(v=>set.has(v.key));
 }
 
 function renderBody(){
@@ -658,18 +679,12 @@ function renderItems(){
   `).join('');
 }
 
-// priceByVenue is keyed by the haat's full display name (e.g. "હિંમતનગર (કેનાલ ફ્રન્ટ ફુડ કોર્ટ)"),
-// but the selected VENUE chip holds the short key (e.g. "હિંમતનગર") — same fuzzy substring
-// match venueChips() already uses to connect the two, so a short chip key finds its haat's price.
-function venuePriceKey(priceByVenue, venue){
-  if(!priceByVenue) return null;
-  return Object.keys(priceByVenue).find(k => k.includes(venue) || venue.includes(k)) || null;
-}
+// V26: priceByVenue is keyed by haat CODE (stable) — direct lookup, no fuzzy matching needed.
 // Per-haat pricing: a farmer's effective price at the currently selected venue (base when 'all').
 function farmerEffPrice(f){
   if(VENUE !== 'all'){
-    const k = venuePriceKey(f.priceByVenue, VENUE);
-    if(k) return +f.priceByVenue[k]||0;
+    const v = f.priceByVenue && f.priceByVenue[VENUE];
+    if(v != null) return +v||0;
   }
   return +f.price||0;
 }
@@ -680,7 +695,7 @@ function itemPriceRange(it){
     prices = (it.farmers||[]).map(f => +f.price||0).filter(p=>p>0);
   } else {
     prices = (it.farmers||[])
-      .map(f => { const k = venuePriceKey(f.priceByVenue, VENUE); return k ? +f.priceByVenue[k]||0 : 0; })
+      .map(f => { const v = f.priceByVenue && f.priceByVenue[VENUE]; return v != null ? +v||0 : 0; })
       .filter(p=>p>0);
   }
   if(!prices.length) return {min: it.minPrice||it.price||0, max: it.maxPrice||it.price||0};
@@ -691,7 +706,7 @@ function itemPriceRange(it){
 // doesn't update when the customer picks a venue. Scope it live, same as the price range.
 function venueFarmerCount(it){
   if(VENUE === 'all') return it.farmerCount;
-  return (it.farmers||[]).filter(f => venuePriceKey(f.priceByVenue, VENUE)).length;
+  return (it.farmers||[]).filter(f => f.priceByVenue && f.priceByVenue[VENUE] != null).length;
 }
 function itemCard(it){
   const emo = it.emoji || CAT_EMOJI[it.cat] || '🌿';
@@ -722,12 +737,12 @@ window.openProductSheet = (productKey) => {
   const _shr = itemPriceRange(it);   // venue-scoped price range for the sheet header
   // Sort farmers by price (cheapest first) — use the price for the selected venue.
   // V25 fix: only list farmers whose ACTUAL submission covers the currently selected venue —
-  // same venuePriceKey() match itemPriceRange() already uses above for the price range, so the
-  // farmer list and the header price never disagree. Previously this showed every farmer who
-  // had ANY open-haat submission for this product, regardless of the venue being viewed.
+  // same direct priceByVenue[VENUE] lookup itemPriceRange() uses above for the price range, so
+  // the farmer list and the header price never disagree. Previously this showed every farmer
+  // who had ANY open-haat submission for this product, regardless of the venue being viewed.
   const venueFiltered = VENUE === 'all'
     ? (it.farmers||[])
-    : (it.farmers||[]).filter(f => venuePriceKey(f.priceByVenue, VENUE));
+    : (it.farmers||[]).filter(f => f.priceByVenue && f.priceByVenue[VENUE] != null);
   const sorted = [...venueFiltered].sort((a,b) => (farmerEffPrice(a)||0) - (farmerEffPrice(b)||0));
   const cheapest = farmerEffPrice(sorted[0]||{}) || 0;
   // Resolve farmer details from FARMERS_MAP
@@ -846,12 +861,12 @@ function renderFarmers(){
             </div>
             <div class="farmer-toggle ${open?'open':''}">▾</div>
           </div>
-          ${f.venues.length?`<div class="farmer-venues">${f.venues.map(v=>`<span class="venue-chip">📍 ${esc(v)}</span>`).join('')}</div>`:''}
+          ${f.venues.length?`<div class="farmer-venues">${f.venues.map(v=>`<span class="venue-chip">📍 ${esc(HAAT_NAME_BY_CODE[v]||v)}</span>`).join('')}</div>`:''}
           <div class="farmer-items ${open?'open':''}">
             ${f.items.map(it=>{
               // show this farmer's price for the selected venue (base when 'all')
-              const _vk = VENUE!=='all' ? venuePriceKey(it._priceByVenue, VENUE) : null;
-              const fp = _vk ? it._priceByVenue[_vk] : it.price;
+              const _pv = (VENUE!=='all' && it._priceByVenue) ? it._priceByVenue[VENUE] : null;
+              const fp = _pv != null ? _pv : it.price;
               return `
               <div class="farmer-item-row">
                 <div style="flex:1;min-width:0">
@@ -869,19 +884,16 @@ function renderFarmers(){
 }
 
 function venueChips(){
-  // Count items per venue (using current CAT/Q so chip counts stay consistent with what would show)
+  // Count items per venue code (using current CAT/Q so chip counts stay consistent with what would show)
   const counts = {};
   ALL_ITEMS.forEach(it=>{
     if(CAT!=='all' && it.cat!==CAT) return;
-    (it.venues||[]).forEach(v=>{
-      VENUES.forEach(vk=>{
-        if(v.includes(vk.key) || vk.key.includes(v)){
-          counts[vk.key] = (counts[vk.key]||0)+1;
-        }
-      });
-    });
+    (it.venues||[]).forEach(code=>{ counts[code] = (counts[code]||0)+1; });
   });
-  return VENUES.filter(v=>counts[v.key]).map(v=>({key:v.key, count:counts[v.key]}));
+  return Object.entries(HAATS)
+    .filter(([code,h]) => h && h.open && counts[code])
+    .map(([code,h]) => ({key:code, label:h.nameGu||h.name||code, count:counts[code]}))
+    .sort((a,b) => ((HAATS[a.key]&&HAATS[a.key].seqOrder)||999) - ((HAATS[b.key]&&HAATS[b.key].seqOrder)||999));
 }
 
 window.setTab = t => { TAB=t; render(); };
@@ -917,7 +929,7 @@ window.showAllLocs = () => {
         <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button>
       </div>
       <div style="padding:12px;overflow-y:auto">
-        ${VENUES.map(v=>`
+        ${allVenuesSorted().map(v=>`
           <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between">
             <div style="min-width:0;flex:1"><div style="font-size:13.5px;font-weight:600">${esc(v.name)}</div><div style="font-size:11px;color:var(--muted)">${esc(v.sub)}</div></div>
             <a href="${esc(v.map)}" target="_blank" rel="noopener" style="font-size:11px;font-weight:700;color:var(--green);background:var(--green3);border-radius:20px;padding:4px 12px;text-decoration:none;white-space:nowrap;margin-left:10px">નક્શો ↗</a>

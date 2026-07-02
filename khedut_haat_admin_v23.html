@@ -5528,6 +5528,7 @@ function renderHaats(){
     <div class="card" style="margin-bottom:14px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
       <div style="font-size:15px"><b>${haats.length}</b> હાટ • <b style="color:var(--green2)">${openCount}</b> ઓપન</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-sm" onclick="openHaatOrder()" title="ક્રમ બદલો — drag કરીને">↕ ક્રમ બદલો</button>
         <button class="btn-sm" onclick="openHaatWeekEditor()" title="ઓપન/બંધ + અઠવાડિક સંખ્યા/તારીખ ઝડપથી">📅 ઓપન/તારીખ (ઝડપી)</button>
         <button class="btn-sm primary" onclick="openAddHaat()">+ નવો હાટ</button>
       </div>
@@ -5550,6 +5551,56 @@ window.toggleHaatOpenTab = async (code) => {
     refreshHaatOpenCountInTopbar();
     setTabBodyHtml();
   }catch(e){ console.error(e); toast('Save નિષ્ફળ','err'); }
+  finally{ _busy = false; }
+};
+
+/* V26: drag-and-drop haat reorder — same Sortable.js pattern as openCategoryOrder() */
+window.openHaatOrder = () => {
+  const haats = Object.values(HAATS).sort((a,b)=>(a.seqOrder||999)-(b.seqOrder||999));
+  const rows = haats.map(h => `
+    <div class="haat-order-row" data-code="${esc(h.code)}" style="display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--border);border-radius:9px;padding:8px 10px;margin-bottom:6px">
+      <span class="haat-drag-handle" style="cursor:grab;color:var(--muted);font-size:18px;line-height:1">≡</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:14px">${esc(h.nameGu||h.name||h.code)}</div>
+        <div style="font-size:11px;color:var(--muted)"><code>${esc(h.code)}</code></div>
+      </div>
+    </div>`).join('');
+  modal(`
+    <div class="modal-hdr">
+      <div class="modal-title">↕ હાટ — ક્રમ બદલો</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="card-sub"><b>≡</b> drag કરી ક્રમ બદલો. Customer catalog અને હાટ યાદી બંને આ ક્રમમાં દેખાશે.</div>
+      <div id="haatOrderList" style="margin-top:12px;max-height:56vh;overflow-y:auto">${rows}</div>
+    </div>
+    <div style="display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--border)">
+      <button class="btn-sm" onclick="closeModal()" style="flex:1">રદ</button>
+      <button class="btn-sm primary" onclick="saveHaatOrder()" style="flex:1">✓ સાચવો</button>
+    </div>
+  `);
+  setTimeout(() => {
+    const list = document.getElementById('haatOrderList');
+    if(list && typeof Sortable !== 'undefined') Sortable.create(list, {animation:150, ghostClass:'order-ghost', handle:'.haat-drag-handle'});
+  }, 40);
+};
+window.saveHaatOrder = async () => {
+  const rows = [...document.querySelectorAll('#haatOrderList .haat-order-row')];
+  if(!rows.length) return;
+  if(_busy) return; _busy = true;
+  try{
+    const updates = {};
+    rows.forEach((el, idx) => {
+      const code = el.getAttribute('data-code');
+      updates['haats/'+code+'/seqOrder'] = idx + 1;
+      if(HAATS[code]) HAATS[code].seqOrder = idx + 1;
+    });
+    await fbRef('').update(updates);
+    logAudit('haat-reorder','haats',{count:rows.length});
+    closeModal();
+    toast("✓ ક્રમ સચવાયો","ok");
+    setTabBodyHtml();
+  }catch(e){ console.error(e); toast("Save નિષ્ફળ: "+(e.message||e),"err"); }
   finally{ _busy = false; }
 };
 
