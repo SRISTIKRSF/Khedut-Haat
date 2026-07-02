@@ -300,14 +300,20 @@ function itemQtyStr(it){
   else t = +it.qty || 0;
   return t > 0 ? (t + ' ' + (it.qtyUnit||it.unit||'')) : '';   // V36: prefer qtyUnit (kg/Lt) when present
 }
+// બાકી જથ્થો (unsold, post-haat) — only ever set once admin has approved (see onRemaining/qtyRemaining).
+function itemRemainingStr(it){
+  return (it.qtyRemaining != null && +it.qtyRemaining >= 0) ? (+it.qtyRemaining + ' ' + (it.qtyUnit||it.unit||'')) : '';
+}
 function submissionSummaryHtml(items){
+  const showBaaki = (items||[]).some(it => it.qtyRemaining != null);
   const rows = (items||[]).map(it => `<tr>
     <td style="text-align:left;padding:5px 8px;border-bottom:1px solid #eee">${esc(it.name)}</td>
     <td style="text-align:right;padding:5px 8px;border-bottom:1px solid #eee;white-space:nowrap">₹${esc(it.price)}/${esc(it.unit||'')}</td>
-    <td style="text-align:right;padding:5px 8px;border-bottom:1px solid #eee">${esc(itemQtyStr(it)||'—')}</td></tr>`).join('');
+    <td style="text-align:right;padding:5px 8px;border-bottom:1px solid #eee">${esc(itemQtyStr(it)||'—')}</td>
+    ${showBaaki ? `<td style="text-align:right;padding:5px 8px;border-bottom:1px solid #eee">${esc(itemRemainingStr(it)||'—')}</td>` : ''}</tr>`).join('');
   return `<div style="text-align:left;margin:10px auto 4px;max-width:360px;border:1px solid #e2ddd0;border-radius:10px;overflow:hidden">
     <table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="background:#f4f1e8;color:#777;font-size:11px"><th style="text-align:left;padding:6px 8px">વસ્તુ</th><th style="text-align:right;padding:6px 8px">ભાવ</th><th style="text-align:right;padding:6px 8px">જથ્થો</th></tr></thead>
+      <thead><tr style="background:#f4f1e8;color:#777;font-size:11px"><th style="text-align:left;padding:6px 8px">વસ્તુ</th><th style="text-align:right;padding:6px 8px">ભાવ</th><th style="text-align:right;padding:6px 8px">જથ્થો</th>${showBaaki ? '<th style="text-align:right;padding:6px 8px">બાકી</th>' : ''}</tr></thead>
       <tbody>${rows}</tbody></table></div>`;
 }
 function submissionSummaryText(items){
