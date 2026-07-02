@@ -5624,6 +5624,9 @@ function openHaatForm(code){
       <div class="frm-row"><label class="frm-label">છેલ્લો સમય (submission deadline)</label>
         <input class="frm-in" id="hfDeadline" value="${esc(h.deadline||'')}" placeholder="દા.ત. શનિવાર સાંજે 8 વાગ્યા સુધી">
         <div style="font-size:11px;color:var(--muted);margin-top:3px">આ હાટ માટે ખાલી હોય તો અઠવાડિયાના સામાન્ય છેલ્લા સમય નો ઉપયોગ થશે</div></div>
+      <div class="frm-row"><label class="frm-label">🗺️ Google Maps લિંક</label>
+        <input class="frm-in" id="hfGmaps" value="${esc(h.gmaps||'')}" placeholder="https://maps.app.goo.gl/...">
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">${h.gmaps?`<a href="${esc(h.gmaps)}" target="_blank" rel="noopener">હાલની લિંક ચકાસો ↗</a>`:'કસ્ટમર કેટલોગ પર "નક્શો" બટન આ લિંક વાપરે છે'}</div></div>
       ${code?`<div style="font-size:11.5px;color:var(--muted)">કોડ: <code>${esc(code)}</code> · ઓપન/બંધ + અઠવાડિક તારીખ 📅 popup માં</div>`:'<div style="font-size:11.5px;color:var(--muted)">નવો હાટ ડિફોલ્ટ <b>બંધ</b> રહેશે — પછી ઓપન કરો.</div>'}
     </div>
     <div style="display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--border)">
@@ -5639,17 +5642,18 @@ window.saveHaatForm = async (code) => {
   const days     = ($('#hfDay')?.value||'').trim();
   const time     = ($('#hfTime')?.value||'').trim();
   const deadline = ($('#hfDeadline')?.value||'').trim();
+  const gmaps    = ($('#hfGmaps')?.value||'').trim();
   if(!nameGu) return toast("નામ ભરો","err");
   if(_busy) return; _busy = true;
   try{
     if(code){
-      await fbRef('haats/'+code).update({nameGu, name:nameGu, days, time, deadline});
-      Object.assign(HAATS[code], {nameGu, name:nameGu, days, time, deadline});
+      await fbRef('haats/'+code).update({nameGu, name:nameGu, days, time, deadline, gmaps});
+      Object.assign(HAATS[code], {nameGu, name:nameGu, days, time, deadline, gmaps});
       logAudit('haat-edit','haats/'+code,{name:nameGu});
     } else {
       const newCode = 'H-'+Date.now().toString(36).toUpperCase();
       const seqOrder = Object.values(HAATS).reduce((m,h)=>Math.max(m,+h.seqOrder||0),0)+1;
-      const data = {code:newCode, nameGu, name:nameGu, days, time, deadline, open:false, seqOrder, createdAt:Date.now()};
+      const data = {code:newCode, nameGu, name:nameGu, days, time, deadline, gmaps, open:false, seqOrder, createdAt:Date.now()};
       await fbRef('haats/'+newCode).set(data);
       HAATS[newCode] = data;
       logAudit('haat-add','haats/'+newCode,{name:nameGu});
