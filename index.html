@@ -928,8 +928,17 @@ window.scrollToList = (tab) => {
   }, 50);
 };
 window.setVenue = v => { VENUE=v; render(); };
-// Changing city clears any venue selection that may no longer be visible under the new city.
-window.setCity = c => { CITY=c; VENUE='all'; render(); };
+// Changing city clears any venue selection that may no longer be visible under the new city —
+// except when that city only has ONE active venue (true for 6 of 7 cities today), in which case
+// picking the city should behave like picking that venue directly, no second tap needed.
+window.setCity = c => {
+  CITY=c; VENUE='all';
+  if(c !== 'all'){
+    const venuesInCity = uniqueActiveVenues().filter(v => (HAATS[v.key] && (HAATS[v.key].cityGu||HAATS[v.key].city)) === c);
+    if(venuesInCity.length === 1) VENUE = venuesInCity[0].key;
+  }
+  render();
+};
 window.setCat = c => { CAT=c; render(); };
 window.setQ = q => { Q=q; clearTimeout(_qTimer); _qTimer = setTimeout(()=>{ const wasFocus = document.activeElement?.id==='searchInput'; const car = wasFocus?document.activeElement.selectionStart:null; render(); if(wasFocus){ const el=document.getElementById('searchInput'); if(el){el.focus(); if(car!=null) el.setSelectionRange(car,car);}} }, 160); };
 window.resetFilters = () => { Q=''; CAT='all'; VENUE='all'; CITY='all'; render(); };
