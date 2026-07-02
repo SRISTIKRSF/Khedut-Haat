@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V39</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V40</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -901,10 +901,12 @@ function pendingReviewCount(){
 /* ════════ TAB 1: DASHBOARD ════════ */
 function renderDashboard(){
   const totalFarmers = FARMERS.length;
-  const submittedCount = Object.keys(SUBS).filter(fid=>SUBS[fid]?.rawText).length;
+  // V40: મોકલાઈ counts ANY submission this week — app-submitted items OR legacy WhatsApp-paste
+  // rawText. (Was rawText-only, so normal app submissions never counted and it undercounted.)
+  const submittedCount = Object.keys(SUBS).filter(fid=>{ const s=SUBS[fid]; return s && (s.rawText || (Array.isArray(s.items) && s.items.length>0)); }).length;
   const publishedCount = Object.keys(SUBS).filter(fid=>Array.isArray(SUBS[fid]?.items) && SUBS[fid].items.length>0).length;
-  const pendingCount = totalFarmers - submittedCount;
-  const pendingPub = submittedCount - publishedCount;
+  const pendingCount = Math.max(0, totalFarmers - submittedCount);
+  const pendingPub = Math.max(0, submittedCount - publishedCount);
 
   return `
     <div class="dash">
@@ -930,6 +932,8 @@ function renderDashboard(){
       </div>
     </div>
 
+    ${renderHaatProgress()}
+
     ${pendingCount > 0 ? `
     <div class="card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:14px 18px">
       <div style="font-size:15px;color:var(--text)"><b style="color:var(--orange)">${pendingCount}</b> ખેડૂત હજી મોકલવાના બાકી</div>
@@ -942,6 +946,64 @@ function renderDashboard(){
     ${renderActivityLog()}
   `;
 }
+
+// V40: 3-stage haat progress funnel — ભાવ → લાવેલો જથ્થો → બાકી જથ્થો. A farmer counts as
+// "done" for a stage when ANY of their items carries that data (quantity is often filled on
+// only some items — that still means they've engaged with the stage). Tap a row to see WHO is
+// done / pending by name, so the admin knows exactly whom to chase.
+function itemHasQty(it){
+  if(!it) return false;
+  if(it.qtyByHaat && typeof it.qtyByHaat === 'object'){ let t=0; Object.values(it.qtyByHaat).forEach(v=>t+=+v||0); return t>0; }
+  return (+it.qty||0) > 0;
+}
+function renderHaatProgress(){
+  const stages = [
+    {key:'price', icon:'💰', label:'1. ભાવ મોકલ્યા',        hint:'submission આવી ગઈ (ભાવ સાથે)', test:s => !!(s && (s.rawText || (Array.isArray(s.items)&&s.items.length>0)))},
+    {key:'qty',   icon:'🧺', label:'2. લાવેલો જથ્થો ભર્યો', hint:'હાટ પહેલા ભરવાનો',            test:s => !!(s && Array.isArray(s.items) && s.items.some(itemHasQty))},
+    {key:'baaki', icon:'📦', label:'3. બાકી જથ્થો ભર્યો',   hint:'હાટ પછી ભરવાનો',              test:s => !!(s && Array.isArray(s.items) && s.items.some(it=>it && it.qtyRemaining!=null && it.qtyRemaining!==''))},
+  ];
+  const total = Math.max(1, FARMERS.length);
+  const nameList = arr => arr.length ? arr.map(n=>`<div style="padding:2px 0">${esc(n)}</div>`).join('') : '<div style="color:var(--muted);padding:2px 0">—</div>';
+  const rows = stages.map(st => {
+    const done = [], pending = [];
+    FARMERS.forEach(f => { (st.test(SUBS[f.id]) ? done : pending).push(f.name || f.id); });
+    const pct = Math.round(done.length / total * 100);
+    return `
+      <div style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px;overflow:hidden">
+        <div onclick="toggleDashStage('${st.key}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer">
+          <span style="font-size:17px">${st.icon}</span>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:13.5px;font-weight:600">${st.label}</span>
+              <span style="font-size:13px"><b>${done.length}</b><span style="color:var(--muted)">/${FARMERS.length}</span></span>
+            </div>
+            <div style="height:6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;margin-top:5px"><div style="height:100%;width:${pct}%;background:var(--green3);border-radius:3px"></div></div>
+          </div>
+          <span id="dsg_${st.key}_arr" style="font-size:10px;color:#999">▶</span>
+        </div>
+        <div id="dsg_${st.key}" style="display:none;border-top:1px solid var(--border);padding:10px 12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px;max-height:220px;overflow-y:auto">
+            <div><div style="color:var(--green2);font-weight:700;margin-bottom:5px">✓ પૂરું (${done.length})</div>${nameList(done)}</div>
+            <div><div style="color:var(--orange);font-weight:700;margin-bottom:5px">⏳ બાકી (${pending.length})</div>${nameList(pending)}</div>
+          </div>
+          <div style="margin-top:6px;color:var(--muted);font-size:11px">${st.hint}</div>
+        </div>
+      </div>`;
+  }).join('');
+  return `
+    <div class="card" style="padding:14px 18px">
+      <h3 style="margin:0 0 4px">હાટ પ્રગતિ — 3 તબક્કા</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">દરેક લાઇન પર tap કરો — કોણ બાકી છે તે નામ સાથે દેખાશે</div>
+      ${rows}
+    </div>`;
+}
+window.toggleDashStage = key => {
+  const el=document.getElementById('dsg_'+key), arr=document.getElementById('dsg_'+key+'_arr');
+  if(!el) return;
+  const hidden = el.style.display==='none';
+  el.style.display = hidden?'':'none';
+  if(arr) arr.textContent = hidden?'▼':'▶';
+};
 
 function renderActivityLog(){
   // Derive last 10 admin actions from existing data (no separate audit table needed)
