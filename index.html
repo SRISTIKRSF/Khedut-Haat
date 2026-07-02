@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V38</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V39</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે દર રવિવાર/ગુરુવાર. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <link rel="icon" type="image/jpeg" href="sristi-logo.jpg">
 <meta property="og:type" content="website">
@@ -385,6 +385,30 @@ async function init(){
   }
   buildLists();
   render();
+  trackCatalogView();
+}
+
+// V39: catalog view tracking — the admin's 📊 કસ્ટમર વ્યુ popup reads exactly these fields.
+// Writes go to catalogViews (the node the RTDB rules actually allow — the earlier admin-side
+// reader targeted catalogStats, which the rules block; that name mismatch is why counts never
+// showed). Fire-and-forget: runs after render, all failures swallowed — tracking must never
+// break or slow the catalog.
+function trackCatalogView(){
+  try{
+    const inc = firebase.database.ServerValue.increment(1);
+    const today = new Date().toISOString().slice(0,10);
+    let dev = '';
+    try{
+      dev = localStorage.getItem('kh_device_id') || '';
+      if(!dev){ dev = 'd_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36); localStorage.setItem('kh_device_id', dev); }
+    }catch(e){ /* storage blocked (private mode) → count the view, skip unique-device */ }
+    const updates = {};
+    updates['catalogViews/totalViews'] = inc;
+    updates['catalogViews/byDate/' + today] = inc;
+    if(WK != null) updates['catalogViews/byWeek/' + WK] = inc;
+    if(dev) updates['catalogViews/uniqueDevices/' + dev] = firebase.database.ServerValue.TIMESTAMP;
+    fbRef('').update(updates).catch(()=>{});
+  }catch(e){ /* never surface tracking errors to customers */ }
 }
 
 function farmerVenues(f){

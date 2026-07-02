@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V38</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V39</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1088,7 +1088,9 @@ window.openCustomerViews = async () => {
     <div class="modal-body" id="cvBody">⏳ Latest stats loading…</div>
   `);
   try{
-    const csSnap = await fbRef('catalogStats').get();
+    // V39: reads catalogViews — the node the customer app writes and the RTDB rules allow.
+    // (Was catalogStats, a name the rules block; the old silent catch masked that as zeros.)
+    const csSnap = await fbRef('catalogViews').get();
     const cs = csSnap.val() || {};
     CATALOG_STATS = {
       totalViews: +cs.totalViews || 0,
@@ -1096,7 +1098,12 @@ window.openCustomerViews = async () => {
       byWeek: cs.byWeek || {},
       uniqueDevicesCount: cs.uniqueDevices ? Object.keys(cs.uniqueDevices).length : 0,
     };
-  }catch(e){ /* keep cached */ }
+  }catch(e){
+    console.error(e);
+    const body = document.getElementById('cvBody');
+    if(body) body.innerHTML = '<div style="color:var(--red);padding:20px">Stats load નિષ્ફળ: '+esc(e.message||e)+'</div>';
+    return;
+  }
   const body = document.getElementById('cvBody');
   if(body) body.innerHTML = renderCatalogStatsCard();
 };
