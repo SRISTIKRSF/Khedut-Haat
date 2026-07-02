@@ -284,7 +284,7 @@ function cloudinaryThumb(url, w){
 let TAB='items';   // 'items' | 'farmers'
 let _sheetEsc=null;   // V11: ref to product-sheet Escape handler (was leaking across opens)
 let _qTimer=null;     // V11: search debounce timer
-let CAT='all', VENUE='all', Q='';
+let CAT='all', VENUE='all', CITY='all', Q='';
 let OPEN_FARMERS = new Set();
 
 function venueMatch(itemVenues, venueKey){
@@ -543,6 +543,7 @@ function render(){
   const timeLabel = WK_META.timeLabel || "7–10 AM";
   const cats = CAT_ORDER.filter(c => ALL_ITEMS.some(it=>it.cat===c));
   const activeVenues = uniqueActiveVenues();
+  const cities = uniqueCities();
 
   // Design tab (settings/siteConfig) — fall back to current hard-coded look when unset.
   const _sc = SITE_CFG || {};
@@ -602,6 +603,11 @@ function render(){
         <input type="text" id="searchInput" placeholder="શોધો — કેરી, ઘી, ભીંડો..." value="${esc(Q)}" oninput="setQ(this.value)">
         ${Q?`<span style="cursor:pointer;font-size:18px;color:var(--muted)" onclick="setQ('')">×</span>`:''}
       </div>
+      ${cities.length>1?`
+      <div class="filters" style="margin-bottom:7px">
+        <button class="filter-btn ${CITY==='all'?'active':''}" onclick="setCity('all')">🏙️ બધા શહેર</button>
+        ${cities.map(c=>`<button class="filter-btn ${CITY===c?'active':''}" onclick="setCity('${esc(c)}')">${esc(c)}</button>`).join('')}
+      </div>`:''}
       <div class="filters" style="margin-bottom:7px">
         <button class="filter-btn ${VENUE==='all'?'active':''}" onclick="setVenue('all')">📍 બધા સ્થળ</button>
         ${venueChips().map(v=>`<button class="filter-btn ${VENUE===v.key?'active':''}" onclick="setVenue('${esc(v.key)}')">${esc(v.label)} <span style="opacity:.6;font-size:10.5px">(${v.count})</span></button>`).join('')}
@@ -892,8 +898,26 @@ function venueChips(){
   });
   return Object.entries(HAATS)
     .filter(([code,h]) => h && h.open && counts[code])
+    .filter(([code,h]) => CITY==='all' || (h.cityGu||h.city||'')===CITY)
     .map(([code,h]) => ({key:code, label:h.nameGu||h.name||code, count:counts[code]}))
     .sort((a,b) => ((HAATS[a.key]&&HAATS[a.key].seqOrder)||999) - ((HAATS[b.key]&&HAATS[b.key].seqOrder)||999));
+}
+
+// V27: distinct cities among this week's active (open + submitted-to) venues, ordered by the
+// earliest seqOrder among that city's haats. City filter is presentational only — it narrows
+// which venue chips are shown; it doesn't touch item/farmer matching (VENUE still does that).
+function uniqueCities(){
+  const activeCodes = new Set();
+  ALL_ITEMS.forEach(it => (it.venues||[]).forEach(c => activeCodes.add(c)));
+  const cityOrder = new Map();
+  activeCodes.forEach(code => {
+    const h = HAATS[code];
+    if(!h || !h.open) return;
+    const cityName = h.cityGu || h.city; if(!cityName) return;
+    const ord = h.seqOrder || 999;
+    if(!cityOrder.has(cityName) || ord < cityOrder.get(cityName)) cityOrder.set(cityName, ord);
+  });
+  return [...cityOrder.entries()].sort((a,b)=>a[1]-b[1]).map(([name])=>name);
 }
 
 window.setTab = t => { TAB=t; render(); };
@@ -904,9 +928,11 @@ window.scrollToList = (tab) => {
   }, 50);
 };
 window.setVenue = v => { VENUE=v; render(); };
+// Changing city clears any venue selection that may no longer be visible under the new city.
+window.setCity = c => { CITY=c; VENUE='all'; render(); };
 window.setCat = c => { CAT=c; render(); };
 window.setQ = q => { Q=q; clearTimeout(_qTimer); _qTimer = setTimeout(()=>{ const wasFocus = document.activeElement?.id==='searchInput'; const car = wasFocus?document.activeElement.selectionStart:null; render(); if(wasFocus){ const el=document.getElementById('searchInput'); if(el){el.focus(); if(car!=null) el.setSelectionRange(car,car);}} }, 160); };
-window.resetFilters = () => { Q=''; CAT='all'; VENUE='all'; render(); };
+window.resetFilters = () => { Q=''; CAT='all'; VENUE='all'; CITY='all'; render(); };
 window.toggleFarmer = id => { if(OPEN_FARMERS.has(id)) OPEN_FARMERS.delete(id); else OPEN_FARMERS.add(id); render(); };
 
 window.shareWA = () => {
