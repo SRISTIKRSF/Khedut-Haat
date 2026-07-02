@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V40</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V41</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -951,33 +951,55 @@ function renderDashboard(){
 // "done" for a stage when ANY of their items carries that data (quantity is often filled on
 // only some items — that still means they've engaged with the stage). Tap a row to see WHO is
 // done / pending by name, so the admin knows exactly whom to chase.
+// V41: true funnel semantics — stage 1's pool is only farmers assigned to a currently-OPEN
+// haat (the rest can't submit this week, counting them just deflates the number); stage 2
+// counts among stage-1 completers; stage 3 among stage-2 completers. All numbers derive live
+// from SUBS, so "start fresh" (which archives+clears submissions) resets this automatically.
 function itemHasQty(it){
   if(!it) return false;
   if(it.qtyByHaat && typeof it.qtyByHaat === 'object'){ let t=0; Object.values(it.qtyByHaat).forEach(v=>t+=+v||0); return t>0; }
   return (+it.qty||0) > 0;
 }
 function renderHaatProgress(){
+  const openCodes = new Set(Object.entries(HAATS).filter(([c,h])=>h&&h.open).map(([c])=>c));
+  const cardShell = inner => `
+    <div class="card" style="padding:14px 18px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px">
+        <h3 style="margin:0 0 4px">હાટ પ્રગતિ — 3 તબક્કા</h3>
+        ${openCodes.size?`<span style="font-size:11.5px;color:var(--green2);font-weight:600">${openCodes.size} હાટ ઓપન</span>`:''}
+      </div>
+      ${inner}
+    </div>`;
+  if(!openCodes.size) return cardShell(`<div style="color:var(--muted);font-size:13px">હાલ કોઈ હાટ ઓપન નથી — હાટ ઓપન થાય પછી પ્રગતિ અહીં દેખાશે.</div>`);
+  const eligible = FARMERS.filter(f => Array.isArray(f.haatCodes) && f.haatCodes.some(c=>openCodes.has(c)));
+  const s1t = s => !!(s && (s.rawText || (Array.isArray(s.items)&&s.items.length>0)));
+  const s2t = s => !!(s && Array.isArray(s.items) && s.items.some(itemHasQty));
+  const s3t = s => !!(s && Array.isArray(s.items) && s.items.some(it=>it && it.qtyRemaining!=null && it.qtyRemaining!==''));
+  const split = (pool, test) => { const done=[], pending=[]; pool.forEach(f => (test(SUBS[f.id]) ? done : pending).push(f)); return {done, pending}; };
+  const st1 = split(eligible, s1t);
+  const st2 = split(st1.done, s2t);
+  const st3 = split(st2.done, s3t);
   const stages = [
-    {key:'price', icon:'💰', label:'1. ભાવ મોકલ્યા',        hint:'submission આવી ગઈ (ભાવ સાથે)', test:s => !!(s && (s.rawText || (Array.isArray(s.items)&&s.items.length>0)))},
-    {key:'qty',   icon:'🧺', label:'2. લાવેલો જથ્થો ભર્યો', hint:'હાટ પહેલા ભરવાનો',            test:s => !!(s && Array.isArray(s.items) && s.items.some(itemHasQty))},
-    {key:'baaki', icon:'📦', label:'3. બાકી જથ્થો ભર્યો',   hint:'હાટ પછી ભરવાનો',              test:s => !!(s && Array.isArray(s.items) && s.items.some(it=>it && it.qtyRemaining!=null && it.qtyRemaining!==''))},
+    {key:'price', icon:'💰', label:'1. ભાવ મોકલ્યા',        r:st1, ofLabel:'ઓપન હાટના ખેડૂતમાંથી',  hint:'submission આવી ગઈ (ભાવ સાથે)', width:100},
+    {key:'qty',   icon:'🧺', label:'2. લાવેલો જથ્થો ભર્યો', r:st2, ofLabel:'ભાવ મોકલનારામાંથી',      hint:'હાટ પહેલા ભરવાનો',            width:88},
+    {key:'baaki', icon:'📦', label:'3. બાકી જથ્થો ભર્યો',   r:st3, ofLabel:'જથ્થો ભરનારામાંથી',      hint:'હાટ પછી ભરવાનો',              width:76},
   ];
-  const total = Math.max(1, FARMERS.length);
-  const nameList = arr => arr.length ? arr.map(n=>`<div style="padding:2px 0">${esc(n)}</div>`).join('') : '<div style="color:var(--muted);padding:2px 0">—</div>';
+  const nameList = arr => arr.length ? arr.map(f=>`<div style="padding:2px 0">${esc(f.name || f.id)}</div>`).join('') : '<div style="color:var(--muted);padding:2px 0">—</div>';
   const rows = stages.map(st => {
-    const done = [], pending = [];
-    FARMERS.forEach(f => { (st.test(SUBS[f.id]) ? done : pending).push(f.name || f.id); });
-    const pct = Math.round(done.length / total * 100);
+    const done = st.r.done, pending = st.r.pending;
+    const of = done.length + pending.length;
+    const pct = of ? Math.round(done.length / of * 100) : 0;
     return `
-      <div style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px;overflow:hidden">
+      <div style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px;overflow:hidden;width:${st.width}%">
         <div onclick="toggleDashStage('${st.key}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer">
           <span style="font-size:17px">${st.icon}</span>
           <div style="flex:1;min-width:0">
             <div style="display:flex;justify-content:space-between;align-items:baseline">
               <span style="font-size:13.5px;font-weight:600">${st.label}</span>
-              <span style="font-size:13px"><b>${done.length}</b><span style="color:var(--muted)">/${FARMERS.length}</span></span>
+              <span style="font-size:13px"><b>${done.length}</b><span style="color:var(--muted)">/${of}</span></span>
             </div>
             <div style="height:6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;margin-top:5px"><div style="height:100%;width:${pct}%;background:var(--green3);border-radius:3px"></div></div>
+            <div style="font-size:10.5px;color:var(--muted);margin-top:3px">${of} ${st.ofLabel}</div>
           </div>
           <span id="dsg_${st.key}_arr" style="font-size:10px;color:#999">▶</span>
         </div>
@@ -990,12 +1012,9 @@ function renderHaatProgress(){
         </div>
       </div>`;
   }).join('');
-  return `
-    <div class="card" style="padding:14px 18px">
-      <h3 style="margin:0 0 4px">હાટ પ્રગતિ — 3 તબક્કા</h3>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">દરેક લાઇન પર tap કરો — કોણ બાકી છે તે નામ સાથે દેખાશે</div>
-      ${rows}
-    </div>`;
+  return cardShell(`
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">${eligible.length} ખેડૂત ઓપન હાટમાં · દરેક તબક્કો આગલા તબક્કામાંથી ગણાય · લાઇન પર tap કરો</div>
+      ${rows}`);
 }
 window.toggleDashStage = key => {
   const el=document.getElementById('dsg_'+key), arr=document.getElementById('dsg_'+key+'_arr');
