@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V42</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V43</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -4049,7 +4049,15 @@ async function loadReportsData(){
     const weeks = [];
     Object.entries(all).forEach(([key, w]) => {
       if(key === 'current' || !w || typeof w !== 'object') return;
-      const subs = w.submissions || {};
+      // Combine the live round with any ARCHIVED rounds. Start-fresh archives a round to
+      // _archive/{k}/submissions and clears the live list — without this, a Start-fresh'd
+      // week's data silently disappears from reports. Archived entries get a unique key
+      // (archKey:fid) so rounds never collide; farmer/product grouping dedupes downstream.
+      const subs = {};
+      Object.entries(w.submissions || {}).forEach(([fid,sb]) => { subs[fid] = sb; });
+      Object.entries(w._archive || {}).forEach(([ak, a]) => {
+        Object.entries((a && a.submissions) || {}).forEach(([fid,sb]) => { subs[ak + ':' + fid] = sb; });
+      });
       if(!Object.keys(subs).length) return;
       const meta = w.meta || {};
       weeks.push({ key, wk: meta.weekNum || key, label: (meta.dateLabel || ('Week ' + (meta.weekNum || key))), createdAt: +meta.createdAt || 0, subs });
@@ -4416,7 +4424,7 @@ function renderReports(){
   if(!weeks.length) return `<div class="card"><div class="state" style="padding:40px;text-align:center"><div class="state-icon">📊</div><div class="state-title">હજી કોઈ approved data નથી</div></div></div>`;
   const rows = (REPORT_VIEW==='month' || REPORT_VIEW==='insights') ? weeks.flatMap(w=>reportRowsFromSubs(w.subs)) : reportActiveRows();
   const tB = rows.reduce((n,r)=>n+r.brought,0), tS = rows.reduce((n,r)=>n+(r.sold||0),0), tE = rows.reduce((n,r)=>n+r.estSale,0);
-  const nF = new Set(rows.map(r=>r.fid)).size, nP = new Set(rows.map(r=>r.product)).size;
+  const nF = new Set(rows.map(r=>r.farmerKey)).size, nP = new Set(rows.map(r=>r.product)).size;
   const crops = [...new Set(rows.map(r => r.product))].sort((a,b)=>a.localeCompare(b,'gu'));
   const weekOpt = `<option value="all" ${REPORT_WEEK==='all'?'selected':''}>બધા અઠવાડિયા</option>` + weeks.map(w=>`<option value="${esc(w.key)}" ${REPORT_WEEK===w.key?'selected':''}>${esc(w.label)} (${Object.keys(w.subs).length})</option>`).join('');
   const stat = (lbl,val)=>`<div style="flex:1;min-width:90px;background:#fff;border:1px solid var(--border);border-radius:9px;padding:9px 12px"><div style="font-size:11px;color:var(--muted)">${lbl}</div><div style="font-size:19px;font-weight:800">${val}</div></div>`;
