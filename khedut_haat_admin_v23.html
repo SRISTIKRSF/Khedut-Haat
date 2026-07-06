@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V43</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V45</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -822,7 +822,7 @@ function render(){
         <button class="btn-sm" onclick="openFarmerMessage()">📤 ખેડૂત સંદેશ</button>
         <button class="btn-sm" onclick="openHaatWeekEditor()">📍 હાટ <b style="color:var(--green2)">${Object.values(HAATS).filter(h=>h.open).length}</b>/${Object.keys(HAATS).length} ઓપન</button>
         <button class="btn-sm" onclick="openWeekSettings()">⚙️ સેટિંગ્સ</button>
-        <button class="btn-sm warn" onclick="openNewWeek()">+ નવો અઠવાડિયો</button>
+        <button class="btn-sm warn" onclick="openNewWeek()">+ નવા સબમિશન</button>
       </div>
     </div>
 
@@ -1707,6 +1707,11 @@ function weekRange(d){
   const sun = new Date(mon); sun.setDate(mon.getDate()+6);
   const f = x => String(x.getDate()).padStart(2,'0')+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+x.getFullYear();
   return f(mon)+' to '+f(sun);
+}
+// Single-date label (dd-mm-yyyy) — default for the "નવા સબમિશન" haat-date field.
+function todayLabel(d){
+  d = d || new Date();
+  return String(d.getDate()).padStart(2,'0')+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+d.getFullYear();
 }
 function formatAgo(ts){
   if(!ts) return "";
@@ -3227,9 +3232,9 @@ function renderGuideFlowchart(){
           <text x="34" y="49" text-anchor="middle" font-size="17" font-weight="500" fill="#FFFFFF">9</text>
           <rect x="68" y="14" width="110" height="20" rx="10" fill="#FFFFFF"/>
           <text x="123" y="28" text-anchor="middle" font-size="11" font-weight="500" fill="#0C447C">એડમિન</text>
-          <text x="190" y="32" font-size="15" font-weight="500" fill="#0C447C">હાટ બંધ → નવો અઠવાડિયો (loop)</text>
+          <text x="190" y="32" font-size="15" font-weight="500" fill="#0C447C">હાટ બંધ → નવા સબમિશન (loop)</text>
           <text x="190" y="54" font-size="12" fill="#185FA5">📍 હાટ બટન → toggle ⚫ બંધ</text>
-          <text x="190" y="72" font-size="12" fill="#185FA5">+ નવો અઠવાડિયો → week #495 ➜ #496 → step 1 પર પાછા</text>
+          <text x="190" y="72" font-size="12" fill="#185FA5">+ નવા સબમિશન → નવો રાઉન્ડ → step 1 પર પાછા</text>
         </g>
         <path d="M 60 1115 Q 20 1115 20 700 Q 20 181 60 181" fill="none" stroke="#185FA5" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#garX)"/>
         <text x="22" y="700" text-anchor="middle" font-size="11" font-weight="500" fill="#185FA5" transform="rotate(-90, 22, 700)">દર અઠવાડિયે loop</text>
@@ -3315,11 +3320,11 @@ function renderGuideAdmin(){
         </ul>
       `)}
 
-      ${guideStep(5, 'હાટ બાદ — હાટ બંધ + નવો અઠવાડિયો', `
+      ${guideStep(5, 'હાટ બાદ — હાટ બંધ + નવા સબમિશન', `
         હાટ પૂરો થયા પછી:
         <ul style="margin:8px 0 0 22px;line-height:1.8">
           <li><b>📍 હાટ</b> ➜ તે હાટ ને ⚫ બંધ કરો — બંધ થતાં તેના products ગ્રાહક catalog માંથી તરત જ હટી જાય છે</li>
-          <li>બધા હાટ થઈ ગયા હોય તો ઉપર <b>+ નવો અઠવાડિયો</b> દબાવો — week #495 ➜ #496</li>
+          <li>પછીના હાટ માટે ઉપર <b>+ નવા સબમિશન</b> દબાવો → આવતા હાટ ની તારીખ ભરો — સ્ક્રીન ક્લીયર થાય, જૂનો ડેટા તારીખ પ્રમાણે સચવાય</li>
         </ul>
       `)}
     </div>
@@ -4049,15 +4054,17 @@ async function loadReportsData(){
     const weeks = [];
     Object.entries(all).forEach(([key, w]) => {
       if(key === 'current' || !w || typeof w !== 'object') return;
-      // Combine the live round with any ARCHIVED rounds. Start-fresh archives a round to
-      // _archive/{k}/submissions and clears the live list — without this, a Start-fresh'd
-      // week's data silently disappears from reports. Archived entries get a unique key
-      // (archKey:fid) so rounds never collide; farmer/product grouping dedupes downstream.
-      const subs = {};
-      Object.entries(w.submissions || {}).forEach(([fid,sb]) => { subs[fid] = sb; });
-      Object.entries(w._archive || {}).forEach(([ak, a]) => {
-        Object.entries((a && a.submissions) || {}).forEach(([fid,sb]) => { subs[ak + ':' + fid] = sb; });
-      });
+      // Show the CURRENT (live) round for a week. "Start fresh" archives a round to
+      // _archive/{k}/submissions and clears the live list so farmers can re-submit — so
+      // combining live+archive would DOUBLE-COUNT everyone who re-submitted (inflating
+      // farmer counts, kg and ₹). Use the live round; fall back to the most recent archive
+      // ONLY when a week was reset but never re-collected (no live round), so its data still shows.
+      let subs = w.submissions || {};
+      if(!Object.keys(subs).length){
+        const arch = w._archive || {};
+        const lastKey = w._lastArchive || Object.keys(arch).sort().pop();
+        subs = (lastKey && arch[lastKey] && arch[lastKey].submissions) || {};
+      }
       if(!Object.keys(subs).length) return;
       const meta = w.meta || {};
       weeks.push({ key, wk: meta.weekNum || key, label: (meta.dateLabel || ('Week ' + (meta.weekNum || key))), createdAt: +meta.createdAt || 0, subs });
@@ -5483,20 +5490,26 @@ window.exportExcel = async () => {
 window.openNewWeek = () => {
   modal(`
     <div class="modal-hdr">
-      <div class="modal-title">+ નવો અઠવાડિયો ખોલો</div>
+      <div class="modal-title">+ નવા સબમિશન</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
       <div class="notice">
-        ${weekRange()} બંધ થશે અને નવા અઠવાડિયા માટે સ્ક્રીન ક્લીયર થશે. જૂનો ડેટા સચવાઈ રહેશે. નવા અઠવાડિયા માટેના સબમીશન ચાલુ થશે.
+        નવા હાટ માટે સ્ક્રીન ક્લીયર થશે અને બધા ખેડૂત ફરી PENDING થશે. જૂનો ડેટા (તારીખ પ્રમાણે) સચવાઈ રહેશે.
       </div>
       <div class="frm">
-        <button class="btn-primary" onclick="confirmNewWeek()">✓ નવો અઠવાડિયો ખોલો</button>
+        <div style="font-size:12.5px;font-weight:600;margin-bottom:4px">📅 આ હાટ ની તારીખ</div>
+        <input class="frm-in" id="nwDate" placeholder="09-07-2026" value="${esc(todayLabel())}">
+        <div style="font-size:11.5px;color:var(--muted);margin:3px 0 12px">રિપોર્ટમાં આ સબમિશન આ તારીખ હેઠળ દેખાશે.</div>
+        <button class="btn-primary" onclick="confirmNewWeek()">✓ નવા સબમિશન શરૂ કરો</button>
       </div>
     </div>
   `);
 };
 window.confirmNewWeek = async () => {
+  // The report groups a round under this date label, so ask for the haat date
+  // (falls back to today if left blank — never empty).
+  const dateLabel = ($('#nwDate') && $('#nwDate').value.trim()) || todayLabel();
   // Derive the next week number robustly. The current key may be a non-numeric
   // label like "test_probe", so fall back to the editable meta.weekNum rather
   // than parseInt-ing the key (which yields NaN and crashed the advance).
@@ -5504,12 +5517,12 @@ window.confirmNewWeek = async () => {
   if(!Number.isFinite(base)) base = parseInt((WK_META&&WK_META.weekNum),10);
   if(!Number.isFinite(base)) base = 0;
   const nx = base + 1;
-  await fbRef('weekly/'+nx+'/meta').set({weekNum:nx, dateLabel:weekRange(), timeLabel:"7–10 AM", frozen:false, createdAt:Date.now()});
+  await fbRef('weekly/'+nx+'/meta').set({weekNum:nx, dateLabel:dateLabel, timeLabel:"7–10 AM", frozen:false, createdAt:Date.now()});
   await fbRef('weekly/current').set(nx);
   // Freeze the old week LAST — only after the new week exists and is current,
   // so a failure can never leave the old week closed with no replacement.
   await fbRef('weekly/'+WK+'/meta').update({frozen:true});
-  closeModal(); toast("નવો અઠવાડિયો ખુલ્યો","ok"); await loadAll();
+  closeModal(); toast("નવા સબમિશન શરૂ થયા","ok"); await loadAll();
 };
 
 function buildCustomerMessage(){
