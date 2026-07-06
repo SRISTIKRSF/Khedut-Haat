@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V46</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V47</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1386,11 +1386,13 @@ window.toggleFarmerHaat = (code) => {
   else { FARMER_HAATS.has(code)?FARMER_HAATS.delete(code):FARMER_HAATS.add(code); }
   setTabBodyHtml();
 };
-// ── V46: price anomaly detection ──
-// vs the farmer's OWN last week: flag at ±25%. vs OTHER farmers' typical price: flag only at
-// ≥3× or ≤⅓ (cross-farmer spread is legitimately wide, so only a big mismatch signals a typo).
+// ── V46/V47: price anomaly detection ──
+// vs the farmer's OWN last week: flag at ±25% (unambiguous — comparing a farmer to themselves).
+// vs OTHER farmers: flag ONLY at an order-of-magnitude gap (~7×+ / ~⅐, a dropped/added zero).
+// A 2–3× spread between farmers is legitimate and the median can't say who's right, so we don't
+// flag those — only a gap so large that SOMEONE clearly has a zero wrong.
 const PRICE_FLAG_PCT = 25;
-const CROSS_FARMER_MULT = 3;
+const ORDER_OF_MAG = 6.5;
 function itemEffPrice(it){
   const base = +it.price||0;
   if(base>0) return base;
@@ -1433,12 +1435,12 @@ function priceFlagFor(it, fid){
   if(!b) return {level:'none'};
   const pct = Math.round((price - b.price)/b.price*100);
   const ratio = price / b.price;
+  const orderOfMag = (ratio <= 1/ORDER_OF_MAG || ratio >= ORDER_OF_MAG);   // ~10× — a dropped/added zero
   const hit = (b.src === 'farmer')
-    ? (Math.abs(pct) >= PRICE_FLAG_PCT)                               // own last week: ±25%
-    : (ratio <= 1/CROSS_FARMER_MULT || ratio >= CROSS_FARMER_MULT);   // other farmers: 3× / ⅓
+    ? (Math.abs(pct) >= PRICE_FLAG_PCT)   // own last week: ±25%
+    : orderOfMag;                          // other farmers: ONLY an order-of-magnitude gap
   if(!hit) return {level:'none'};
-  const missingZero = (ratio<=0.15 || ratio>=6.5);   // ~10× / ~⅒ — classic dropped/extra zero → stronger hint
-  return {level: missingZero?'severe':'warn', baseline:b.price, price, pct, ratio, missingZero, src:b.src, unit:it.unit||''};
+  return {level: orderOfMag?'severe':'warn', baseline:b.price, price, pct, ratio, missingZero:orderOfMag, src:b.src, unit:it.unit||''};
 }
 function priceFlagMsg(pf){
   const ref = pf.src==='farmer' ? `ગયા હાટે ₹${pf.baseline}` : `બીજા ખેડૂતોનો ભાવ ~₹${pf.baseline}`;
@@ -1856,7 +1858,7 @@ function formatAgo(ts){
 window.approveSubmission = async (fid) => {
   if(_busy) return;
   const flags = subFlagCount(fid);   // V46: block on suspicious prices until acknowledged
-  if(flags>0 && !(await asyncConfirm(`${flags} ભાવ શંકાસ્પદ છે (ગયા હાટ કરતાં ±25% કે બીજા ખેડૂત કરતાં 3 ગણો ફરક). છતાં approve કરવું છે?`, 'હા, approve કરો', 'ના, તપાસું'))) return;
+  if(flags>0 && !(await asyncConfirm(`${flags} ભાવ શંકાસ્પદ છે (ગયા હાટ કરતાં ±25% કે બીજા ખેડૂત કરતાં ~10 ગણો ફરક). છતાં approve કરવું છે?`, 'હા, approve કરો', 'ના, તપાસું'))) return;
   if(_busy) return; _busy = true;
   try{
     await fbRef('weekly/'+WK+'/submissions/'+fid).update({
