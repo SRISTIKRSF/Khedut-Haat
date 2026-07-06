@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V50</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V51</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <link rel="icon" type="image/jpeg" href="sristi-logo.jpg">
 <meta property="og:type" content="website">
@@ -396,7 +396,7 @@ async function init(){
 function trackCatalogView(){
   try{
     const inc = firebase.database.ServerValue.increment(1);
-    const today = new Date().toISOString().slice(0,10);
+    const today = new Date(Date.now() + 330*60000).toISOString().slice(0,10);  // IST date (UTC+5:30) — day rolls over at IST midnight, not UTC
     let dev = '';
     try{
       dev = localStorage.getItem('kh_device_id') || '';

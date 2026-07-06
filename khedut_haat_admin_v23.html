@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V50</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V51</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1204,6 +1204,11 @@ window.openCustomerViews = async () => {
   if(body) body.innerHTML = renderCatalogStatsCard();
 };
 
+// IST (UTC+5:30) calendar date for a timestamp — customer views are bucketed by IST day.
+function istDate(ms){ return new Date((ms==null?Date.now():ms) + 330*60000).toISOString().slice(0,10); }
+// Weekday index (0=Sun) for a plain YYYY-MM-DD, independent of the admin's own timezone.
+function dowUTC(d){ return new Date(d+'T00:00:00Z').getUTCDay(); }
+
 // V49: Customer Views → Excel (Daily + Weekly + Summary). Reuses the shared SheetJS loader.
 window.exportCustomerViewsExcel = async () => {
   toast("📊 Excel તૈયાર થાય છે…","ok");
@@ -1217,7 +1222,7 @@ window.exportCustomerViewsExcel = async () => {
     // Devices grouped by their LAST-seen date (the data only keeps last visit per device,
     // so this approximates daily-unique; the per-date sum equals total unique devices).
     const devByDate = {};
-    Object.values(devs).forEach(ts=>{ if(typeof ts==='number' && ts>0){ const k=new Date(ts).toISOString().slice(0,10); devByDate[k]=(devByDate[k]||0)+1; } });
+    Object.values(devs).forEach(ts=>{ if(typeof ts==='number' && ts>0){ const k=istDate(ts); devByDate[k]=(devByDate[k]||0)+1; } });
     const WD=['રવિ','સોમ','મંગળ','બુધ','ગુરુ','શુક્ર','શનિ'];
     const dates=[...new Set([...Object.keys(byDate),...Object.keys(devByDate),...Object.keys(dd)])].sort();
     // Daily-unique + running cumulative from the accurate per-day device sets (dailyDevices).
@@ -1229,7 +1234,7 @@ window.exportCustomerViewsExcel = async () => {
       if(set){ set.forEach(k=>seen.add(k)); dU=set.length; cU=seen.size; }
       return {
         'તારીખ': d,
-        'વાર': (WD[new Date(d+'T00:00:00').getDay()]||''),
+        'વાર': (WD[dowUTC(d)]||''),
         'Daily clicks': +(byDate[d]||0),
         'Daily unique visitors': dU,
         'Cumulative unique': cU,
@@ -1249,32 +1254,31 @@ window.exportCustomerViewsExcel = async () => {
       {'Metric':'સરેરાશ clicks/day','Value':daysTracked?Math.round(totalViews/daysTracked*10)/10:0},
       {'Metric':'સૌથી વધુ clicks (દિવસ)','Value':peak?(peak+' — '+(byDate[peak]||0)):'—'},
       {'Metric':'Daily-unique tracking from','Value':ddStart},
-      {'Metric':'Export','Value':new Date().toISOString().slice(0,19).replace('T',' ')}
+      {'Metric':'Export','Value':new Date(Date.now()+330*60000).toISOString().slice(0,19).replace('T',' ')+' IST'}
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Summary');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(daily), 'Daily');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(weekly), 'Weekly');
-    XLSX.writeFile(wb, 'khedut-haat-customer-views-'+new Date().toISOString().slice(0,10)+'.xlsx');
+    XLSX.writeFile(wb, 'khedut-haat-customer-views-'+istDate()+'.xlsx');
     toast(`✅ Excel downloaded — ${daily.length} days · ${totalViews} views`,"ok");
   }catch(e){ console.error(e); toast("Excel નિષ્ફળ: "+(e.message||e),"err"); }
 };
 
 function renderCatalogStatsCard(){
   const s = CATALOG_STATS || {};
-  const today = new Date().toISOString().slice(0,10);
+  const today = istDate();
   const todayCount = +(s.byDate?.[today] || 0);
   const weekCount = +(s.byWeek?.[WK] || 0);
   const totalCount = +(s.totalViews || 0);
   const uniqueCount = +(s.uniqueDevicesCount || 0);
 
-  // Last 7 days
+  // Last 7 days (IST)
   const last7 = [];
+  const istMs = Date.now() + 330*60000;
   for(let i=6;i>=0;i--){
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0,10);
-    last7.push({date:key, count: +(s.byDate?.[key]||0), label: ['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()]});
+    const key = new Date(istMs - i*86400000).toISOString().slice(0,10);
+    last7.push({date:key, count: +(s.byDate?.[key]||0), label: ['Su','Mo','Tu','We','Th','Fr','Sa'][dowUTC(key)]});
   }
   const maxC = Math.max(1, ...last7.map(d=>d.count));
 
