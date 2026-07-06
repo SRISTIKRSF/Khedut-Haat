@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V48</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V49</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1204,6 +1204,50 @@ window.openCustomerViews = async () => {
   if(body) body.innerHTML = renderCatalogStatsCard();
 };
 
+// V49: Customer Views → Excel (Daily + Weekly + Summary). Reuses the shared SheetJS loader.
+window.exportCustomerViewsExcel = async () => {
+  toast("📊 Excel તૈયાર થાય છે…","ok");
+  try{
+    if(!_xlsxLib) _xlsxLib = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+    const XLSX = _xlsxLib;
+    const cs = (await fbRef('catalogViews').get()).val() || {};
+    const byDate = cs.byDate || {}, byWeek = cs.byWeek || {}, devs = cs.uniqueDevices || {};
+    const totalViews = +cs.totalViews || 0;
+    const uniqueDevices = Object.keys(devs).length;
+    // Devices grouped by their LAST-seen date (the data only keeps last visit per device,
+    // so this approximates daily-unique; the per-date sum equals total unique devices).
+    const devByDate = {};
+    Object.values(devs).forEach(ts=>{ if(typeof ts==='number' && ts>0){ const k=new Date(ts).toISOString().slice(0,10); devByDate[k]=(devByDate[k]||0)+1; } });
+    const WD=['રવિ','સોમ','મંગળ','બુધ','ગુરુ','શુક્ર','શનિ'];
+    const dates=[...new Set([...Object.keys(byDate),...Object.keys(devByDate)])].sort();
+    const daily = dates.map(d=>({
+      'તારીખ': d,
+      'વાર': (WD[new Date(d+'T00:00:00').getDay()]||''),
+      'Views': +(byDate[d]||0),
+      'Unique devices (last visit)': +(devByDate[d]||0)
+    }));
+    const weekly = Object.keys(byWeek).sort((a,b)=>(+a||0)-(+b||0)).map(w=>({'અઠવાડિયું':w,'Views':+(byWeek[w]||0)}));
+    const peak = dates.reduce((b,d)=>(+(byDate[d]||0)>+(byDate[b]||0)?d:b), dates[0]||'');
+    const daysTracked = Object.keys(byDate).length;
+    const summary = [
+      {'Metric':'કુલ Views','Value':totalViews},
+      {'Metric':'કુલ Unique devices','Value':uniqueDevices},
+      {'Metric':'પહેલી તારીખ','Value':dates[0]||'—'},
+      {'Metric':'છેલ્લી તારીખ','Value':dates[dates.length-1]||'—'},
+      {'Metric':'Days tracked','Value':daysTracked},
+      {'Metric':'સરેરાશ Views/day','Value':daysTracked?Math.round(totalViews/daysTracked*10)/10:0},
+      {'Metric':'સૌથી વધુ (દિવસ)','Value':peak?(peak+' — '+(byDate[peak]||0)+' views'):'—'},
+      {'Metric':'Export','Value':new Date().toISOString().slice(0,19).replace('T',' ')}
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Summary');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(daily), 'Daily');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(weekly), 'Weekly');
+    XLSX.writeFile(wb, 'khedut-haat-customer-views-'+new Date().toISOString().slice(0,10)+'.xlsx');
+    toast(`✅ Excel downloaded — ${daily.length} days · ${totalViews} views`,"ok");
+  }catch(e){ console.error(e); toast("Excel નિષ્ફળ: "+(e.message||e),"err"); }
+};
+
 function renderCatalogStatsCard(){
   const s = CATALOG_STATS || {};
   const today = new Date().toISOString().slice(0,10);
@@ -1226,7 +1270,10 @@ function renderCatalogStatsCard(){
     <div class="card" style="padding:16px 18px;margin-bottom:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <h3 style="margin:0">📊 Customer Catalog Views</h3>
-        <span style="font-size:11.5px;color:var(--muted)">Live tracking</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn-sm" onclick="exportCustomerViewsExcel()" title="Date-wise views + unique devices → Excel">📊 Excel</button>
+          <span style="font-size:11.5px;color:var(--muted)">Live tracking</span>
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">
         <div style="background:var(--green-pale);padding:12px 14px;border-radius:10px">
