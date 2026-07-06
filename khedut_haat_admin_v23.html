@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V52</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V53</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -197,6 +197,25 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .modal-title{font-family:"Fraunces",serif;font-size:18px;font-weight:700;color:var(--green)}
 .modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);width:34px;height:34px;border-radius:50%;font-family:inherit}
 .modal-body{padding:16px 18px;overflow-y:auto;flex:1}
+
+/* V53: tab-bar group segments — "આ અઠવાડિયું" vs "માસ્ટર" vs "અન્ય", distinguishable at a glance.
+   Tabs themselves (onclick/classes/badges) are untouched — only wrapped in tinted segments.
+   Uniform spacing: every group margin 6px 4px · padding 3px · gap 3px; labels sized like tabs. */
+.tab-group{display:flex;align-items:center;gap:3px;border-radius:11px;margin:6px 4px;padding:3px;flex-shrink:0}
+.tg-week{background:#eef8f0;border:1px solid #d5ecdb}
+.tg-master{background:#fdf4e7;border:1px solid #f3e2c8}
+.tg-more{background:#eef4fb;border:1px solid #d7e4f4}
+.tab-group-label{font-size:14px;font-weight:700;padding:6px 13px;border-radius:9px;margin:0 2px;flex-shrink:0;white-space:nowrap}
+.tgl-week{background:var(--green2);color:#fff}
+.tgl-master{background:var(--orange);color:#fff}
+.tgl-more{background:#2563eb;color:#fff}
+.tab-group .tab{margin-bottom:0;border-bottom:none;border-radius:8px;padding:9px 14px;font-size:14px}
+.tab-group .tab:hover{background:rgba(255,255,255,.75);color:var(--green)}
+.tab-group .tab.active{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.10);color:var(--green2)}
+.tg-master .tab.active{color:#b25510}
+.tg-master .tab:hover{color:#b25510}
+.tg-more .tab.active{color:#1d4ed8}
+.tg-more .tab:hover{color:#1d4ed8}
 </style>
 </head>
 <body>
@@ -828,19 +847,24 @@ function render(){
 
     <div class="tab-loading" id="tabLoading"></div>
     <div class="tabs" style="gap:0;align-items:center" role="tablist" aria-label="Admin sections">
-      <div style="padding:0 8px 0 12px;font-size:9.5px;color:#888;font-weight:700;letter-spacing:.6px;text-transform:uppercase;flex-shrink:0" aria-hidden="true">આ અઠવાડિયું</div>
-      <button class="tab ${TAB==='dashboard'?'active':''}" onclick="setTab('dashboard')" role="tab" aria-selected="${TAB==='dashboard'}" aria-controls="tabBody">📊 ડેશબોર્ડ</button>
-      <button class="tab ${TAB==='review'?'active':''}" onclick="setTab('review')" role="tab" aria-selected="${TAB==='review'}" aria-controls="tabBody">✅ સમીક્ષા ${pendingReviewCount()>0?`<span class="badge">${pendingReviewCount()}</span>`:''}</button>
-      <button class="tab ${TAB==='summary'?'active':''}" onclick="setTab('summary')" role="tab" aria-selected="${TAB==='summary'}" aria-controls="tabBody">📊 સારાંશ</button>
-      <div style="width:1px;height:22px;background:#e8e0d0;margin:0 8px;flex-shrink:0" aria-hidden="true"></div>
-      <div style="padding:0 8px;font-size:9.5px;color:#888;font-weight:700;letter-spacing:.6px;text-transform:uppercase;flex-shrink:0" aria-hidden="true">મેનેજ</div>
-      <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')" role="tab" aria-selected="${TAB==='farmers'}" aria-controls="tabBody">🌾 ખેડૂત <span class="badge">${pendingTab}</span></button>
-      <button class="tab ${TAB==='haats'?'active':''}" onclick="setTab('haats')" role="tab" aria-selected="${TAB==='haats'}" aria-controls="tabBody">📍 હાટ</button>
-      <button class="tab ${TAB==='products'?'active':''}" onclick="setTab('products')" role="tab" aria-selected="${TAB==='products'}" aria-controls="tabBody">📦 પ્રોડક્ટ</button>
-      <button class="tab ${TAB==='design'?'active':''}" onclick="setTab('design')" role="tab" aria-selected="${TAB==='design'}" aria-controls="tabBody">🎨 ડિઝાઇન</button>
-      <div style="width:1px;height:22px;background:#e8e0d0;margin:0 8px;flex-shrink:0" aria-hidden="true"></div>
-      <button class="tab ${TAB==='reports'?'active':''}" onclick="setTab('reports')" role="tab" aria-selected="${TAB==='reports'}" aria-controls="tabBody">📊 રિપોર્ટ</button>
-      <button class="tab ${TAB==='guide'?'active':''}" onclick="setTab('guide')" role="tab" aria-selected="${TAB==='guide'}" aria-controls="tabBody">📖 માર્ગદર્શન</button>
+      <div class="tab-group tg-week">
+        <span class="tab-group-label tgl-week" aria-hidden="true">આ અઠવાડિયું</span>
+        <button class="tab ${TAB==='dashboard'?'active':''}" onclick="setTab('dashboard')" role="tab" aria-selected="${TAB==='dashboard'}" aria-controls="tabBody">📊 ડેશબોર્ડ</button>
+        <button class="tab ${TAB==='review'?'active':''}" onclick="setTab('review')" role="tab" aria-selected="${TAB==='review'}" aria-controls="tabBody">✅ સમીક્ષા ${pendingReviewCount()>0?`<span class="badge">${pendingReviewCount()}</span>`:''}</button>
+        <button class="tab ${TAB==='summary'?'active':''}" onclick="setTab('summary')" role="tab" aria-selected="${TAB==='summary'}" aria-controls="tabBody">📊 સારાંશ</button>
+      </div>
+      <div class="tab-group tg-master">
+        <span class="tab-group-label tgl-master" aria-hidden="true">માસ્ટર</span>
+        <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')" role="tab" aria-selected="${TAB==='farmers'}" aria-controls="tabBody">🌾 ખેડૂત <span class="badge">${pendingTab}</span></button>
+        <button class="tab ${TAB==='haats'?'active':''}" onclick="setTab('haats')" role="tab" aria-selected="${TAB==='haats'}" aria-controls="tabBody">📍 હાટ</button>
+        <button class="tab ${TAB==='products'?'active':''}" onclick="setTab('products')" role="tab" aria-selected="${TAB==='products'}" aria-controls="tabBody">📦 પ્રોડક્ટ</button>
+        <button class="tab ${TAB==='design'?'active':''}" onclick="setTab('design')" role="tab" aria-selected="${TAB==='design'}" aria-controls="tabBody">🎨 ડિઝાઇન</button>
+      </div>
+      <div class="tab-group tg-more">
+        <span class="tab-group-label tgl-more" aria-hidden="true">અન્ય</span>
+        <button class="tab ${TAB==='reports'?'active':''}" onclick="setTab('reports')" role="tab" aria-selected="${TAB==='reports'}" aria-controls="tabBody">📊 રિપોર્ટ</button>
+        <button class="tab ${TAB==='guide'?'active':''}" onclick="setTab('guide')" role="tab" aria-selected="${TAB==='guide'}" aria-controls="tabBody">📖 માર્ગદર્શન</button>
+      </div>
     </div>
 
     <div class="body tab-fade" id="tabBody">${renderTab()}</div>
