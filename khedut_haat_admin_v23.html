@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V45</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V46</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1386,6 +1386,79 @@ window.toggleFarmerHaat = (code) => {
   else { FARMER_HAATS.has(code)?FARMER_HAATS.delete(code):FARMER_HAATS.add(code); }
   setTabBodyHtml();
 };
+// ── V46: price anomaly detection ──
+// vs the farmer's OWN last week: flag at ±25%. vs OTHER farmers' typical price: flag only at
+// ≥3× or ≤⅓ (cross-farmer spread is legitimately wide, so only a big mismatch signals a typo).
+const PRICE_FLAG_PCT = 25;
+const CROSS_FARMER_MULT = 3;
+function itemEffPrice(it){
+  const base = +it.price||0;
+  if(base>0) return base;
+  const pbh = it.priceByHaat||{};
+  const ps = Object.values(pbh).map(x=>+x||0).filter(x=>x>0);
+  return ps.length ? Math.min(...ps) : 0;
+}
+function medianPriceForName(subsMap, name, excludeFid){
+  const ps=[];
+  Object.entries(subsMap||{}).forEach(([id,s])=>{
+    if(id===excludeFid) return;
+    if(!s || s.status==='rejected' || !Array.isArray(s.items)) return;
+    s.items.forEach(it=>{ if(it && it.name===name){ const p=itemEffPrice(it); if(p>0) ps.push(p); } });
+  });
+  if(!ps.length) return 0;
+  ps.sort((a,b)=>a-b);
+  const m=Math.floor(ps.length/2);
+  return ps.length%2 ? ps[m] : Math.round((ps[m-1]+ps[m])/2);
+}
+function priceBaseline(name, fid){
+  // 1. same farmer's last-week price (only if that submission was approved/pending)
+  const pw = PREV_SUBS[fid];
+  const okPw = pw && (pw.status==='approved' || pw.status==='pending' || !pw.status);
+  const lw = (okPw && Array.isArray(pw.items)) ? pw.items.find(x=>x && x.name===name) : null;
+  const lwp = lw ? itemEffPrice(lw) : 0;
+  if(lwp>0) return {price:lwp, src:'farmer'};
+  // 2. typical (median) price for this product across ALL farmers last week
+  const m2 = medianPriceForName(PREV_SUBS, name, null);
+  if(m2>0) return {price:m2, src:'week'};
+  // 3. typical price across OTHER farmers this week (first-week / new-farmer safety net)
+  const m3 = medianPriceForName(SUBS, name, fid);
+  if(m3>0) return {price:m3, src:'peers'};
+  return null;
+}
+function priceFlagFor(it, fid){
+  if(!it) return {level:'none'};
+  const price = itemEffPrice(it);
+  if(price<=0) return {level:'none'};
+  const b = priceBaseline(it.name, fid);
+  if(!b) return {level:'none'};
+  const pct = Math.round((price - b.price)/b.price*100);
+  const ratio = price / b.price;
+  const hit = (b.src === 'farmer')
+    ? (Math.abs(pct) >= PRICE_FLAG_PCT)                               // own last week: ±25%
+    : (ratio <= 1/CROSS_FARMER_MULT || ratio >= CROSS_FARMER_MULT);   // other farmers: 3× / ⅓
+  if(!hit) return {level:'none'};
+  const missingZero = (ratio<=0.15 || ratio>=6.5);   // ~10× / ~⅒ — classic dropped/extra zero → stronger hint
+  return {level: missingZero?'severe':'warn', baseline:b.price, price, pct, ratio, missingZero, src:b.src, unit:it.unit||''};
+}
+function priceFlagMsg(pf){
+  const ref = pf.src==='farmer' ? `ગયા હાટે ₹${pf.baseline}` : `બીજા ખેડૂતોનો ભાવ ~₹${pf.baseline}`;
+  const dir = pf.pct<0 ? `${Math.abs(pf.pct)}% ઓછું` : `${pf.pct}% વધુ`;
+  const zero = pf.missingZero ? (pf.pct<0 ? ' · શું છેલ્લો 0 છૂટી ગયો?' : ' · એક 0 વધારે તો નથી?') : '';
+  return `${ref} → અત્યારે ₹${pf.price} · ${dir}${zero}. તપાસો.`;
+}
+function subFlagCount(fid){
+  const items = (SUBS[fid] && Array.isArray(SUBS[fid].items)) ? SUBS[fid].items : [];
+  return items.reduce((n,it)=> n + (priceFlagFor(it, fid).level!=='none'?1:0), 0);
+}
+function collectFlaggedItems(){
+  const out=[];
+  Object.keys(SUBS).forEach(fid=>{
+    const s=SUBS[fid]; if(!s || s.status==='rejected' || !Array.isArray(s.items)) return;
+    s.items.forEach((it,idx)=>{ const pf=priceFlagFor(it,fid); if(pf.level!=='none') out.push({fid,idx,it,pf,name:s.farmerName||fid,status:s.status||'approved'}); });
+  });
+  return out;
+}
+
 let REVIEW_FILTER = 'pending';
 function renderReview(){
   const subKeys = Object.keys(SUBS);
@@ -1406,27 +1479,33 @@ function renderReview(){
   // V13: per-haat counts for the active status; tiles keep FULL counts, list is haat-filtered
   const activeFull = REVIEW_FILTER==='approved'?approvedIds:REVIEW_FILTER==='rejected'?rejectedIds:REVIEW_FILTER==='notyet'?notYetIds:pendingIds;
   const hCounts = haatCountsFromIds(activeFull);
+  const flaggedItems = collectFlaggedItems();   // V46: suspicious prices across all farmers
 
   return `
     <div class="dash">
       ${tile('pending','⏳','Pending', pendingIds.length, 'var(--orange-pale)', 'var(--orange)', 'var(--orange)', 'સમીક્ષા બાકી')}
       ${tile('approved','✓','Approved', approvedIds.length, 'var(--green-pale)', 'var(--green2)', 'var(--green2)', 'લાઈવ catalog માં')}
       ${tile('rejected','✗','Rejected', rejectedIds.length, 'var(--red-pale)', 'var(--red)', 'var(--red)', 'નકારેલા')}
+      ${tile('flagged','⚠️','તપાસ', flaggedItems.length, '#fdeaea', 'var(--red)', 'var(--red)', 'ભાવ મેળ ખાતો નથી')}
       ${tile('notyet','⊘','Not yet', notYetIds.length, '#fff', 'var(--border)', 'var(--text)', 'હજી મોકલી નથી')}
     </div>
 
-    ${haatFilterRow(REVIEW_HAATS, 'toggleReviewHaat', hCounts)}
+    ${REVIEW_FILTER==='flagged' ? '' : haatFilterRow(REVIEW_HAATS, 'toggleReviewHaat', hCounts)}
 
     ${renderReviewListByFilter({
       pendingIds: filterIdsByHaats(pendingIds, REVIEW_HAATS),
       approvedIds: filterIdsByHaats(approvedIds, REVIEW_HAATS),
       rejectedIds: filterIdsByHaats(rejectedIds, REVIEW_HAATS),
-      notYetIds: filterIdsByHaats(notYetIds, REVIEW_HAATS)
+      notYetIds: filterIdsByHaats(notYetIds, REVIEW_HAATS),
+      flaggedItems
     })}
   `;
 }
 
-function renderReviewListByFilter({pendingIds, approvedIds, rejectedIds, notYetIds}){
+function renderReviewListByFilter({pendingIds, approvedIds, rejectedIds, notYetIds, flaggedItems}){
+  if(REVIEW_FILTER === 'flagged'){
+    return reviewFlaggedList(flaggedItems || []);
+  }
   if(REVIEW_FILTER === 'pending'){
     if(pendingIds.length === 0){
       return `<div class="card" style="text-align:center;padding:30px 20px">
@@ -1460,6 +1539,33 @@ function renderReviewListByFilter({pendingIds, approvedIds, rejectedIds, notYetI
 
 function emptyReviewState(label){
   return `<div class="card" style="text-align:center;padding:30px 20px"><div style="font-size:42px;margin-bottom:8px">📭</div><h3>કોઈ ${label} submissions નથી</h3></div>`;
+}
+
+// V46: flat list of every suspicious price (pending + approved), each with a quick fix
+function reviewFlaggedList(list){
+  if(!list.length){
+    return `<div class="card" style="text-align:center;padding:30px 20px">
+      <div style="font-size:44px;margin-bottom:8px">✅</div>
+      <h3>કોઈ શંકાસ્પદ ભાવ નથી</h3>
+      <div class="card-sub" style="margin:0">બધા ભાવ ગયા હાટ/બીજા ખેડૂત જેવા છે.</div>
+    </div>`;
+  }
+  const rows = list.map(x=>{
+    const sev = x.pf.level==='severe';
+    const col = sev ? 'var(--red)' : '#9a6a00';
+    return `<div style="padding:11px 16px;border-bottom:1px solid var(--border);background:${sev?'#fdeaea':'#fbf3e2'}">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="flex:1;min-width:0"><b>${esc(x.it.name)}</b> <span style="font-size:11.5px;color:var(--muted)">${esc(x.name)}${x.status==='approved'?' · ✓ approved':''}</span></div>
+        <span style="font-weight:700;color:${col};flex-shrink:0">₹${x.pf.price}</span>
+        <button class="btn-sm" style="padding:3px 10px;font-size:11.5px;flex-shrink:0" onclick="fixItemPrice('${esc(x.fid)}',${x.idx})">✏️ સુધારો</button>
+      </div>
+      <div style="font-size:11.5px;color:${col};margin-top:4px">⚠️ ${esc(priceFlagMsg(x.pf))}</div>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:13px 18px;font-size:15px;font-weight:700;border-bottom:1px solid var(--border);background:var(--bg)">⚠️ તપાસ જરૂરી — ${list.length} ભાવ</div>
+    ${rows}
+  </div>`;
 }
 
 function reviewCompactList(ids, statusLabel, statusColor){
@@ -1575,7 +1681,8 @@ function renderReviewCard(fid){
   const lastWkByName = new Map(lastWkItems.map(it => [it.name, {price: +it.price||0, qty: +it.qty||0}]));
 
   // Per-item rows — compact one-line; multi-haat products collapse, expanding to per-haat detail.
-  const itemRows = items.map(it => {
+  let flagCount = 0;
+  const itemRows = items.map((it, idx) => {
     const lw = lastWkByName.get(it.name);
     const unit = esc(it.unit || '');
     const qtyUnit = esc(it.qtyUnit || it.unit || '');
@@ -1584,6 +1691,10 @@ function renderReviewCard(fid){
     const codes = [...new Set([...Object.keys(qbh), ...Object.keys(pbh)])].filter(c => (+qbh[c] > 0) || (+pbh[c] > 0));
     const isMulti = codes.length > 1;
     const totalQty = Object.keys(qbh).length ? Object.values(qbh).reduce((s,v) => s + (+v||0), 0) : (+it.qty||0);
+
+    const pf = priceFlagFor(it, fid);           // V46: price sanity vs baseline
+    const flagged = pf.level !== 'none';
+    if(flagged) flagCount++;
 
     // Price: single, or a min–max range when per-haat prices differ
     let priceStr;
@@ -1595,9 +1706,11 @@ function renderReviewCard(fid){
       priceStr = `₹${esc(it.price)}`;
     }
 
-    // Status badge (vs last week): NEW, or ↑/↓ % change
+    // Status badge (vs last week): NEW, or ↑/↓ % — suppressed when the anomaly box takes over
     let badge = '';
-    if(!lw){
+    if(flagged){
+      badge = '';
+    } else if(!lw){
       badge = `<span class="rv-chip" style="color:var(--green2);background:var(--green-pale);font-weight:600">NEW</span>`;
     } else if(lw.price > 0 && +it.price > 0 && +it.price !== lw.price){
       const diff = +it.price - lw.price, pct = Math.round(diff / lw.price * 100), big = Math.abs(pct) >= 30;
@@ -1613,21 +1726,36 @@ function renderReviewCard(fid){
     const priceCell = `<span class="rv-amt">${priceStr}</span><span class="rv-unt">/${unit}</span>`;
     const head = `<span style="font-size:15px">${esc(it.emoji||'🌿')}</span><span class="rv-nm">${esc(it.name)}${flag}</span><span class="rv-cat">${esc(it.cat||'')}</span>`;
 
+    let rowInner;
     if(!isMulti){
       const qtyChip = totalQty > 0
         ? `<span class="rv-chip" style="color:var(--green2);background:var(--green-pale)">${totalQty} ${qtyUnit}</span>`
         : `<span class="rv-chip" style="color:var(--orange);background:#fbe9dd">જથ્થો નથી</span>`;
-      return `<div class="rv-row" style="border-bottom:1px solid var(--border)">${head}${qtyChip}${badge}<span style="flex:1"></span>${priceCell}<span style="width:14px;flex-shrink:0"></span></div>`;
+      rowInner = `<div class="rv-row"${flagged?'':' style="border-bottom:1px solid var(--border)"'}>${head}${qtyChip}${badge}<span style="flex:1"></span>${priceCell}<span style="width:14px;flex-shrink:0"></span></div>`;
+    } else {
+      // Multi-haat → collapsible: summary one-liner, expand for per-haat price + qty
+      const totalChip = `<span class="rv-chip" style="color:var(--muted);background:#f2f0ea">${codes.length} હાટ · ${totalQty>0?`${totalQty} ${qtyUnit}`:'જથ્થો નથી'}</span>`;
+      const det = codes.map(c => {
+        const nm = HAATS[c]?.nameGu || HAATS[c]?.name || c;
+        const q = +qbh[c] || 0, p = +pbh[c] || +it.price || 0;
+        return `<div class="dr"><span style="width:108px;color:var(--muted)">📍 ${esc(nm)}</span><span style="width:100px;color:var(--orange);font-weight:600">₹${p}/${unit}</span><span style="color:var(--green2)">${q?`${q} ${qtyUnit}`:'—'}</span></div>`;
+      }).join('');
+      rowInner = `<details class="rv-d"${flagged?'':' style="border-bottom:1px solid var(--border)"'}><summary class="rv-row">${head}${totalChip}${badge}<span style="flex:1"></span>${priceCell}<span class="rv-chev">▸</span></summary><div class="rv-det">${det}</div></details>`;
     }
 
-    // Multi-haat → collapsible: summary one-liner, expand for per-haat price + qty
-    const totalChip = `<span class="rv-chip" style="color:var(--muted);background:#f2f0ea">${codes.length} હાટ · ${totalQty>0?`${totalQty} ${qtyUnit}`:'જથ્થો નથી'}</span>`;
-    const det = codes.map(c => {
-      const nm = HAATS[c]?.nameGu || HAATS[c]?.name || c;
-      const q = +qbh[c] || 0, p = +pbh[c] || +it.price || 0;
-      return `<div class="dr"><span style="width:108px;color:var(--muted)">📍 ${esc(nm)}</span><span style="width:100px;color:var(--orange);font-weight:600">₹${p}/${unit}</span><span style="color:var(--green2)">${q?`${q} ${qtyUnit}`:'—'}</span></div>`;
-    }).join('');
-    return `<details class="rv-d" style="border-bottom:1px solid var(--border)"><summary class="rv-row">${head}${totalChip}${badge}<span style="flex:1"></span>${priceCell}<span class="rv-chev">▸</span></summary><div class="rv-det">${det}</div></details>`;
+    if(!flagged) return rowInner;
+    const sev = pf.level === 'severe';
+    const bd = sev ? 'var(--red)' : '#e0a83c';
+    const bgc = sev ? '#fdeaea' : '#fbf3e2';
+    const tc = sev ? 'var(--red)' : '#9a6a00';
+    return `<div style="border:1.5px solid ${bd};background:${bgc};border-radius:8px;padding:2px 8px 8px;margin:7px 0">
+      ${rowInner}
+      <div style="display:flex;align-items:flex-start;gap:6px;font-size:12px;color:${tc};padding:3px 4px 0;line-height:1.5">
+        <span style="flex-shrink:0">⚠️</span>
+        <span style="flex:1">${esc(priceFlagMsg(pf))}</span>
+        <button class="btn-sm" style="padding:3px 9px;font-size:11px;flex-shrink:0" onclick="fixItemPrice('${esc(fid)}',${idx})">ભાવ સુધારો</button>
+      </div>
+    </div>`;
   }).join('');
 
   // Per-haat totals (sum of qtyByHaat across items)
@@ -1663,6 +1791,8 @@ function renderReviewCard(fid){
           <span style="background:var(--orange);color:#fff;font-size:11.5px;font-weight:700;padding:4px 11px;border-radius:14px;flex-shrink:0;align-self:flex-start">⏳ PENDING</span>
         </div>
       </div>
+
+      ${flagCount>0 ? `<div style="display:flex;align-items:center;gap:8px;padding:9px 16px;background:#fdeaea;color:var(--red);font-size:12.5px;border-bottom:1px solid #f5c4c4"><span>⚠️</span><span><b>${flagCount}</b> ભાવ શંકાસ્પદ છે — approve કરતાં પહેલાં તપાસો</span></div>` : ''}
 
       <div style="padding:0 16px">${itemRows}</div>
 
@@ -1724,6 +1854,9 @@ function formatAgo(ts){
 }
 
 window.approveSubmission = async (fid) => {
+  if(_busy) return;
+  const flags = subFlagCount(fid);   // V46: block on suspicious prices until acknowledged
+  if(flags>0 && !(await asyncConfirm(`${flags} ભાવ શંકાસ્પદ છે (ગયા હાટ કરતાં ±25% કે બીજા ખેડૂત કરતાં 3 ગણો ફરક). છતાં approve કરવું છે?`, 'હા, approve કરો', 'ના, તપાસું'))) return;
   if(_busy) return; _busy = true;
   try{
     await fbRef('weekly/'+WK+'/submissions/'+fid).update({
@@ -5351,6 +5484,63 @@ window.addManualFarmer = async () => {
   }
 };
 
+// V46: admin price correction — works on pending AND approved submissions; logged to audit trail
+window.fixItemPrice = (fid, idx) => {
+  const s = SUBS[fid]; if(!s || !Array.isArray(s.items) || !s.items[idx]) return;
+  const it = s.items[idx];
+  const pf = priceFlagFor(it, fid);
+  const pbh = it.priceByHaat || {};
+  const codes = Object.keys(pbh).filter(c => +pbh[c] > 0);
+  const multi = codes.length > 0 && !(+it.price > 0);
+  const refLine = (pf && pf.baseline)
+    ? `<div class="notice" style="margin-bottom:12px">${pf.src==='farmer'?'ગયા હાટે':'બીજા ખેડૂતોનો'} ભાવ: <b>₹${pf.baseline}</b> / ${esc(it.unit||'')}</div>`
+    : '';
+  let inputs;
+  if(multi){
+    inputs = codes.map(c=>{
+      const nm = HAATS[c]?.nameGu || HAATS[c]?.name || c;
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="width:130px;font-size:12.5px">📍 ${esc(nm)}</span><span>₹</span><input class="frm-in" id="fx_${esc(c)}" type="number" inputmode="numeric" value="${esc(+pbh[c]||'')}" style="width:110px"></div>`;
+    }).join('');
+  } else {
+    inputs = `<div style="display:flex;align-items:center;gap:8px"><span style="font-size:16px">₹</span><input class="frm-in" id="fx_single" type="number" inputmode="numeric" value="${esc(+it.price||'')}" style="width:130px"><span style="color:var(--muted)">/ ${esc(it.unit||'')}</span></div>`;
+  }
+  modal(`
+    <div class="modal-hdr"><div class="modal-title">ભાવ સુધારો — ${esc(it.name)}</div><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      ${refLine}
+      ${inputs}
+      <div style="font-size:11.5px;color:var(--muted);margin:10px 0 14px">ફેરફાર audit trail માં નોંધાશે${s.status==='approved'?' · approved submission પણ સુધરશે':''}.</div>
+      <button class="btn-primary" onclick="saveItemPrice('${esc(fid)}',${idx},${multi})">✓ સાચવો</button>
+    </div>
+  `);
+};
+window.saveItemPrice = async (fid, idx, multi) => {
+  const s = SUBS[fid]; if(!s || !Array.isArray(s.items) || !s.items[idx]) return;
+  const it = s.items[idx];
+  const updates = {}; let fromDesc, toDesc;
+  if(multi){
+    const pbh = Object.assign({}, it.priceByHaat||{});
+    fromDesc = JSON.stringify(pbh);
+    Object.keys(pbh).forEach(c=>{ const el=document.getElementById('fx_'+c); if(el){ const v=Math.round(+el.value||0); if(v>0) pbh[c]=v; } });
+    updates[`weekly/${WK}/submissions/${fid}/items/${idx}/priceByHaat`] = pbh;
+    it.priceByHaat = pbh; toDesc = JSON.stringify(pbh);
+  } else {
+    const el=document.getElementById('fx_single'); const v=Math.round(+el.value||0);
+    if(!(v>0)) return toast('ભાવ ખરો ભરો','err');
+    fromDesc = '₹'+(+it.price||0);
+    updates[`weekly/${WK}/submissions/${fid}/items/${idx}/price`] = v;
+    it.price = v; toDesc = '₹'+v;
+  }
+  if(_busy) return; _busy = true;
+  try{
+    await fbRef('').update(updates);
+    logAudit('price-edit', 'submissions/'+fid, { farmer: s.farmerName||fid, item: it.name, from: fromDesc, to: toDesc });
+    toast('✓ ભાવ સુધાર્યો','ok');
+    closeModal(); render();
+  }catch(e){ console.error(e); toast('ભાવ સેવ નિષ્ફળ: '+(e.message||e),'err'); }
+  finally{ _busy = false; }
+};
+
 window.previewSub = (fid) => {
   const s = SUBS[fid]; if(!s) return;
   const f = FARMERS.find(x=>x.id===fid) || {};
@@ -5370,7 +5560,7 @@ window.previewSub = (fid) => {
       ${Array.isArray(s.items) && s.items.length ? `
         <div style="font-size:14px;font-weight:600;color:var(--green2);margin:${s.rawText?'14px':'0'} 0 8px">✓ Submitted items (${s.items.length})</div>
         <div class="preview-items" style="background:var(--bg);padding:11px;border-radius:8px;font-size:12.5px">
-          ${s.items.map(it=>`<div class="pi-row"><div class="nm">${esc(it.name)} <span style="color:var(--muted);font-size:11px">${esc(it.cat||"")}</span></div><div class="pr">₹${esc(it.price)}<span style="color:var(--muted);font-weight:400"> /${esc(it.unit||"")}</span></div></div>`).join('')}
+          ${s.items.map((it,idx)=>`<div class="pi-row"><div class="nm">${esc(it.name)} <span style="color:var(--muted);font-size:11px">${esc(it.cat||"")}</span></div><div class="pr">₹${esc(it.price)}<span style="color:var(--muted);font-weight:400"> /${esc(it.unit||"")}</span> <button class="btn-sm" style="padding:2px 7px;font-size:11px;margin-left:6px" title="ભાવ સુધારો" onclick="closeModal();fixItemPrice('${esc(fid)}',${idx})">✏️</button></div></div>`).join('')}
         </div>
       ` : '<div style="margin-top:14px;font-size:12px;color:var(--orange)">⏳ હજી parse નથી થઈ</div>'}
     </div>
