@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V47</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V48</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1386,13 +1386,14 @@ window.toggleFarmerHaat = (code) => {
   else { FARMER_HAATS.has(code)?FARMER_HAATS.delete(code):FARMER_HAATS.add(code); }
   setTabBodyHtml();
 };
-// ── V46/V47: price anomaly detection ──
+// ── V46/V47/V48: price anomaly detection ──
 // vs the farmer's OWN last week: flag at ±25% (unambiguous — comparing a farmer to themselves).
-// vs OTHER farmers: flag ONLY at an order-of-magnitude gap (~7×+ / ~⅐, a dropped/added zero).
-// A 2–3× spread between farmers is legitimate and the median can't say who's right, so we don't
-// flag those — only a gap so large that SOMEONE clearly has a zero wrong.
+// vs OTHER farmers: flag ONLY at an order-of-magnitude gap (~7×+ / ~⅐, a dropped/added zero) AND
+// only when ≥3 other farmers sell the product (a real "typical" to compare against). With just
+// 1-2 sellers there's no consensus — it's a coin toss and the median can't say who's right.
 const PRICE_FLAG_PCT = 25;
 const ORDER_OF_MAG = 6.5;
+const MIN_PEER_SELLERS = 3;
 function itemEffPrice(it){
   const base = +it.price||0;
   if(base>0) return base;
@@ -1407,10 +1408,10 @@ function medianPriceForName(subsMap, name, excludeFid){
     if(!s || s.status==='rejected' || !Array.isArray(s.items)) return;
     s.items.forEach(it=>{ if(it && it.name===name){ const p=itemEffPrice(it); if(p>0) ps.push(p); } });
   });
-  if(!ps.length) return 0;
+  if(!ps.length) return {price:0, n:0};
   ps.sort((a,b)=>a-b);
   const m=Math.floor(ps.length/2);
-  return ps.length%2 ? ps[m] : Math.round((ps[m-1]+ps[m])/2);
+  return {price: ps.length%2 ? ps[m] : Math.round((ps[m-1]+ps[m])/2), n: ps.length};
 }
 function priceBaseline(name, fid){
   // 1. same farmer's last-week price (only if that submission was approved/pending)
@@ -1418,13 +1419,13 @@ function priceBaseline(name, fid){
   const okPw = pw && (pw.status==='approved' || pw.status==='pending' || !pw.status);
   const lw = (okPw && Array.isArray(pw.items)) ? pw.items.find(x=>x && x.name===name) : null;
   const lwp = lw ? itemEffPrice(lw) : 0;
-  if(lwp>0) return {price:lwp, src:'farmer'};
-  // 2. typical (median) price for this product across ALL farmers last week
+  if(lwp>0) return {price:lwp, src:'farmer', n:1};
+  // 2. typical (median) price for this product across ALL farmers last week (n = sellers)
   const m2 = medianPriceForName(PREV_SUBS, name, null);
-  if(m2>0) return {price:m2, src:'week'};
+  if(m2.price>0) return {price:m2.price, src:'week', n:m2.n};
   // 3. typical price across OTHER farmers this week (first-week / new-farmer safety net)
   const m3 = medianPriceForName(SUBS, name, fid);
-  if(m3>0) return {price:m3, src:'peers'};
+  if(m3.price>0) return {price:m3.price, src:'peers', n:m3.n};
   return null;
 }
 function priceFlagFor(it, fid){
@@ -1437,13 +1438,13 @@ function priceFlagFor(it, fid){
   const ratio = price / b.price;
   const orderOfMag = (ratio <= 1/ORDER_OF_MAG || ratio >= ORDER_OF_MAG);   // ~10× — a dropped/added zero
   const hit = (b.src === 'farmer')
-    ? (Math.abs(pct) >= PRICE_FLAG_PCT)   // own last week: ±25%
-    : orderOfMag;                          // other farmers: ONLY an order-of-magnitude gap
+    ? (Math.abs(pct) >= PRICE_FLAG_PCT)               // own last week: ±25%
+    : (orderOfMag && b.n >= MIN_PEER_SELLERS);        // other farmers: order-of-magnitude AND ≥3 sellers agree
   if(!hit) return {level:'none'};
-  return {level: orderOfMag?'severe':'warn', baseline:b.price, price, pct, ratio, missingZero:orderOfMag, src:b.src, unit:it.unit||''};
+  return {level: orderOfMag?'severe':'warn', baseline:b.price, price, pct, ratio, missingZero:orderOfMag, src:b.src, n:b.n, unit:it.unit||''};
 }
 function priceFlagMsg(pf){
-  const ref = pf.src==='farmer' ? `ગયા હાટે ₹${pf.baseline}` : `બીજા ખેડૂતોનો ભાવ ~₹${pf.baseline}`;
+  const ref = pf.src==='farmer' ? `ગયા હાટે ₹${pf.baseline}` : `બીજા ${pf.n} ખેડૂત ~₹${pf.baseline}`;
   const dir = pf.pct<0 ? `${Math.abs(pf.pct)}% ઓછું` : `${pf.pct}% વધુ`;
   const zero = pf.missingZero ? (pf.pct<0 ? ' · શું છેલ્લો 0 છૂટી ગયો?' : ' · એક 0 વધારે તો નથી?') : '';
   return `${ref} → અત્યારે ₹${pf.price} · ${dir}${zero}. તપાસો.`;
