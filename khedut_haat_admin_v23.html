@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V49</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V50</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1211,7 +1211,7 @@ window.exportCustomerViewsExcel = async () => {
     if(!_xlsxLib) _xlsxLib = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
     const XLSX = _xlsxLib;
     const cs = (await fbRef('catalogViews').get()).val() || {};
-    const byDate = cs.byDate || {}, byWeek = cs.byWeek || {}, devs = cs.uniqueDevices || {};
+    const byDate = cs.byDate || {}, byWeek = cs.byWeek || {}, devs = cs.uniqueDevices || {}, dd = cs.dailyDevices || {};
     const totalViews = +cs.totalViews || 0;
     const uniqueDevices = Object.keys(devs).length;
     // Devices grouped by their LAST-seen date (the data only keeps last visit per device,
@@ -1219,24 +1219,36 @@ window.exportCustomerViewsExcel = async () => {
     const devByDate = {};
     Object.values(devs).forEach(ts=>{ if(typeof ts==='number' && ts>0){ const k=new Date(ts).toISOString().slice(0,10); devByDate[k]=(devByDate[k]||0)+1; } });
     const WD=['રવિ','સોમ','મંગળ','બુધ','ગુરુ','શુક્ર','શનિ'];
-    const dates=[...new Set([...Object.keys(byDate),...Object.keys(devByDate)])].sort();
-    const daily = dates.map(d=>({
-      'તારીખ': d,
-      'વાર': (WD[new Date(d+'T00:00:00').getDay()]||''),
-      'Views': +(byDate[d]||0),
-      'Unique devices (last visit)': +(devByDate[d]||0)
-    }));
-    const weekly = Object.keys(byWeek).sort((a,b)=>(+a||0)-(+b||0)).map(w=>({'અઠવાડિયું':w,'Views':+(byWeek[w]||0)}));
+    const dates=[...new Set([...Object.keys(byDate),...Object.keys(devByDate),...Object.keys(dd)])].sort();
+    // Daily-unique + running cumulative from the accurate per-day device sets (dailyDevices).
+    // Blank on days before that tracking existed; the last-visit approximation stays for those.
+    const seen = new Set();
+    const daily = dates.map(d=>{
+      const set = dd[d] ? Object.keys(dd[d]) : null;
+      let dU='', cU='';
+      if(set){ set.forEach(k=>seen.add(k)); dU=set.length; cU=seen.size; }
+      return {
+        'તારીખ': d,
+        'વાર': (WD[new Date(d+'T00:00:00').getDay()]||''),
+        'Daily clicks': +(byDate[d]||0),
+        'Daily unique visitors': dU,
+        'Cumulative unique': cU,
+        'Unique devices (approx · last visit)': +(devByDate[d]||0)
+      };
+    });
+    const weekly = Object.keys(byWeek).sort((a,b)=>(+a||0)-(+b||0)).map(w=>({'અઠવાડિયું':w,'Clicks':+(byWeek[w]||0)}));
     const peak = dates.reduce((b,d)=>(+(byDate[d]||0)>+(byDate[b]||0)?d:b), dates[0]||'');
     const daysTracked = Object.keys(byDate).length;
+    const ddStart = Object.keys(dd).sort()[0] || '—';
     const summary = [
-      {'Metric':'કુલ Views','Value':totalViews},
-      {'Metric':'કુલ Unique devices','Value':uniqueDevices},
+      {'Metric':'કુલ clicks (views)','Value':totalViews},
+      {'Metric':'All-time unique devices (till today)','Value':uniqueDevices},
       {'Metric':'પહેલી તારીખ','Value':dates[0]||'—'},
       {'Metric':'છેલ્લી તારીખ','Value':dates[dates.length-1]||'—'},
-      {'Metric':'Days tracked','Value':daysTracked},
-      {'Metric':'સરેરાશ Views/day','Value':daysTracked?Math.round(totalViews/daysTracked*10)/10:0},
-      {'Metric':'સૌથી વધુ (દિવસ)','Value':peak?(peak+' — '+(byDate[peak]||0)+' views'):'—'},
+      {'Metric':'Days with clicks','Value':daysTracked},
+      {'Metric':'સરેરાશ clicks/day','Value':daysTracked?Math.round(totalViews/daysTracked*10)/10:0},
+      {'Metric':'સૌથી વધુ clicks (દિવસ)','Value':peak?(peak+' — '+(byDate[peak]||0)):'—'},
+      {'Metric':'Daily-unique tracking from','Value':ddStart},
       {'Metric':'Export','Value':new Date().toISOString().slice(0,19).replace('T',' ')}
     ];
     const wb = XLSX.utils.book_new();
