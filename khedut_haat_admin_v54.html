@@ -1819,7 +1819,7 @@ function reviewNotYetList(ids){
   const rows = ids.map(fid => {
     const f = FARMERS.find(x => x.id === fid) || {};
     const phone = String(f.phone||'').replace(/[^0-9]/g,'');
-    const submitUrl = location.origin + (location.pathname.includes('admin') ? location.pathname.replace('admin','submit') : '/khedut_haat_farmer_v23.html');
+    const submitUrl = location.origin + (location.pathname.includes('admin') ? location.pathname.replace('admin','submit') : '/khedut_haat_farmer_v54.html');
     const msg = encodeURIComponent(`🌿 સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ ${weekRange()}\n\nનમસ્તે ${f.name||""},\nઆ અઠવાડિયે હાટ માટે તમારી પેદાશ ની યાદી નીચે link થી મોકલશો:\n${submitUrl}\n\nUsername: ${phone}\nPassword: તમારો પાસવર્ડ`);
     const waUrl = phone ? `https://wa.me/91${phone}?text=${msg}` : null;
     return `
