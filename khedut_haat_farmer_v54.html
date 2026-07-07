@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V54</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V55</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -1489,6 +1489,11 @@ function showState(icon, title, body){
 }
 
 init().catch(e=>{ console.error(e); renderLogin(e.message||String(e)); });
+</script>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js', {scope:'/'}).catch(()=>{}));
+}
 </script>
 </body>
 </html>
