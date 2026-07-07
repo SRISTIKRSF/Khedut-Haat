@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V53</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V54</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Hind+Vadodara:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -60,7 +60,7 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .week-date{font-size:13px;color:var(--muted)}
 .week-stat{font-size:12.5px;color:var(--text);font-weight:600}
 .week-stat b{color:var(--green2);font-weight:700;font-size:14.5px}
-.week-bar-actions{display:flex;gap:6px}
+.week-bar-actions{display:flex;gap:6px;flex-wrap:wrap}
 .btn-sm{padding:7px 12px;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;font-family:inherit;border:1.5px solid var(--border);background:#fff;color:var(--text)}
 .btn-sm:hover{background:var(--bg)}
 .btn-sm.primary{background:var(--green2);color:#fff;border-color:var(--green2)}
@@ -109,11 +109,18 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 /* FARMER ROWS */
 .frm-search{padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13.5px;font-family:inherit;outline:none;width:100%;margin-bottom:10px}
 .frm-search:focus{border-color:var(--green2)}
-.farmer-row{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 15px;margin-bottom:6px;display:flex;align-items:center;gap:12px;font-size:15px}
+.farmer-row{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 15px;margin-bottom:6px;display:flex;align-items:center;flex-wrap:wrap;row-gap:8px;gap:12px;font-size:15px}
 .farmer-row .num{font-size:12.5px;color:var(--muted);font-weight:600;width:34px;flex-shrink:0;font-family:"JetBrains Mono",monospace}
 .farmer-row .nm{flex:1;min-width:0}
 .farmer-row .nm b{font-weight:700;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px}
 .farmer-row .nm small{font-size:12.5px;color:var(--muted)}
+/* V54 (mobile smoothness): a farmer row can hold up to 7 flex children (num, name,
+   status badge, WA/edit/reset/delete buttons) — too many to fit on one 375px line.
+   Below 480px, give the name its own full-width line so it isn't squeezed to 3 chars,
+   pushing the badge + action buttons to wrap onto their own line(s) beneath it. */
+@media (max-width:480px){
+  .farmer-row .nm{flex-basis:100%}
+}
 .farmer-row .badge-yes{background:var(--green-pale);color:var(--green2);font-size:12.5px;padding:4px 11px;border-radius:14px;font-weight:700;white-space:nowrap}
 .farmer-row .badge-no{background:#fef0f0;color:var(--red);font-size:12.5px;padding:4px 11px;border-radius:14px;font-weight:600;white-space:nowrap}
 .farmer-row .badge-parsed{background:#dbeafe;color:#1e40af;font-size:12.5px;padding:4px 11px;border-radius:14px;font-weight:600;white-space:nowrap}
@@ -216,6 +223,33 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .tg-master .tab:hover{color:#b25510}
 .tg-more .tab.active{color:#1d4ed8}
 .tg-more .tab:hover{color:#1d4ed8}
+
+/* V54: mobile-only sidebar drawer nav. Desktop keeps the .tabs bar above completely
+   unchanged — this whole block is invisible until the max-width:900px media query flips
+   .tabs off and .mob-nav-bar/.side-drawer on. */
+.mob-nav-bar{display:none;align-items:center;gap:11px;padding:11px 16px;border-bottom:1px solid var(--border);background:#fff}
+.mob-nav-bar .hamburger-btn{width:38px;height:38px;border-radius:9px;border:1.5px solid var(--border);background:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;font-family:inherit}
+.mob-nav-bar .hamburger-btn:hover{background:var(--bg)}
+.mob-nav-current{font-size:14.5px;font-weight:700;color:var(--green2)}
+.side-drawer-scrim{display:none;position:fixed;inset:0;background:rgba(20,20,20,.45);z-index:390}
+.side-drawer-scrim.show{display:block}
+.side-drawer{display:none;position:fixed;top:0;left:0;bottom:0;width:250px;max-width:82vw;background:#fff;z-index:400;flex-direction:column;transform:translateX(-100%);transition:transform .22s ease;box-shadow:0 12px 36px rgba(0,0,0,.25)}
+.side-drawer.open{transform:none}
+.side-drawer-brand{padding:16px 16px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px;flex-shrink:0}
+.side-drawer-brand .em{font-size:22px}
+.side-drawer-brand .nm{font-family:"Fraunces",serif;font-weight:900;font-size:15px;color:var(--green)}
+.side-drawer-nav{flex:1;overflow-y:auto;padding:8px 0}
+.side-drawer-sec{font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#999;padding:12px 16px 6px}
+.side-drawer-item{display:flex;align-items:center;gap:10px;width:calc(100% - 16px);margin:0 8px 2px;padding:10px 12px;border-radius:9px;border:none;background:none;font-size:14px;font-weight:600;color:var(--text);text-align:left;cursor:pointer;font-family:inherit}
+.side-drawer-item:hover{background:var(--bg)}
+.side-drawer-item.active{background:var(--green2);color:#fff}
+.side-drawer-item .ct{margin-left:auto;background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:1px 8px;border-radius:11px}
+.side-drawer-item.active .ct{background:rgba(255,255,255,.28)}
+@media(max-width:900px){
+  .tabs{display:none}
+  .mob-nav-bar{display:flex}
+  .side-drawer{display:flex}
+}
 </style>
 </head>
 <body>
@@ -805,6 +839,49 @@ async function loadAll(){
   render();
 }
 
+/* ════════ V54: mobile-only sidebar drawer — same 3 groups/9 tabs as the desktop .tabs
+   bar above, just laid out vertically in a hamburger-triggered drawer. Desktop is
+   untouched; a media query swaps which of the two navs is visible. ════════ */
+const TAB_LABELS = {dashboard:'📊 ડેશબોર્ડ', review:'✅ સમીક્ષા', summary:'📊 સારાંશ', farmers:'🌾 ખેડૂત', haats:'📍 હાટ', products:'📦 પ્રોડક્ટ', design:'🎨 ડિઝાઇન', reports:'📊 રિપોર્ટ', guide:'📖 માર્ગદર્શન'};
+function renderDrawerNav(pendingTab){
+  const groups = [
+    {label:'આ અઠવાડિયું', items:[
+      {tab:'dashboard', ic:'📊', nm:'ડેશબોર્ડ'},
+      {tab:'review', ic:'✅', nm:'સમીક્ષા', ct: pendingReviewCount()>0?pendingReviewCount():null},
+      {tab:'summary', ic:'📊', nm:'સારાંશ'}
+    ]},
+    {label:'માસ્ટર', items:[
+      {tab:'farmers', ic:'🌾', nm:'ખેડૂત', ct: pendingTab>0?pendingTab:null},
+      {tab:'haats', ic:'📍', nm:'હાટ'},
+      {tab:'products', ic:'📦', nm:'પ્રોડક્ટ'},
+      {tab:'design', ic:'🎨', nm:'ડિઝાઇન'}
+    ]},
+    {label:'અન્ય', items:[
+      {tab:'reports', ic:'📊', nm:'રિપોર્ટ'},
+      {tab:'guide', ic:'📖', nm:'માર્ગદર્શન'}
+    ]}
+  ];
+  return groups.map(g => `
+    <div class="side-drawer-sec">${esc(g.label)}</div>
+    ${g.items.map(it => `
+      <button class="side-drawer-item ${TAB===it.tab?'active':''}" onclick="setTab('${it.tab}')">
+        <span>${it.ic}</span><span style="flex:1">${esc(it.nm)}</span>
+        ${it.ct!=null?`<span class="ct">${it.ct}</span>`:''}
+      </button>
+    `).join('')}
+  `).join('');
+}
+window.toggleDrawer = (force) => {
+  const d = document.getElementById('sideDrawer'), s = document.getElementById('drawerScrim');
+  if(!d || !s) return;
+  const open = force!==undefined ? force : !d.classList.contains('open');
+  d.classList.toggle('open', open);
+  // Drive the slide directly via inline style — an inline style always wins over any
+  // class rule, so the drawer can't get stuck off-screen from an unrelated cascade clash.
+  d.style.transform = open ? 'translateX(0)' : 'translateX(-100%)';
+  s.classList.toggle('show', open);
+};
+
 /* ════════ Render shell ════════ */
 function render(){
   const submittedCount = Object.keys(SUBS).filter(fid=>SUBS[fid]?.rawText).length;
@@ -867,9 +944,39 @@ function render(){
       </div>
     </div>
 
+    <div class="mob-nav-bar">
+      <button class="hamburger-btn" onclick="toggleDrawer()" aria-label="મેનુ ખોલો" title="Menu">☰</button>
+      <span class="mob-nav-current" id="mobNavCurrent">${esc(TAB_LABELS[TAB]||'')}</span>
+    </div>
+    <div class="side-drawer-scrim" id="drawerScrim" onclick="toggleDrawer(false)"></div>
+    <aside class="side-drawer" id="sideDrawer">
+      <div class="side-drawer-brand"><span class="em">🌱</span><span class="nm">સૃષ્ટિ ખેડૂત હાટ</span></div>
+      <nav class="side-drawer-nav" id="drawerNav">${renderDrawerNav(pendingTab)}</nav>
+    </aside>
+
     <div class="body tab-fade" id="tabBody">${renderTab()}</div>
   `;
   twe();
+  updateTabsScrollFade();
+}
+// V54 (mobile smoothness): the grouped tab bar hides ~780px of tabs off-screen on a
+// phone with zero visual hint. Fade the scrollable edges — solid where you've reached
+// the end, faded where there's more — so hidden groups (માસ્ટર, અન્ય) are discoverable.
+function updateTabsScrollFade(){
+  const t = document.querySelector('.tabs');
+  if(!t) return;
+  const FADE = 22;
+  const update = () => {
+    const max = t.scrollWidth - t.clientWidth;
+    if(max <= 2){ t.style.webkitMaskImage=''; t.style.maskImage=''; return; }
+    const atStart = t.scrollLeft <= 2, atEnd = t.scrollLeft >= max - 2;
+    const l = atStart ? '0%' : FADE+'px';
+    const r = atEnd ? '100%' : `calc(100% - ${FADE}px)`;
+    const grad = `linear-gradient(to right, transparent 0, black ${l}, black ${r}, transparent 100%)`;
+    t.style.webkitMaskImage = grad; t.style.maskImage = grad;
+  };
+  update();
+  t.addEventListener('scroll', update, {passive:true});
 }
 
 window.setTab = t => {
@@ -903,6 +1010,17 @@ window.setTab = t => {
       const m = onclick.match(/setTab\('([^']+)'\)/);
       if(m) btn.classList.toggle('active', m[1] === t);
     });
+    // V54: keep the mobile drawer's active state / badges / current-tab label in sync,
+    // and auto-close it after navigating (matches Sahkar's drawer behavior). No-op on
+    // desktop since the drawer is never open there.
+    const drawerNav = document.getElementById('drawerNav');
+    if(drawerNav){
+      const pendingTab = FARMERS.length - Object.keys(SUBS).filter(fid=>SUBS[fid]?.rawText).length;
+      drawerNav.innerHTML = renderDrawerNav(pendingTab);
+    }
+    const curLabel = document.getElementById('mobNavCurrent');
+    if(curLabel) curLabel.textContent = TAB_LABELS[t] || '';
+    toggleDrawer(false);
     setTimeout(() => { if(loader) loader.classList.remove('active'); }, 220);
   });
 };
