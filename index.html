@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V54</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V55</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <link rel="icon" type="image/jpeg" href="sristi-logo.jpg">
 <meta property="og:type" content="website">
@@ -470,6 +470,7 @@ function buildLists(){
         _photo:    (m && m.photo) || '',
         _aliases:  (m && m.aliases) || '',
         _priceByVenue: pbv,
+        _order:    (m && m.order != null) ? m.order : 9999,   // admin's drag-order; legacy/unmatched sink to the end
       };
     }).filter(it => it._masterId); // Only show products in the admin catalogue
     resolved.forEach(it=>{
@@ -498,6 +499,7 @@ function buildLists(){
         name: dispName, isMaster, nameOptions: new Set([dispName]),
         unitCounts: {}, cat: it._dispCat || it.cat || 'અન્ય', emoji: it._emoji || it.emoji, photoUrl: it._photo || '',
         aliases: it._aliases || '',
+        order: it._order != null ? it._order : 9999,
         prices: [], totalQty: 0,
         venueSet: new Set(), farmers: [],
         _k: 'agg_'+btoa(unescape(encodeURIComponent(groupId))).replace(/\+/g,'p').replace(/\//g,'q').replace(/=/g,'')
@@ -533,8 +535,17 @@ function buildLists(){
       farmers: agg.farmers,
       variantNames,
       aliases: agg.aliases || '',
+      order: agg.order,
       _k: agg._k
     };
+  });
+  // Mirror the admin's drag-order (Products tab) within each category — previously ignored,
+  // so reordering products in admin never moved anything here. Legacy/unmatched items (no
+  // catalogue order) sink to the end, alphabetical among themselves.
+  ALL_ITEMS.sort((a,b) => {
+    const oa = a.order != null ? a.order : 9999, ob = b.order != null ? b.order : 9999;
+    if(oa !== ob) return oa - ob;
+    return (a.name||'').localeCompare(b.name||'');
   });
 }
 
