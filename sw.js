@@ -8,13 +8,11 @@
 // which is the actual point of a PWA for farmers on patchy rural connections.
 //
 // Bump CACHE_NAME on every change to this file so old caches get swept on activate.
-const CACHE_NAME = 'khedut-haat-v57';
+const CACHE_NAME = 'khedut-haat-v58';
 const PRECACHE = [
   '/', '/submit', '/admin',
   '/manifest-customer.json', '/manifest-admin.json', '/manifest.json',
   '/icons/icon-customer-192.png', '/icons/icon-customer-512.png',
-  '/icons/icon-admin-192.png', '/icons/icon-admin-512.png',
-  '/icons/icon-farmer-192.png', '/icons/icon-farmer-512.png',
 ];
 
 self.addEventListener('install', (event) => {
