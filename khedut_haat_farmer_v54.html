@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V57</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V58</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -459,17 +459,35 @@ async function init(){
   renderLogin();
 }
 
-// Re-establish a previously verified session WITHOUT re-checking the password.
-// The session blob already proves prior PIN verification within the same browser tab.
-async function resumeSession(phoneClean){
+// V58: find one farmer by phone via the indexed query (.indexOn ["phone"] in RTDB rules) —
+// downloads ~1KB instead of the full 83KB marketFarmers node. All stored phones are clean
+// 10-digit strings (audited 2026-07-08), so equalTo(last-10) is equivalent to the old
+// full-scan last-10 match. If the query returns nothing (e.g. a future record stored with
+// +91 or spaces), fall back to the original full-download scan so no farmer can ever be
+// locked out by this optimization.
+async function findFarmerByPhone(phone){
+  const entered10 = String(phone).replace(/[^0-9]/g,'').slice(-10);
+  try{
+    const qSnap = await fbRef('marketFarmers').orderByChild('phone').equalTo(entered10).get();
+    const hits = qSnap.val()||{};
+    const _entry = Object.entries(hits).find(([k,f]) => f && f.active!==false);
+    if(_entry){ _entry[1]._key = _entry[0]; return _entry[1]; }
+  }catch(e){ console.warn('scoped farmer query failed, falling back to full scan', e); }
   const fSnap = await fbRef('marketFarmers').get();
   const all = fSnap.val()||{};
   const _entry = Object.entries(all).find(([k,f]) =>
     f && f.active!==false &&
-    String(f.phone||'').replace(/[^0-9]/g,'').slice(-10) === String(phoneClean).slice(-10)
+    String(f.phone||'').replace(/[^0-9]/g,'').slice(-10) === entered10
   );
-  const match = _entry ? _entry[1] : null;
-  if(match) match._key = _entry[0];   // V11: capture RTDB key for safe submission fid
+  if(!_entry) return null;
+  _entry[1]._key = _entry[0];   // V11: capture RTDB key for safe submission fid
+  return _entry[1];
+}
+
+// Re-establish a previously verified session WITHOUT re-checking the password.
+// The session blob already proves prior PIN verification within the same browser tab.
+async function resumeSession(phoneClean){
+  const match = await findFarmerByPhone(phoneClean);
   if(!match){
     try{ sessionStorage.removeItem(AUTH_KEY); }catch{}
     throw new Error("Farmer record missing");
@@ -572,16 +590,8 @@ window.doLogin = async () => {
   catch(e){ showLoginError(e.message||"લોગ-ઇન નિષ્ફળ"); }
 };
 async function loginByPhone(phone, pwd, silent){
-  const fSnap = await fbRef('marketFarmers').get();
-  const all = fSnap.val()||{};
-  // exact last-10 match (was: endsWith — overly permissive)
-  const entered10 = String(phone).replace(/[^0-9]/g,'').slice(-10);
-  const _entry = Object.entries(all).find(([k,f]) =>
-    f && f.active!==false &&
-    String(f.phone||'').replace(/[^0-9]/g,'').slice(-10) === entered10
-  );
-  const match = _entry ? _entry[1] : null;
-  if(match) match._key = _entry[0];   // V11: capture RTDB key for safe submission fid
+  // V58: scoped indexed lookup (~1KB) with full-scan fallback — see findFarmerByPhone.
+  const match = await findFarmerByPhone(phone);
   if(!match) throw new Error("આ નંબર નોંધાયેલો નથી. કૃપા કરી ઑફિસ સંપર્ક કરો.");
   const phoneClean = String(match.phone||'').replace(/[^0-9]/g,'');
   const defaultPwd = phoneClean.slice(-4);

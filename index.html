@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V57</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V58</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <link rel="icon" type="image/jpeg" href="sristi-logo.jpg">
 <link rel="manifest" href="manifest-customer.json">
@@ -341,29 +341,72 @@ function renderErrorState(retry){
   `;
 }
 
+// V58: per-tab catalogue cache. A customer browsing back and forth / refreshing within the
+// same shopping session was re-downloading the full ~380KB dataset on every load — the main
+// driver of the RTDB free-quota blowout. Cache the whole snapshot in sessionStorage for a few
+// minutes; anyone arriving after the TTL (or in a new tab) still gets fully live data.
+const CATALOG_CACHE_KEY = 'khedut_catalog_cache_v1';
+const CATALOG_CACHE_TTL = 5*60*1000;
+
+function readCatalogCache(){
+  try{
+    const raw = sessionStorage.getItem(CATALOG_CACHE_KEY);
+    if(!raw) return null;
+    const c = JSON.parse(raw);
+    if(!c || !c.data || (Date.now() - (+c.t||0)) > CATALOG_CACHE_TTL) return null;
+    return c.data;
+  }catch{ return null; }
+}
+function writeCatalogCache(data){
+  try{ sessionStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify({t: Date.now(), data})); }catch{}
+}
+
+async function fetchCatalogData(){
+  const cur = await fbRef('weekly/current').get();
+  const wk = cur.exists() ? cur.val() : 1;
+  const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap, haatSnap, catSnap, coSnap, clSnap] = await Promise.all([
+    fbRef('weekly/'+wk+'/meta').get(),
+    fbRef('weekly/'+wk+'/submissions').get(),
+    fbRef('marketFarmers').get(),
+    fbRef('productPhotos').get(),
+    fbRef('productPhotoMap').get(),
+    fbRef('products').get(),
+    fbRef('settings/siteConfig').get(),
+    fbRef('haats').get(),
+    fbRef('settings/categories').get(),
+    fbRef('settings/categoryOrder').get(),
+    fbRef('settings/categoryLabels').get(),
+  ]);
+  return {
+    wk,
+    meta:      metaSnap.val() || {weekNum:wk},
+    subs:      subSnap.val()  || {},
+    farmers:   fSnap.val()    || {},
+    photos:    pSnap.val()    || {},
+    photoMap:  mSnap.val()    || {},
+    products:  prodSnap.val() || {},
+    siteCfg:   scSnap.val()   || null,
+    haats:     haatSnap.val() || {},
+    cats:      catSnap.val()  || {},
+    catOrder:  coSnap.val()   || [],
+    catLabels: clSnap.val()   || {},
+  };
+}
+
 async function init(){
   renderSkeleton();
   FB.app = firebase.initializeApp(FB_CONFIG);
   FB.db  = firebase.database();
   try{
-    const cur = await fbRef('weekly/current').get();
-    WK = cur.exists() ? cur.val() : 1;
-    const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap, haatSnap, catSnap, coSnap, clSnap] = await Promise.all([
-      fbRef('weekly/'+WK+'/meta').get(),
-      fbRef('weekly/'+WK+'/submissions').get(),
-      fbRef('marketFarmers').get(),
-      fbRef('productPhotos').get(),
-      fbRef('productPhotoMap').get(),
-      fbRef('products').get(),
-      fbRef('settings/siteConfig').get(),
-      fbRef('haats').get(),
-      fbRef('settings/categories').get(),
-      fbRef('settings/categoryOrder').get(),
-      fbRef('settings/categoryLabels').get(),
-    ]);
-    WK_META = metaSnap.val() || {weekNum:WK};
-    SITE_CFG = scSnap.val() || null;
-    HAATS = haatSnap.val() || {};
+    let data = readCatalogCache();
+    if(!data){
+      data = await fetchCatalogData();
+      writeCatalogCache(data);
+    }
+    WK = data.wk;
+    WK_META = data.meta;
+    SITE_CFG = data.siteCfg;
+    HAATS = data.haats;
     HAAT_NAME_BY_CODE = {}; HAAT_OPEN_BY_NAME = {}; HAAT_CODE_BY_NAME = {};
     Object.entries(HAATS).forEach(([code, h]) => {
       HAAT_NAME_BY_CODE[code] = (h && (h.nameGu || h.name)) || code;
@@ -372,21 +415,21 @@ async function init(){
         if(h.name){ HAAT_OPEN_BY_NAME[h.name]=true; HAAT_CODE_BY_NAME[h.name]=code; }
       }
     });
-    { const cc = {}; Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; }); mergeCustomCats(cc); CAT_LABELS = clSnap.val() || {}; applyCategoryOrder(coSnap.val() || []); }
-    SUBMISSIONS = subSnap.val() || {};
-    PRODUCT_PHOTOS = pSnap.val() || {};
-    PRODUCT_PHOTO_MAP = mSnap.val() || {};
-    const raw = fSnap.val() || {};
-    Object.values(raw).forEach(f => { if(f && f.id && f.active!==false) FARMERS_MAP[f.id] = f; });
+    { const cc = {}; Object.values(data.cats || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; }); mergeCustomCats(cc); CAT_LABELS = data.catLabels || {}; applyCategoryOrder(data.catOrder || []); }
+    SUBMISSIONS = data.subs;
+    PRODUCT_PHOTOS = data.photos;
+    PRODUCT_PHOTO_MAP = data.photoMap;
+    Object.values(data.farmers).forEach(f => { if(f && f.id && f.active!==false) FARMERS_MAP[f.id] = f; });
     // Part A: load the master product catalogue — customer display names resolve from here by id
     PRODUCTS_MASTER = {}; PRODUCTS_BY_NAME = {};
-    Object.values(prodSnap.val() || {}).forEach(p => {
+    Object.values(data.products).forEach(p => {
       if(!p || !p.id || p.active===false) return;
       PRODUCTS_MASTER[p.id] = p;
       if(p.name) PRODUCTS_BY_NAME[normName(p.name)] = p;
     });
   }catch(e){
     console.error(e);
+    try{ sessionStorage.removeItem(CATALOG_CACHE_KEY); }catch{}
     return renderErrorState(init);
   }
   buildLists();
