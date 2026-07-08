@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V57</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V58</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -5452,23 +5452,56 @@ window.resetFarmerPwd = async (fid, name, phoneClean) => {
       lastPwdResetBy: me?.username || 'unknown',
       lastPwdResetAt: firebase.database.ServerValue.TIMESTAMP
     });
-    // Phase 2: the Auth password must ALSO be reset in Firebase Console (no server = client
-    // cannot reset another user's Auth password). Show the admin the exact steps + values.
-    alert(`⚠️ Firebase Console માં પણ reset કરો:
-
-1. Firebase Console → Authentication → Users
-2. શોધો: ${phoneClean}@khedut-haat.app
-3. ⋮ → Reset password → khedut-haat-${last4}
-
-પછી ખેડૂતને કહો: પાસવર્ડ = ${last4}`);
-    toast(`🔑 Reset — Console પણ કરો + WhatsApp`,"ok");
-    showResetPwdWhatsAppHelper(name, phoneClean, last4);
+    // Client SDK cannot change another user's Auth password directly, and Firebase Console's
+    // "Reset password" only SENDS AN EMAIL — undeliverable, since farmer accounts use a
+    // synthetic @khedut-haat.app address with no real mailbox. Workaround: recreating the Auth
+    // account (allowed from client, same secondary-instance trick as addManualFarmer) sets a
+    // fresh password directly, with no email involved. Requires the OLD Auth entry to be gone
+    // first — try immediately (already-deleted case), else prompt the admin to delete it.
+    await attemptFarmerAuthRecreate(name, phoneClean, last4);
     await loadAll();
   }catch(e){
     console.error(e);
     toast("Reset નિષ્ફળ: " + (e.message||""),"err");
   }
 };
+
+window.attemptFarmerAuthRecreate = async (name, phoneClean, last4) => {
+  try{
+    let _sec; try{ _sec = firebase.initializeApp(FB_CONFIG, 'mkfarmer'); }catch(_){ _sec = firebase.app('mkfarmer'); }
+    await _sec.auth().createUserWithEmailAndPassword(phoneClean + AUTH_DOMAIN, PWD_PREFIX + last4);
+    await _sec.auth().signOut().catch(()=>{});
+    toast(`🔑 પાસવર્ડ reset થયો — WhatsApp મોકલો`,"ok");
+    showResetPwdWhatsAppHelper(name, phoneClean, last4);
+  }catch(_e){
+    if(_e && _e.code === 'auth/email-already-in-use'){
+      showDeleteAuthThenRetry(name, phoneClean, last4);
+    }else{
+      console.error('farmer auth recreate', _e);
+      toast("Auth reset નિષ્ફળ: " + (_e.message||""),"err");
+    }
+  }
+};
+
+function showDeleteAuthThenRetry(name, phoneClean, last4){
+  modal(`
+    <div class="modal-hdr">
+      <div class="modal-title">⚠️ એક વધારાનું પગલું જરૂરી</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:#5f5e5a;margin-bottom:9px">${esc(name)} · ${esc(phoneClean)}</div>
+      <div style="background:#fff8d6;border:1px solid #f7c800;border-radius:8px;padding:11px 13px;font-size:12.5px;color:#5a4a00;line-height:1.7;margin-bottom:11px">
+        જૂનું login account હજી છે — પહેલા એને Console માંથી <b>delete</b> કરવું પડશે (Reset નહીં, કારણ કે એ email મોકલે છે જે ક્યાંય પહોંચતો નથી).<br><br>
+        1. Firebase Console → Authentication → Users<br>
+        2. શોધો: <b>${esc(phoneClean)}@khedut-haat.app</b><br>
+        3. ⋮ → <b>Delete account</b><br>
+        4. પછી નીચે "ફરી પ્રયત્ન કરો" દબાવો
+      </div>
+      <button class="btn-sm primary" style="width:100%;padding:11px" onclick="attemptFarmerAuthRecreate('${esc(name).replace(/'/g,"\\'")}','${esc(phoneClean).replace(/'/g,"\\'")}','${esc(last4).replace(/'/g,"\\'")}'); closeModal();">🔄 ફરી પ્રયત્ન કરો</button>
+    </div>
+  `);
+}
 
 function showResetPwdWhatsAppHelper(name, phoneClean, last4){
   const msg =
