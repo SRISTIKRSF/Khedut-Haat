@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V58</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V59</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <link rel="icon" type="image/jpeg" href="sristi-logo.jpg">
 <link rel="manifest" href="manifest-customer.json">
@@ -264,21 +264,16 @@ function resolveMaster(it){
   if(it && it.productId && PRODUCTS_MASTER[it.productId]) return PRODUCTS_MASTER[it.productId];
   return (it && PRODUCTS_BY_NAME[normName(it.name)]) || null;
 }
-let PRODUCT_PHOTOS={};        // safeKey OR cellKey -> URL/dataURL
-let PRODUCT_PHOTO_MAP={};     // safeKey -> cellKey (when slicer was used)
 let ALL_ITEMS=[], FARMER_LIST=[];
 
-function photoKey(name){
-  try{ return 'p_'+btoa(unescape(encodeURIComponent(String(name||'')))).replace(/[^a-zA-Z0-9]/g,'').slice(0,100); }
-  catch(e){ return 'p_'+String(name||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,100); }
-}
+// V59: photos now resolve from the master catalogue only. The legacy productPhotos /
+// productPhotoMap tables (84KB per page load) were folded into products.photo on 2026-07-08 —
+// every product that had a legacy photo now carries it directly, so this page stopped
+// downloading those tables entirely. Only master-catalogue items render (see buildLists),
+// so master-name lookup covers every photo the old chain could produce.
 function photoFor(name){
-  const k = photoKey(name);
-  // 1. Slicer route: name → cellKey → URL
-  const cell = PRODUCT_PHOTO_MAP[k];
-  if(cell && PRODUCT_PHOTOS[cell]) return PRODUCT_PHOTOS[cell];
-  // 2. Direct URL (Wikipedia, custom upload, etc.)
-  return PRODUCT_PHOTOS[k] || '';
+  const p = PRODUCTS_BY_NAME[normName(name)];
+  return (p && p.photo) || '';
 }
 function cloudinaryThumb(url, w){
   if(!url) return '';
@@ -345,31 +340,58 @@ function renderErrorState(retry){
 // same shopping session was re-downloading the full ~380KB dataset on every load — the main
 // driver of the RTDB free-quota blowout. Cache the whole snapshot in sessionStorage for a few
 // minutes; anyone arriving after the TTL (or in a new tab) still gets fully live data.
-const CATALOG_CACHE_KEY = 'khedut_catalog_cache_v1';
-const CATALOG_CACHE_TTL = 5*60*1000;
+// V59: cache key bumped (shape changed — legacy photo tables dropped, snapshot support added).
+const CATALOG_CACHE_KEY = 'khedut_catalog_cache_v2';
+const CATALOG_CACHE_TTL = 5*60*1000;          // fallback-path cache validity
+const SNAP_CACHE_MAX_AGE = 6*60*60*1000;      // snapshot-backed cache hard cap (probe-validated)
 
-function readCatalogCache(){
+function readCatalogCacheRaw(){
   try{
     const raw = sessionStorage.getItem(CATALOG_CACHE_KEY);
     if(!raw) return null;
     const c = JSON.parse(raw);
-    if(!c || !c.data || (Date.now() - (+c.t||0)) > CATALOG_CACHE_TTL) return null;
-    return c.data;
+    if(!c || !c.data) return null;
+    return c;
   }catch{ return null; }
 }
 function writeCatalogCache(data){
   try{ sessionStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify({t: Date.now(), data})); }catch{}
 }
 
+// V59: the admin app maintains `catalogSnapshot` — one compact node holding exactly what this
+// page renders (approved submissions, submitting farmers, active products, haats, design).
+// Reading it costs ~200KB vs ~380KB for the raw nodes, and its updatedAt stamp lets a cached
+// copy be revalidated for ~100 bytes instead of refetched. If the node is missing or the RTDB
+// rules don't (yet) allow reading it, every step below fails silently into the pre-snapshot
+// full-fetch path — worst case is exactly the old behavior, never a broken page.
+async function tryFetchSnapshot(){
+  try{
+    const snap = await fbRef('catalogSnapshot').get();
+    const v = snap.val();
+    if(!v || !v.updatedAt || !v.wk || !v.subs || !v.products) return null;
+    return {
+      wk: v.wk,
+      meta:      v.meta      || {weekNum:v.wk},
+      subs:      v.subs      || {},
+      farmers:   v.farmers   || {},
+      products:  v.products  || {},
+      siteCfg:   v.siteCfg   || null,
+      haats:     v.haats     || {},
+      cats:      v.cats      || {},
+      catOrder:  v.catOrder  || [],
+      catLabels: v.catLabels || {},
+      _snapUpdatedAt: v.updatedAt,
+    };
+  }catch(e){ return null; }
+}
+
 async function fetchCatalogData(){
   const cur = await fbRef('weekly/current').get();
   const wk = cur.exists() ? cur.val() : 1;
-  const [metaSnap, subSnap, fSnap, pSnap, mSnap, prodSnap, scSnap, haatSnap, catSnap, coSnap, clSnap] = await Promise.all([
+  const [metaSnap, subSnap, fSnap, prodSnap, scSnap, haatSnap, catSnap, coSnap, clSnap] = await Promise.all([
     fbRef('weekly/'+wk+'/meta').get(),
     fbRef('weekly/'+wk+'/submissions').get(),
     fbRef('marketFarmers').get(),
-    fbRef('productPhotos').get(),
-    fbRef('productPhotoMap').get(),
     fbRef('products').get(),
     fbRef('settings/siteConfig').get(),
     fbRef('haats').get(),
@@ -382,8 +404,6 @@ async function fetchCatalogData(){
     meta:      metaSnap.val() || {weekNum:wk},
     subs:      subSnap.val()  || {},
     farmers:   fSnap.val()    || {},
-    photos:    pSnap.val()    || {},
-    photoMap:  mSnap.val()    || {},
     products:  prodSnap.val() || {},
     siteCfg:   scSnap.val()   || null,
     haats:     haatSnap.val() || {},
@@ -393,16 +413,36 @@ async function fetchCatalogData(){
   };
 }
 
+// Resolve the freshest catalogue data at the lowest possible download cost:
+// 1. snapshot-backed cache + unchanged updatedAt probe  → ~100 bytes
+// 2. fallback cache within its 5-min TTL                → 0 bytes
+// 3. fetch catalogSnapshot                              → ~200KB
+// 4. full pre-snapshot fetch                            → ~300KB (also the safety net)
+async function resolveCatalogData(){
+  const cached = readCatalogCacheRaw();
+  if(cached){
+    const age = Date.now() - (+cached.t||0);
+    if(cached.data._snapUpdatedAt && age < SNAP_CACHE_MAX_AGE){
+      try{
+        const probe = (await fbRef('catalogSnapshot/updatedAt').get()).val();
+        if(probe && probe === cached.data._snapUpdatedAt) return cached.data;
+      }catch{}
+    } else if(!cached.data._snapUpdatedAt && age < CATALOG_CACHE_TTL){
+      return cached.data;
+    }
+  }
+  let data = await tryFetchSnapshot();
+  if(!data) data = await fetchCatalogData();
+  writeCatalogCache(data);
+  return data;
+}
+
 async function init(){
   renderSkeleton();
   FB.app = firebase.initializeApp(FB_CONFIG);
   FB.db  = firebase.database();
   try{
-    let data = readCatalogCache();
-    if(!data){
-      data = await fetchCatalogData();
-      writeCatalogCache(data);
-    }
+    const data = await resolveCatalogData();
     WK = data.wk;
     WK_META = data.meta;
     SITE_CFG = data.siteCfg;
@@ -417,8 +457,6 @@ async function init(){
     });
     { const cc = {}; Object.values(data.cats || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; }); mergeCustomCats(cc); CAT_LABELS = data.catLabels || {}; applyCategoryOrder(data.catOrder || []); }
     SUBMISSIONS = data.subs;
-    PRODUCT_PHOTOS = data.photos;
-    PRODUCT_PHOTO_MAP = data.photoMap;
     Object.values(data.farmers).forEach(f => { if(f && f.id && f.active!==false) FARMERS_MAP[f.id] = f; });
     // Part A: load the master product catalogue — customer display names resolve from here by id
     PRODUCTS_MASTER = {}; PRODUCTS_BY_NAME = {};
@@ -532,16 +570,14 @@ function buildLists(){
       items: resolved.map(it => ({...it, name: it._dispName, cat: it._dispCat, emoji: it._emoji}))
     });
   });
-  // 2. Aggregate. Group by slicer's cellKey when available (ignoring unit so 500ml & 1Lt merge),
-  //    else fall back to name+unit so items without a photo mapping stay safe.
+  // 2. Aggregate by master id (variants consolidate under the master). Non-master items are
+  //    filtered out above, so the name+unit branch is a dead-path safety net only (V59: the
+  //    old slicer cellKey grouping went with the legacy photo tables).
   const aggMap = new Map();
   allRaw.forEach(it => {
     const dispName = it._dispName || (it.name||'').trim();
     const isMaster = !!it._masterId;
-    // Part A: group master-resolved items by master id (variants consolidate under the master);
-    // legacy items keep the old cellKey / name+unit grouping.
-    const groupId = isMaster ? ('m_'+it._masterId)
-                  : (PRODUCT_PHOTO_MAP[photoKey(dispName)] || `${dispName}|${it.unit||''}`);
+    const groupId = isMaster ? ('m_'+it._masterId) : `${dispName}|${it.unit||''}`;
     let agg = aggMap.get(groupId);
     if(!agg){
       agg = {

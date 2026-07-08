@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V59</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V60</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -789,6 +789,62 @@ async function loadProductsDB(){
   Object.entries(PRODUCTS_DB).forEach(([id, p]) => { if(p && !p.id) p.id = id; });
 }
 
+/* ════════ V60: catalogSnapshot — one compact node the customer app reads instead of the raw
+   tables (~200KB vs ~380KB, and its updatedAt stamp lets customers revalidate a cached copy
+   for ~100 bytes). Regenerated from in-memory state, debounced, and only written when content
+   actually changed. Coverage: called at the end of loadAll() AND from setTabBodyHtml() (every
+   mutating handler re-renders through it after updating in-memory state, so approvals, price
+   fixes, haat toggles, product/design edits all land here without per-handler hooks).
+   Write failures are silently ignored — the customer app has a full-fetch fallback, so a
+   blocked/failed snapshot write can never take the catalogue down. ════════ */
+let SNAP_RAW = {cats:{}, catLabels:{}, catOrder:[]};   // raw settings copies for the generator
+let _snapTimer=null, _lastSnapStr='';
+const SNAP_ITEM_FIELDS = ['name','unit','price','priceByHaat','qty','available','productId','emoji','cat'];
+const SNAP_SUB_FIELDS  = ['status','farmerName','farmerHaat','farmerHaatCodes'];
+const SNAP_FARMER_FIELDS = ['id','name','farm','village','district','phone','photoUrl','haat','haatCodes'];
+const SNAP_PRODUCT_FIELDS = ['id','name','cat','unit','emoji','photo','order','aliases'];
+function _pick(src, fields){ const o={}; fields.forEach(k => { if(src[k] !== undefined) o[k]=src[k]; }); return o; }
+function buildCatalogSnapshot(){
+  if(!WK || !SUBS || !FARMERS) return null;
+  const subs = {};
+  Object.entries(SUBS).forEach(([fid, s]) => {
+    if(!s || s.status === 'pending' || s.status === 'rejected') return;
+    const t = _pick(s, SNAP_SUB_FIELDS);
+    t.items = (s.items||[]).filter(Boolean).map(it => _pick(it, SNAP_ITEM_FIELDS));
+    subs[fid] = t;
+  });
+  const farmers = {};
+  Object.keys(subs).forEach(fid => {
+    const f = FARMERS.find(x => x && x.id === fid);
+    if(f) farmers[f.id] = _pick(f, SNAP_FARMER_FIELDS);
+  });
+  const products = {};
+  Object.values(PRODUCTS_DB||{}).forEach(p => {
+    if(!p || !p.id || p.active === false) return;
+    products[p.id] = _pick(p, SNAP_PRODUCT_FIELDS);
+  });
+  return {
+    wk: WK, meta: WK_META || {weekNum:WK}, subs, farmers, products,
+    siteCfg: SITE_CFG || null, haats: HAATS || {},
+    cats: SNAP_RAW.cats || {}, catOrder: SNAP_RAW.catOrder || [], catLabels: SNAP_RAW.catLabels || {},
+  };
+}
+function scheduleSnapshotWrite(){
+  if(_snapTimer) clearTimeout(_snapTimer);
+  _snapTimer = setTimeout(async () => {
+    _snapTimer = null;
+    try{
+      const snap = buildCatalogSnapshot();
+      if(!snap) return;
+      const str = JSON.stringify(snap);
+      if(str === _lastSnapStr) return;              // nothing changed → no write
+      snap.updatedAt = Date.now();
+      await fbRef('catalogSnapshot').set(snap);
+      _lastSnapStr = str;
+    }catch(e){ console.warn('catalogSnapshot write skipped:', e && e.message); }
+  }, 2000);
+}
+
 async function loadAll(){
   showState("⏳","લોડ થઈ રહ્યું છે...","");
   try{
@@ -825,11 +881,14 @@ async function loadAll(){
     try{
       const catSnap = await fbRef('settings/categories').get();
       CUSTOM_CATS = {};
-      Object.values(catSnap.val() || {}).forEach(c => { if(c && c.name) CUSTOM_CATS[c.name] = c.emoji || '🌿'; });
+      SNAP_RAW.cats = catSnap.val() || {};                                    // V60: raw copy for the snapshot generator
+      Object.values(SNAP_RAW.cats).forEach(c => { if(c && c.name) CUSTOM_CATS[c.name] = c.emoji || '🌿'; });
       mergeCustomCats(CUSTOM_CATS);
       CAT_LABELS = (await fbRef('settings/categoryLabels').get()).val() || {};
+      SNAP_RAW.catLabels = CAT_LABELS;
       applyCategoryLabels();
-      applyCategoryOrder((await fbRef('settings/categoryOrder').get()).val() || []);
+      SNAP_RAW.catOrder = (await fbRef('settings/categoryOrder').get()).val() || [];
+      applyCategoryOrder(SNAP_RAW.catOrder);
     }catch{ CUSTOM_CATS = {}; }
     HAATS = hSnap.val() || {};
     DISTRICTS = dSnap.val() || {};
@@ -851,6 +910,7 @@ async function loadAll(){
     FARMERS.sort((a,b)=>(a.name||"").localeCompare(b.name||"",'gu'));
   }catch(e){ console.error(e); return showState("⚠️","ભૂલ", e.message||String(e)); }
   render();
+  scheduleSnapshotWrite();   // V60: keep the customer-facing catalogSnapshot in sync
 }
 
 /* ════════ V54: mobile-only sidebar drawer — same 3 groups/9 tabs as the desktop .tabs
@@ -2047,7 +2107,14 @@ function renderReviewCard(fid){
 }
 
 // V11: null-guarded tab-body re-render (was throwing on re-render races)
-function setTabBodyHtml(){ const el = document.getElementById('tabBody'); if(el) el.innerHTML = renderTab(); }
+function setTabBodyHtml(){
+  const el = document.getElementById('tabBody'); if(el) el.innerHTML = renderTab();
+  // V60: every mutating handler (approve/reject/price-fix/haat-toggle/product-edit/design-save)
+  // re-renders through here after updating in-memory state — one hook keeps the customer-facing
+  // catalogSnapshot fresh without touching each handler. Unchanged state → no write (debounced
+  // + content-compared), so pure tab navigation costs nothing.
+  scheduleSnapshotWrite();
+}
 // Display week number — uses the editable meta.weekNum (e.g. 497) instead of the raw RTDB key
 // (which can be a test name like "test_probe"). Falls back to the key only if no number set.
 function wkDisp(){ return (WK_META && WK_META.weekNum) || WK; }
@@ -3232,17 +3299,30 @@ window.pickPhoto = (key, name) => {
       const url = j.secure_url;
       await fbRef('productPhotos/'+key).set(url);
       PRODUCT_PHOTOS[key] = url;
+      // V60: dual-write into the master catalogue — customers resolve photos from
+      // products.photo ONLY now (legacy tables folded 2026-07-08), so a Photos-tab
+      // upload must land there too or customers would never see it.
+      await _syncMasterPhotoByName(name, url);
       toast(`✓ "${name}" નો ફોટો સાચવાયો`,"ok");
       setTabBodyHtml();
     }catch(e){ console.error(e); toast("Upload નિષ્ફળ: "+(e.message||e),"err"); }
   };
   inp.click();
 };
+async function _syncMasterPhotoByName(name, urlOrNull){
+  try{
+    const m = Object.values(PRODUCTS_DB||{}).find(p => p && p.id && p.name === name);
+    if(!m) return;
+    await fbRef('products/'+m.id+'/photo').set(urlOrNull);
+    m.photo = urlOrNull || '';
+  }catch(e){ console.warn('master photo sync failed', e && e.message); }
+}
 window.removePhoto = async (key, name) => {
   if(!(await asyncConfirm(`"${name}" નો ફોટો હટાવવો છે?`, 'હા, હટાવો', 'રદ', true))) return;
   try{
     await fbRef('productPhotos/'+key).set(null);
     delete PRODUCT_PHOTOS[key];
+    await _syncMasterPhotoByName(name, null);   // V60: keep master catalogue in step
     toast("હટાવ્યો","ok");
     setTabBodyHtml();
   }catch(e){ toast("Error","err"); }
