@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V58</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V59</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -688,6 +688,60 @@ window.doLogout = () => {
   renderLogin();
 };
 
+/* ════════ V59: cached catalogue chunk (products / order / categories) ════════ */
+const FARMER_CATALOG_CACHE_KEY = 'khedut_farmer_catalog_v1';
+const FARMER_CATALOG_CACHE_TTL = 10*60*1000;
+
+function applyCatalogChunk(d){
+  PRODUCT_ORDER = (d && d.productOrder) || {};
+  rebuildOrderPriority();
+  const fromDB = d && d.products;
+  if(fromDB && Object.keys(fromDB).length){
+    const arr = Object.values(fromDB)
+      .filter(p => p && p.active !== false)
+      .sort((a,b) => {
+        const ca = CAT_ORDER.indexOf(a.cat); const cb = CAT_ORDER.indexOf(b.cat);
+        if(ca !== cb) return (ca===-1?99:ca) - (cb===-1?99:cb);
+        return (+a.order||0) - (+b.order||0);
+      })
+      .map(p => ({n:p.name, u:p.unit||'kg', c:p.cat||'અન્ય', e:p.emoji||'🌿', photo:p.photo||'', id:p.id||'', a:p.aliases||''}));
+    if(arr.length){
+      // Replace PRODUCT_LIB contents in place (falls back to the seeded list if DB empty)
+      PRODUCT_LIB.length = 0;
+      arr.forEach(x => PRODUCT_LIB.push(x));
+    }
+  }
+  const cc = {};
+  Object.values((d && d.categories) || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; });
+  mergeCustomCats(cc);
+  CAT_LABELS = (d && d.categoryLabels) || {};
+  applyCategoryOrder((d && d.categoryOrder) || []);
+}
+
+async function ensureCatalogChunk(){
+  try{
+    const raw = sessionStorage.getItem(FARMER_CATALOG_CACHE_KEY);
+    if(raw){
+      const c = JSON.parse(raw);
+      if(c && c.data && (Date.now() - (+c.t||0)) < FARMER_CATALOG_CACHE_TTL){
+        applyCatalogChunk(c.data);
+        return;
+      }
+    }
+  }catch{}
+  const data = {};
+  // Each part stays independently non-fatal, matching the pre-V59 behavior.
+  try{ data.productOrder = (await fbRef('productOrder').get()).val() || {}; }catch{}
+  try{ data.products = (await fbRef('products').get()).val() || null; }catch{}
+  try{
+    data.categories = (await fbRef('settings/categories').get()).val() || {};
+    data.categoryLabels = (await fbRef('settings/categoryLabels').get()).val() || {};
+    data.categoryOrder = (await fbRef('settings/categoryOrder').get()).val() || [];
+  }catch{}
+  applyCatalogChunk(data);
+  try{ sessionStorage.setItem(FARMER_CATALOG_CACHE_KEY, JSON.stringify({t: Date.now(), data})); }catch{}
+}
+
 /* ════════ SUBMISSION LOAD ════════ */
 async function loadSubmission(){
   const wkSnap = await fbRef('weekly/current').get();
@@ -700,42 +754,13 @@ async function loadSubmission(){
   WK_META = metaSnap.val() || {weekNum:WK};
   if(WK_META.frozen) return showState("🔒","હાટ બંધ થઈ ગઈ",`હાટ ${esc(weekRange())} માટેનો સમય પૂરો થયો છે. આગલા હાટ માટે રાહ જુઓ.`);
 
-  // Load product order (set by admin) — used to sort within each category
-  try{
-    const oSnap = await fbRef('productOrder').get();
-    PRODUCT_ORDER = oSnap.val() || {};
-    rebuildOrderPriority();
-  }catch(e){ /* non-fatal */ }
-
-  // Load the admin's canonical product database — overrides the seed PRODUCT_LIB
-  try{
-    const pSnap = await fbRef('products').get();
-    const fromDB = pSnap.val();
-    if(fromDB && Object.keys(fromDB).length){
-      const arr = Object.values(fromDB)
-        .filter(p => p && p.active !== false)
-        .sort((a,b) => {
-          const ca = CAT_ORDER.indexOf(a.cat); const cb = CAT_ORDER.indexOf(b.cat);
-          if(ca !== cb) return (ca===-1?99:ca) - (cb===-1?99:cb);
-          return (+a.order||0) - (+b.order||0);
-        })
-        .map(p => ({n:p.name, u:p.unit||'kg', c:p.cat||'અન્ય', e:p.emoji||'🌿', photo:p.photo||'', id:p.id||'', a:p.aliases||''}));
-      if(arr.length){
-        // Replace PRODUCT_LIB contents in place
-        PRODUCT_LIB.length = 0;
-        arr.forEach(x => PRODUCT_LIB.push(x));
-      }
-    }
-  }catch(e){ /* non-fatal — fall back to seeded PRODUCT_LIB */ }
-
-  // Load admin-added categories so new categories show in the form
-  try{
-    const cc = {};
-    Object.values((await fbRef('settings/categories').get()).val() || {}).forEach(c => { if(c && c.name) cc[c.name] = c.emoji || '🌿'; });
-    mergeCustomCats(cc);
-    CAT_LABELS = (await fbRef('settings/categoryLabels').get()).val() || {};
-    applyCategoryOrder((await fbRef('settings/categoryOrder').get()).val() || []);
-  }catch(e){ /* non-fatal */ }
+  // V59: catalogue chunk (product list/order/categories) — cached per tab for 10 min.
+  // loadSubmission() re-runs after login, after password change, and after EVERY submit
+  // ("↻ ફરી જુઓ"), and was re-downloading the full 117KB products node each time. This chunk
+  // is slow-moving admin master data, safe to cache briefly. Deliberately NOT cached: haats
+  // (open/close gate), weekly meta (frozen gate), and the farmer's own submission — those
+  // stay always-fresh below because they decide whether submitting is allowed right now.
+  await ensureCatalogChunk();
   // Load haats and filter to ones currently OPEN for this farmer
   try{
     const hSnap = await fbRef('haats').get();

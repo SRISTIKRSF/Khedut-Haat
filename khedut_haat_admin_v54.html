@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V58</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V59</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -457,6 +457,7 @@ let PRODUCT_ORDER={};       // categoryKey -> [productName, ...]
 let MASTER_PRODUCTS={};  // id -> {id, name, cat, unit, price, photo, active, addedAt}
 let PHOTO_FILTER='all';  // 'all' | 'missing' | 'done' | 'master'
 let ALL_PRODUCTS_MAP=new Map();  // name -> {emoji, cat, count, weeks:Set} — aggregated across ALL weeks
+let _allWeeksAggDone=false;      // V59: the all-weeks aggregation runs ONCE per session (see loadAllProductsAcrossWeeks)
 let PRODUCTS_DB={};      // id -> {id, name, cat, unit, emoji, photo, order, active, addedAt} — the canonical product database
 let DELETED_PRODUCT_IDS=new Set(); // tombstones — admin-deleted ids should never be re-added by history sync
 let CATALOG_STATS={};    // {totalViews, byDate:{}, byWeek:{}, uniqueDevicesCount}
@@ -722,6 +723,12 @@ function readUnit(id){
 async function loadAllProductsAcrossWeeks(){
   // Replicates the customer catalog's consolidation: groups variants by productPhotoMap cellKey,
   // picks the CANONICAL (shortest) name per group → matches what demo customer view shows.
+  // V59: run ONCE per session. This downloads the ENTIRE weekly history node (~675KB and
+  // growing every week) yet only feeds a historical name-dedup map for the Photos/Order tabs.
+  // Farmers are select-only (current-week names always come from the master catalogue, which
+  // both consumers merge in anyway), so re-aggregating on every reload click bought nothing —
+  // it was the single biggest RTDB download bleed in the whole system during market mornings.
+  if(_allWeeksAggDone && ALL_PRODUCTS_MAP.size) return;
   ALL_PRODUCTS_MAP = new Map();
   try{
     const photoMapSnap = await fbRef('productPhotoMap').get();
@@ -758,6 +765,7 @@ async function loadAllProductsAcrossWeeks(){
         ALL_PRODUCTS_MAP.set(canonical, {emoji:ex.emoji, cat:ex.cat, unit:ex.unit, count:ex.count});
       }
     });
+    _allWeeksAggDone = true;   // V59: success → skip on all later loadAll() calls this session
   }catch(e){ console.error('all-weeks aggregation failed', e); }
 }
 
