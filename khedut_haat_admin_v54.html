@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V60</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V61</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -958,10 +958,7 @@ window.toggleDrawer = (force) => {
 
 /* ════════ Render shell ════════ */
 function render(){
-  const submittedCount = Object.keys(SUBS).filter(fid=>SUBS[fid]?.rawText).length;
-  const publishedCount = Object.keys(SUBS).filter(fid=>Array.isArray(SUBS[fid]?.items) && SUBS[fid].items.length>0).length;
-  const totalFarmers = FARMERS.length;
-  const pendingTab = totalFarmers - submittedCount;
+  const {submittedCount, publishedCount, totalFarmers, pendingCount: pendingTab} = dashStats();
 
   $('#wrap').innerHTML = `
     <div class="topbar">
@@ -1089,8 +1086,7 @@ window.setTab = t => {
     // desktop since the drawer is never open there.
     const drawerNav = document.getElementById('drawerNav');
     if(drawerNav){
-      const pendingTab = FARMERS.length - Object.keys(SUBS).filter(fid=>SUBS[fid]?.rawText).length;
-      drawerNav.innerHTML = renderDrawerNav(pendingTab);
+      drawerNav.innerHTML = renderDrawerNav(dashStats().pendingCount);
     }
     const curLabel = document.getElementById('mobNavCurrent');
     if(curLabel) curLabel.textContent = TAB_LABELS[t] || '';
@@ -1129,15 +1125,29 @@ function pendingReviewCount(){
   return Object.keys(SUBS).filter(fid => SUBS[fid]?.status === 'pending').length;
 }
 
-/* ════════ TAB 1: DASHBOARD ════════ */
-function renderDashboard(){
-  const totalFarmers = FARMERS.length;
-  // V40: મોકલાઈ counts ANY submission this week — app-submitted items OR legacy WhatsApp-paste
-  // rawText. (Was rawText-only, so normal app submissions never counted and it undercounted.)
-  const submittedCount = Object.keys(SUBS).filter(fid=>{ const s=SUBS[fid]; return s && (s.rawText || (Array.isArray(s.items) && s.items.length>0)); }).length;
-  const publishedCount = Object.keys(SUBS).filter(fid=>Array.isArray(SUBS[fid]?.items) && SUBS[fid].items.length>0).length;
+// V60: single source of truth for "કુલ ખેડૂત / મોકલાઈ / બાકી / પ્રકાશિત" — scoped to farmers
+// assigned to a currently-OPEN haat (same eligibility rule as renderHaatProgress's funnel).
+// Was previously recomputed independently in 4 places (topbar strip, dashboard cards, and two
+// tab-badge refreshers), 3 of which counted ALL farmers regardless of haat status and 2 of
+// which also still had the pre-V40 rawText-only submitted check — every fix to one copy left
+// the others stale. Route every one of those call sites through here instead.
+function dashStats(){
+  const openCodes = new Set(Object.entries(HAATS).filter(([c,h])=>h&&h.open).map(([c])=>c));
+  const eligible = FARMERS.filter(f => Array.isArray(f.haatCodes) && f.haatCodes.some(c=>openCodes.has(c)));
+  const eligibleIds = new Set(eligible.map(f=>f.id));
+  const totalFarmers = eligible.length;
+  const submittedCount = eligible.filter(f=>{ const s=SUBS[f.id]; return s && (s.rawText || (Array.isArray(s.items) && s.items.length>0)); }).length;
+  const publishedCount = eligible.filter(f=>Array.isArray(SUBS[f.id]?.items) && SUBS[f.id].items.length>0).length;
   const pendingCount = Math.max(0, totalFarmers - submittedCount);
   const pendingPub = Math.max(0, submittedCount - publishedCount);
+  return {totalFarmers, submittedCount, publishedCount, pendingCount, pendingPub, eligibleIds};
+}
+
+/* ════════ TAB 1: DASHBOARD ════════ */
+function renderDashboard(){
+  // V40: મોકલાઈ counts ANY submission this week — app-submitted items OR legacy WhatsApp-paste
+  // rawText. V60: all 4 numbers scoped to farmers assigned to a currently-OPEN haat — see dashStats().
+  const {totalFarmers, submittedCount, publishedCount, pendingCount, pendingPub} = dashStats();
 
   return `
     <div class="dash">
