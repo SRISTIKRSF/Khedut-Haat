@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V61</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V62</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -4853,16 +4853,155 @@ function reportInsightsHtml(){
     <div style="font-size:11px;color:#999;margin-top:4px;line-height:1.5">બધું approved data પર · read-only · % બાકી ફક્ત 'બાકી જથ્થો' ભરેલા entries માટે · હાટ મૂલ્ય = જથ્થો × ભાવ.</div>`;
 }
 
+/* ════════ V62: હાજરી (attendance/regularity) report ════════
+   Operator question: which farmers are regular, which have gone quiet, whom to chase.
+   "હાજર" for a haat = the farmer sent a submission for that round (ANY status — pending/
+   rejected still means they engaged). A farmer's eligibility starts from their FIRST-ever
+   submission (earlier weeks show blank, not absent — most were seeded mid-history, so
+   counting pre-joining weeks as absences would slander every newer farmer).             */
+let REPORT_ATT_HAAT = 'all';   // attendance view's haat filter
+window.setReportAttHaat = v => { REPORT_ATT_HAAT = v; setTabBodyHtml(); };
+
+function attendanceData(){
+  const weeks = REPORTS_DATA.weeks.slice().sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)); // oldest → newest
+  const presentByWeek = weeks.map(w => {
+    const set = new Set();
+    Object.entries(w.subs || {}).forEach(([fid, sub]) => {
+      if(!sub) return;
+      set.add(canonicalFarmer(sub.farmerPhone, fid, sub.farmerName).key);
+      set.add(fid);   // belt-and-braces: key by fid too, so a missing/changed phone can't fake an absence
+    });
+    return set;
+  });
+  let roster = FARMERS;
+  if(REPORT_ATT_HAAT !== 'all') roster = roster.filter(f => Array.isArray(f.haatCodes) && f.haatCodes.includes(REPORT_ATT_HAAT));
+  const rows = [], never = [];
+  roster.forEach(f => {
+    const phKey = String(f.phone||'').replace(/\D/g,'');
+    const isIn = i => presentByWeek[i].has(phKey) || presentByWeek[i].has(f.id);
+    const marks = weeks.map((w,i) => isIn(i));
+    const firstIdx = marks.indexOf(true);
+    if(firstIdx === -1){ never.push(f); return; }
+    const span = marks.slice(firstIdx);
+    const attended = span.filter(Boolean).length;
+    const pct = Math.round(attended / span.length * 100);
+    let missStreak = 0;
+    for(let i = marks.length-1; i >= firstIdx && !marks[i]; i--) missStreak++;
+    let lastIdx = -1;
+    for(let i = marks.length-1; i >= 0; i--){ if(marks[i]){ lastIdx = i; break; } }
+    rows.push({ f, marks, firstIdx, attended, eligible: span.length, pct, missStreak,
+                lastLabel: lastIdx >= 0 ? weeks[lastIdx].label : '—',
+                cls: pct >= 75 ? 'reg' : pct >= 40 ? 'mid' : 'irr' });
+  });
+  // Actionable order: farmers who USED to come but have stopped longest float to the top,
+  // then lowest attendance. (A regular who missed the last 3 haats matters more than a
+  // chronic 30%-er who happened to come yesterday.)
+  rows.sort((a,b) => b.missStreak - a.missStreak || a.pct - b.pct || (a.f.name||'').localeCompare(b.f.name||'','gu'));
+  return { weeks, rows, never };
+}
+
+function reportAttendanceHtml(){
+  const {weeks, rows, never} = attendanceData();
+  const CLS = {
+    reg: {chip:'🟢 નિયમિત', bg:'#d8f3dc', fg:'#1b4332'},
+    mid: {chip:'🟡 મધ્યમ',  bg:'#fff8d6', fg:'#7a5a00'},
+    irr: {chip:'🔴 અનિયમિત', bg:'#ffe3e0', fg:'#9d0208'},
+  };
+  const counts = {reg:0, mid:0, irr:0};
+  rows.forEach(r => counts[r.cls]++);
+  const haatOpt = `<option value="all" ${REPORT_ATT_HAAT==='all'?'selected':''}>બધા હાટ</option>` +
+    Object.values(HAATS).sort((a,b)=>(a.seqOrder||999)-(b.seqOrder||999))
+      .map(h => `<option value="${esc(h.code)}" ${REPORT_ATT_HAAT===h.code?'selected':''}>${esc(h.nameGu||h.name||h.code)}${h.open?' 🟢':''}</option>`).join('');
+  const chip = (k) => `<span style="background:${CLS[k].bg};color:${CLS[k].fg};border-radius:20px;padding:3px 11px;font-size:12px;font-weight:700">${CLS[k].chip} ${counts[k]}</span>`;
+  const waBtn = f => { const ph = String(f.phone||'').replace(/\D/g,'').slice(-10); return ph ? `<a href="https://wa.me/91${ph}" target="_blank" rel="noopener" title="WhatsApp પર પૂછો" style="text-decoration:none">📱</a>` : ''; };
+  const cell = (r,i) => i < r.firstIdx
+    ? `<td style="text-align:center;color:#ddd;padding:5px 7px"> </td>`
+    : r.marks[i]
+      ? `<td style="text-align:center;background:#d8f3dc;color:#1b4332;font-weight:700;padding:5px 7px">✓</td>`
+      : `<td style="text-align:center;background:#fff0ef;color:#c1121f;padding:5px 7px">·</td>`;
+  const body = rows.map(r => `
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:7px 9px;white-space:nowrap;position:sticky;left:0;background:#fff;font-weight:600">${esc(r.f.name||r.f.id)} ${waBtn(r.f)}</td>
+      <td style="padding:7px 9px;white-space:nowrap;font-size:11.5px;color:var(--muted)">${esc(r.f.haat||'')}</td>
+      <td style="padding:7px 9px;text-align:center;white-space:nowrap"><b>${r.attended}</b>/${r.eligible} <span style="color:var(--muted)">(${r.pct}%)</span></td>
+      <td style="padding:7px 9px;text-align:center;white-space:nowrap"><span style="background:${CLS[r.cls].bg};color:${CLS[r.cls].fg};border-radius:12px;padding:2px 9px;font-size:11.5px;font-weight:700">${CLS[r.cls].chip}</span></td>
+      <td style="padding:7px 9px;text-align:center">${r.missStreak > 0 ? `<b style="color:${r.missStreak>=3?'#c1121f':'#b45309'}">${r.missStreak}</b>` : '<span style="color:var(--green2)">0</span>'}</td>
+      <td style="padding:7px 9px;white-space:nowrap;font-size:11.5px;color:var(--muted)">${esc(r.lastLabel)}</td>
+      ${weeks.map((w,i)=>cell(r,i)).join('')}
+    </tr>`).join('');
+  const neverHtml = never.length ? `
+    <div style="margin-top:14px;padding:11px 13px;background:#f7f5ef;border:1px solid var(--border);border-radius:10px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px">⚫ ક્યારેય નથી મોકલી (${never.length})</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:12px">
+        ${never.map(f=>`<span style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:3px 10px;white-space:nowrap">${esc(f.name||f.id)} ${waBtn(f)}</span>`).join('')}
+      </div>
+    </div>` : '';
+  return `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <select class="frm-in" style="width:auto;font-size:13px" onchange="setReportAttHaat(this.value)">${haatOpt}</select>
+      ${chip('reg')} ${chip('mid')} ${chip('irr')}
+      ${never.length?`<span style="background:#e8e6e0;color:#555;border-radius:20px;padding:3px 11px;font-size:12px;font-weight:700">⚫ ક્યારેય નહીં ${never.length}</span>`:''}
+    </div>
+    <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">ક્રમ: જે ખેડૂત પહેલા આવતા હતા પણ સૌથી લાંબા સમયથી બંધ છે તે ઉપર · હાજરી = એ હાટ માટે યાદી મોકલી (કોઈ પણ સ્થિતિ) · ગણતરી પહેલી submission થી શરૂ</div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:${560 + weeks.length*38}px">
+        <thead><tr style="background:#f4f1e8;font-size:11px;color:#777">
+          <th style="text-align:left;padding:6px 9px;position:sticky;left:0;background:#f4f1e8">ખેડૂત</th>
+          <th style="text-align:left;padding:6px 9px">હાટ</th>
+          <th style="padding:6px 9px">હાજરી</th>
+          <th style="padding:6px 9px">સ્થિતિ</th>
+          <th style="padding:6px 9px" title="છેલ્લા કેટલા હાટ સળંગ ગેરહાજર">સળંગ ગેર.</th>
+          <th style="text-align:left;padding:6px 9px">છેલ્લે આવ્યા</th>
+          ${weeks.map(w=>`<th style="padding:6px 5px;white-space:nowrap;font-weight:600" title="${esc(w.label)}">${esc(String(w.label).replace(/-20\d\d$/,''))}</th>`).join('')}
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    ${neverHtml}`;
+}
+
+window.exportAttendanceExcel = async () => {
+  const {weeks, rows, never} = attendanceData();
+  if(!rows.length && !never.length) return toast("કોઈ data નથી","err");
+  toast("📊 Excel તૈયાર થાય છે…","ok");
+  try{
+    if(!_xlsxLib) _xlsxLib = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+    const XLSX = _xlsxLib;
+    const CLSGU = {reg:'નિયમિત', mid:'મધ્યમ', irr:'અનિયમિત'};
+    const sheetRows = rows.map(r => {
+      const o = {
+        'ખેડૂત': r.f.name||r.f.id, 'ફોન': r.f.phone||'', 'હાટ': r.f.haat||'',
+        'હાજરી': `${r.attended}/${r.eligible}`, '%': r.pct, 'સ્થિતિ': CLSGU[r.cls],
+        'સળંગ ગેરહાજર': r.missStreak, 'છેલ્લે આવ્યા': r.lastLabel,
+      };
+      weeks.forEach((w,i) => { o[w.label] = i < r.firstIdx ? '' : (r.marks[i] ? '✓' : '✗'); });
+      return o;
+    });
+    never.forEach(f => {
+      const o = {'ખેડૂત': f.name||f.id, 'ફોન': f.phone||'', 'હાટ': f.haat||'', 'હાજરી': '0', '%': 0, 'સ્થિતિ': 'ક્યારેય નહીં', 'સળંગ ગેરહાજર': '', 'છેલ્લે આવ્યા': '—'};
+      weeks.forEach(w => { o[w.label] = ''; });
+      sheetRows.push(o);
+    });
+    const ws = XLSX.utils.json_to_sheet(sheetRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'હાજરી');
+    XLSX.writeFile(wb, `khedut-haajri-${new Date().toISOString().slice(0,10)}.xlsx`);
+    toast("✓ Excel download થયું","ok");
+  }catch(e){ console.error(e); toast("Excel નિષ્ફળ: "+(e.message||e),"err"); }
+};
+
 function reportBodyHtml(){
-  if(REPORT_VIEW === 'crop')     return reportCropHtml();
-  if(REPORT_VIEW === 'month')    return reportMonthHtml();
-  if(REPORT_VIEW === 'insights') return reportInsightsHtml();
+  if(REPORT_VIEW === 'crop')       return reportCropHtml();
+  if(REPORT_VIEW === 'month')      return reportMonthHtml();
+  if(REPORT_VIEW === 'insights')   return reportInsightsHtml();
+  if(REPORT_VIEW === 'attendance') return reportAttendanceHtml();
   return reportFarmerHtml();
 }
 function reportTitle(){
   if(REPORT_VIEW === 'crop')  return 'પાક રિપોર્ટ' + (REPORT_CROP?' — '+REPORT_CROP:'') + ' · ' + reportPeriodLabel();
   if(REPORT_VIEW === 'month') return 'મહિના વાર અંદાજિત વેચાણ — ખેડૂત વાર';
   if(REPORT_VIEW === 'insights') return 'Insights — બધા અઠવાડિયા';
+  if(REPORT_VIEW === 'attendance') return 'ખેડૂત હાજરી રિપોર્ટ — બધા હાટ';
   return 'ખેડૂત × પ્રોડક્ટ રિપોર્ટ · ' + reportPeriodLabel();
 }
 
@@ -4882,22 +5021,23 @@ function renderReports(){
   return `
     <div class="card" style="margin-bottom:12px;padding:13px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        ${(REPORT_VIEW!=='month' && REPORT_VIEW!=='insights') ? `<select class="frm-in" style="width:auto;font-size:13px" onchange="setReportWeek(this.value)">${weekOpt}</select>` : ''}
+        ${(REPORT_VIEW!=='month' && REPORT_VIEW!=='insights' && REPORT_VIEW!=='attendance') ? `<select class="frm-in" style="width:auto;font-size:13px" onchange="setReportWeek(this.value)">${weekOpt}</select>` : ''}
         <div style="display:flex;gap:4px;background:var(--bg);border-radius:8px;padding:3px;flex-wrap:wrap">
           <button class="btn-sm ${REPORT_VIEW==='farmer'?'primary':''}" onclick="setReportView('farmer')" style="font-size:12.5px">🌾 ખેડૂત×પ્રોડક્ટ</button>
           <button class="btn-sm ${REPORT_VIEW==='crop'?'primary':''}" onclick="setReportView('crop')" style="font-size:12.5px">🥕 પાક</button>
           <button class="btn-sm ${REPORT_VIEW==='month'?'primary':''}" onclick="setReportView('month')" style="font-size:12.5px">📅 મહિના વાર</button>
+          <button class="btn-sm ${REPORT_VIEW==='attendance'?'primary':''}" onclick="setReportView('attendance')" style="font-size:12.5px">📅 હાજરી</button>
           <button class="btn-sm ${REPORT_VIEW==='insights'?'primary':''}" onclick="setReportView('insights')" style="font-size:12.5px">📈 Insights</button>
         </div>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn-sm" onclick="exportReportExcel()" title="ખેડૂત-વાર Excel — ભાવ, લાવ્યા, વેચાયું, બાકી, અંદાજિત વેચાણ">📊 Excel</button>
+        <button class="btn-sm" onclick="${REPORT_VIEW==='attendance'?'exportAttendanceExcel()':'exportReportExcel()'}" title="${REPORT_VIEW==='attendance'?'હાજરી matrix Excel — ખેડૂત વાર, હાટ વાર ✓/✗':'ખેડૂત-વાર Excel — ભાવ, લાવ્યા, વેચાયું, બાકી, અંદાજિત વેચાણ'}">📊 Excel</button>
         <button class="btn-sm primary" onclick="printReport()" title="Print અથવા Save as PDF">🖨 PDF / Print</button>
       </div>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    ${REPORT_VIEW==='attendance' ? '' : `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       ${stat('ખેડૂત', nF)}${stat('પ્રોડક્ટ', nP)}${stat('કુલ લાવ્યા', qfmt(tB)+' kg')}${stat('વેચાયું', qfmt(tS)+' kg')}${stat('અંદાજિત વેચાણ', rupee(tE))}
-    </div>
+    </div>`}
     <div class="card" style="padding:14px 16px">${reportBodyHtml()}</div>
     <div style="font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5">📊 Phase 1 — read-only. અંદાજિત વેચાણ = વેચાયું × ભાવ ('બાકી' ન ભર્યું હોય તો વેચાયું = લાવ્યા). આવનારા: month-wise, capacity red-flags, વધુ insights.</div>
   `;
