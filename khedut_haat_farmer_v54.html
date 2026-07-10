@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V59</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V60</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -120,6 +120,17 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .input-wrap input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .input-wrap .sfx{font-size:10.5px;color:#374151;font-weight:600;white-space:nowrap;flex-shrink:0}
 .input-wrap .sfx.qty-sfx{color:var(--green2);font-weight:700}
+/* V60: post-approval "જથ્થો અપડેટ" phase — stacked row. The old 3-column row (ભાવ+કુલ+બાકી)
+   overflowed the viewport on real phones and clipped the બાકી input off-screen entirely. */
+.item.upd{flex-direction:column;align-items:stretch;gap:8px}
+.upd-head{display:flex;align-items:center;gap:9px;min-width:0}
+.price-chip{flex-shrink:0;background:#f2f2ef;border:1px solid var(--border);border-radius:14px;padding:4px 10px;font-size:12px;font-weight:700;color:#555;white-space:nowrap}
+.upd-inputs{display:flex;gap:8px}
+.upd-inputs .input-col{flex:1;min-width:0;align-items:stretch}
+.upd-inputs .input-col-lbl{text-align:center}
+.upd-inputs .input-wrap{width:100%;justify-content:center}
+.input-wrap.baaki{border-color:#f0c14b;background:#fffdf2}   /* amber = "આ ભરવાનું છે" */
+.input-wrap.baaki.has-val{border-color:var(--green2);background:#fff}
 
 /* CUSTOM ADD */
 .add-row{padding:16px 14px 6px;text-align:center}
@@ -1087,14 +1098,6 @@ function itemRow(p, isRoutine){
 
   const showRemaining = priceLocked;   // Part B (B6): બાકી જથ્થો shown only post-approval (post-haat)
   const rHas = (+e.remaining)>0 ? 'has-val' : '';
-  const remainingCol = showRemaining ? `
-    <div class="input-col">
-      <div class="input-col-lbl">બાકી જથ્થો</div>
-      <div class="input-wrap ${rHas}">
-        <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.remaining||'')}" oninput="onRemaining('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
-        <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
-      </div>
-    </div>` : '';
 
   if(isMulti){
     const qbh = e.qtyByHaat || {};
@@ -1150,8 +1153,40 @@ function itemRow(p, isRoutine){
     `;
   }
 
-  // Single-haat (original layout)
+  // Single-haat — post-approval "જથ્થો અપડેટ" phase: stacked layout. Price is locked (not an
+  // input any more, just a chip on the name line) and કુલ/બાકી become two full-width inputs.
+  // The old 3-column row overflowed real phones and pushed the બાકી input off-screen (V60 fix).
   const qHas = (+e.qty)>0 ? 'has-val' : '';
+  const jsN = esc(p.n).replace(/'/g,"\\'");
+  if(showRemaining){
+    return `
+      <div class="item upd ${active?'active':''}" data-name="${esc(p.n)}" data-alias="${esc(p.a||'')}" id="row_${safeId}">
+        <div class="upd-head">
+          <div class="item-emo">${emoOrPhoto(p)}</div>
+          <div class="item-body" style="flex:1;min-width:0">${nameHtml}</div>
+          <span class="price-chip">₹${esc(e.price)}/${esc(p.u)} 🔒</span>
+        </div>
+        <div class="upd-inputs">
+          <div class="input-col">
+            <div class="input-col-lbl">કુલ જથ્થો</div>
+            <div class="input-wrap wrap-qty ${qHas}">
+              <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.qty)}" oninput="onQty('${jsN}',this.value)">
+              <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
+            </div>
+          </div>
+          <div class="input-col">
+            <div class="input-col-lbl">બાકી જથ્થો (વેચાયા વગર)</div>
+            <div class="input-wrap baaki ${rHas}">
+              <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.remaining||'')}" oninput="onRemaining('${jsN}',this.value)">
+              <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Single-haat (original layout — price entry phase)
   return `
     <div class="item ${active?'active':''}" data-name="${esc(p.n)}" data-alias="${esc(p.a||'')}" id="row_${safeId}">
       <div class="item-emo">${emoOrPhoto(p)}</div>
@@ -1159,13 +1194,12 @@ function itemRow(p, isRoutine){
       <div class="item-inputs">
         ${priceCol}
         <div class="input-col">
-          <div class="input-col-lbl">${showRemaining?'કુલ જથ્થો':'જથ્થો'}</div>
+          <div class="input-col-lbl">જથ્થો</div>
           <div class="input-wrap wrap-qty ${qHas}">
-            <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.qty)}" oninput="onQty('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
+            <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.qty)}" oninput="onQty('${jsN}',this.value)">
             <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
           </div>
         </div>
-        ${remainingCol}
       </div>
     </div>
   `;
@@ -1189,6 +1223,7 @@ window.onRemaining = (name, val) => {   // Part B (B6): બાકી જથ્�
   const e = ENTRIES.get(name) || pristine(name);
   e.remaining = val;
   ENTRIES.set(name, e);
+  refreshRow(name);   // V60: flips the બાકી box amber→green as soon as it's filled
 };
 window.onQtyForHaat = (name, haatCode, val) => {
   const e = ENTRIES.get(name) || pristine(name);
@@ -1256,6 +1291,10 @@ function refreshRow(name){
       const unit = qtyUnitOf(p ? p.u : (e.unit || 'kg'));
       tot.textContent = total ? total + ' ' + unit : '—';
     }
+  } else if(row.classList.contains('upd')){
+    // V60 update-phase stacked layout: no price wrap — wraps are [કુલ, બાકી].
+    if(wraps[0]) wraps[0].classList.toggle('has-val', (+e.qty)>0);
+    if(wraps[1]) wraps[1].classList.toggle('has-val', (+e.remaining)>0);
   } else {
     if(wraps[1]) wraps[1].classList.toggle('has-val', (+e.qty)>0);
   }
