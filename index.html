@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V59</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V60</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <link rel="icon" type="image/jpeg" href="sristi-logo.jpg">
 <link rel="manifest" href="manifest-customer.json">
@@ -538,7 +538,9 @@ function buildLists(){
       if(!openCodes.length) return;                       // no open venue → hide
     }
     const venues = openCodes;
-    const items = (sub.items||[]).filter(it=>it.available!==false);
+    // V60: pendingReview items (added by the farmer AFTER approval, awaiting admin) stay
+    // invisible until approved — the submission itself remains live throughout.
+    const items = (sub.items||[]).filter(it=>it.available!==false && !it.pendingReview);
     if(!items.length) return;
     // Part A: resolve each item to its MASTER product → display the master name + category.
     // Legacy items with no master match keep their typed name but fall into "અન્ય" (Other).

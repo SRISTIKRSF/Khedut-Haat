@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V62</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V63</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -426,6 +426,11 @@ function subFid(){
   return FARMER.id || FARMER._key || String(FARMER.phone||'').replace(/[^0-9]/g,'').slice(-10) || null;
 }
 let ROUTINE_ITEMS=new Map();  // item names from last week's submission — shown at top, unchecked by default
+// V63: names of items that are ACTUALLY approved (in the approved submission, not flagged
+// pendingReview). Price locks per-item against this set — a product the farmer never
+// submitted stays price-editable even after the submission is approved, and goes to admin
+// review flagged pendingReview instead of silently dropping (the old behavior: price=0 → gone).
+let APPROVED_ITEM_NAMES=new Set();
 let HAATS_ALL={};             // haats map { code -> {code, nameGu, open, weekDateLabel, ...} }
 let OPEN_HAATS=[];            // haat codes from this farmer's attended list that are currently OPEN
 // V62: which open haats the farmer will ACTUALLY attend this round. Defaults to all open;
@@ -804,6 +809,7 @@ async function loadSubmission(){
   ROUTINE_ITEMS = new Map();
   LAST_WK_SUBMISSION = null;
   CUR_STATUS = '';
+  APPROVED_ITEM_NAMES = new Set();        // V63: rebuilt from the loaded submission below
   SELECTED_HAATS = new Set(OPEN_HAATS);   // V62: default = attending every open haat
 
   // Load current week's submission first — if it exists, it becomes both ENTRIES (with prices) AND ROUTINE_ITEMS (shown at top)
@@ -819,6 +825,9 @@ async function loadSubmission(){
     (v.items||[]).forEach(it => {
       if(!it || !it.name) return;
       if(it.custom) return; // v2: catalogue-only — skip custom items from old submissions
+      // V63: only items that were actually approved lock their price. Items still flagged
+      // pendingReview (added after approval, awaiting admin) stay editable + re-flag on resubmit.
+      if(CUR_STATUS === 'approved' && !it.pendingReview) APPROVED_ITEM_NAMES.add(it.name);
       ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", remaining: it.qtyRemaining||"", remainingByHaat: it.qtyRemainingByHaat || {}, qtyByHaat: it.qtyByHaat || {}, priceByHaat: it.priceByHaat || {}, unit:it.unit, cat:it.cat, emoji:it.emoji, custom:false});
       ROUTINE_ITEMS.set(it.name, {
         lastPrice: it.price||"",
@@ -1117,7 +1126,10 @@ function itemRow(p, isRoutine){
 
   const nameHtml = `<div class="item-name">${esc(p.n)}${p.custom?' <span style="font-size:9.5px;background:var(--green-pale);color:var(--green2);padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:700">CUSTOM</span>':''}${isRoutine&&lastPrice?` <span style="font-size:9.5px;color:#7a7a7a;margin-left:4px">ગયા હાટે ₹${esc(lastPrice)}</span>`:''}</div>`;
 
-  const priceLocked = (CUR_STATUS === 'approved');   // Part B: price frozen once admin approves
+  // Part B: price frozen once admin approves — V63: PER-ITEM. Only items that are part of the
+  // approved submission lock; a product the farmer is adding now stays fully editable and will
+  // go to admin review (pendingReview flag) instead of silently dropping.
+  const priceLocked = (CUR_STATUS === 'approved') && APPROVED_ITEM_NAMES.has(p.n);
   const pbh = e.priceByHaat || {};
   // per-haat pricing only applies in multi-haat mode; decides whether the base price field is blanked.
   // Must be computed here (top scope) because priceCol below references it for BOTH single & multi layouts.
@@ -1572,6 +1584,10 @@ window.submitAll = async () => {
     } else if(e.remaining != null && e.remaining !== "" && !isNaN(+e.remaining)) it.qtyRemaining = +e.remaining;   // Part B (B6)
     if(e.emoji) it.emoji = e.emoji;
     if(e.custom) it.custom = true;
+    // V63: an item added AFTER approval is not customer-visible until admin reviews it.
+    // The submission stays 'approved' (already-live items never flicker off the catalogue);
+    // only this item carries the flag, and admin's સમીક્ષા surfaces it.
+    if(CUR_STATUS === 'approved' && !APPROVED_ITEM_NAMES.has(name)) it.pendingReview = true;
     items.push(it);
   });
   if(isMulti && !selHaats().length) return toast("ઓછામાં ઓછો 1 હાટ પસંદ કરો (ઉપર ✅ ટીક કરો)","err");
@@ -1598,11 +1614,13 @@ window.submitAll = async () => {
         fbRef('weekly/'+WK+'/submissions/'+subFid()).update({ items, farmerHaatCodes: attendedCodes, farmerHaat: attendedNames, qtyUpdatedAt: firebase.database.ServerValue.TIMESTAMP }),
         new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), 20000))
       ]);
-      logAudit('qty-update', 'weekly/'+WK+'/submissions/'+subFid(), { items: items.length });
+      const newCount = items.filter(i => i.pendingReview).length;
+      logAudit('qty-update', 'weekly/'+WK+'/submissions/'+subFid(), { items: items.length, newForReview: newCount });
       showState("✅","જથ્થો અપડેટ થયો!",
         `તમારો જથ્થો અપડેટ થઈ ગયો છે. <b>${items.length} વસ્તુ</b>
          ${submissionSummaryHtml(items)}
          <div style="font-size:12.5px;color:#555;margin:6px 0">ભાવ મંજૂર થયેલો છે — એ બદલાયો નથી. 🔒</div>
+         ${newCount ? `<div style="background:#fff8d6;border:1px solid #f7c800;border-radius:9px;padding:8px 12px;font-size:12.5px;color:#7a5a00;margin:6px 0">✚ <b>${newCount} નવી વસ્તુ</b> સૃષ્ટિ ટીમની સમીક્ષા માટે મોકલાઈ — મંજૂરી પછી કેટલોગમાં દેખાશે</div>` : ''}
          ${summaryShareBtn(items)}<br>
          <button class="btn-primary" onclick="loadSubmission()" style="max-width:200px;margin-top:8px">↻ ફરી જુઓ</button>`);
     } else {

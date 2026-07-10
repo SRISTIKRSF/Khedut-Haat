@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V64</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V65</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -810,7 +810,9 @@ function buildCatalogSnapshot(){
   Object.entries(SUBS).forEach(([fid, s]) => {
     if(!s || s.status === 'pending' || s.status === 'rejected') return;
     const t = _pick(s, SNAP_SUB_FIELDS);
-    t.items = (s.items||[]).filter(Boolean).map(it => _pick(it, SNAP_ITEM_FIELDS));
+    // V65: strip pendingReview items — new products a farmer added after approval stay out of
+    // the customer-facing snapshot until admin approves them (clearing the flag).
+    t.items = (s.items||[]).filter(Boolean).filter(it => !it.pendingReview).map(it => _pick(it, SNAP_ITEM_FIELDS));
     subs[fid] = t;
   });
   const farmers = {};
@@ -1124,7 +1126,14 @@ function renderTab(){
 }
 
 function pendingReviewCount(){
-  return Object.keys(SUBS).filter(fid => SUBS[fid]?.status === 'pending').length;
+  // V65: also count approved submissions carrying new (pendingReview-flagged) items,
+  // so the સમીક્ષા badge lights up when a farmer adds a product after approval.
+  return Object.keys(SUBS).filter(fid => {
+    const s = SUBS[fid];
+    if(!s) return false;
+    if(s.status === 'pending') return true;
+    return s.status === 'approved' && Array.isArray(s.items) && s.items.some(it => it && it.pendingReview);
+  }).length;
 }
 
 // V60: single source of truth for "કુલ ખેડૂત / મોકલાઈ / બાકી / પ્રકાશિત" — scoped to farmers
@@ -1753,6 +1762,76 @@ function collectFlaggedItems(){
   return out;
 }
 
+/* ════════ V65: items added AFTER approval (farmer V63 flags them pendingReview).
+   The submission stays approved (its live items never leave the catalogue); only the new
+   items wait here. Approving clears the flags → next snapshot write makes them public. ════════ */
+function collectNewItems(){
+  const out = [];
+  Object.entries(SUBS).forEach(([fid, s]) => {
+    if(!s || s.status !== 'approved' || !Array.isArray(s.items)) return;
+    const flagged = s.items.filter(it => it && it.pendingReview);
+    if(flagged.length) out.push({fid, farmerName: s.farmerName || fid, flagged});
+  });
+  return out;
+}
+function renderNewItemsSection(){
+  const groups = collectNewItems();
+  if(!groups.length) return '';
+  return `
+    <div class="card" style="border:2px solid #f7c800;background:#fffdf2;padding:13px 16px;margin-bottom:12px">
+      <h3 style="margin:0 0 4px">✚ મંજૂરી પછી ઉમેરેલી નવી વસ્તુ — સમીક્ષા બાકી</h3>
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">ખેડૂતની બાકીની (મંજૂર) વસ્તુ કેટલોગમાં લાઈવ જ છે — ફક્ત આ નવી વસ્તુ ગ્રાહકોને દેખાતી નથી, મંજૂર કરો એટલે દેખાશે.</div>
+      ${groups.map(g => `
+        <div style="border:1px solid var(--border);border-radius:10px;background:#fff;padding:10px 13px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+            <b style="font-size:13.5px">${esc(g.farmerName)}</b>
+            <span style="font-size:11px;color:var(--muted)">${g.flagged.length} નવી વસ્તુ</span>
+            <button class="btn-sm primary" style="margin-left:auto" onclick="approveNewItems('${esc(g.fid)}')">✓ બધી મંજૂર કરો</button>
+          </div>
+          ${g.flagged.map(it => `
+            <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px dashed #f0e9d8;font-size:13px">
+              <span>${esc(it.emoji||'🌿')}</span>
+              <b style="flex:1;min-width:0">${esc(it.name)}</b>
+              <span>₹${esc(it.price)}/${esc(it.unit||'kg')}</span>
+              <span style="color:var(--muted);font-size:12px">${it.qty!=null?esc(it.qty)+' '+esc(it.qtyUnit||it.unit||''):''}</span>
+              <button class="btn-sm" style="color:var(--red);border-color:var(--red);padding:3px 9px" onclick="removeNewItem('${esc(g.fid)}','${esc(it.name).replace(/'/g,"\\'")}')" title="આ વસ્તુ કાઢી નાખો">✕</button>
+            </div>`).join('')}
+        </div>`).join('')}
+    </div>`;
+}
+let _newItemBusy = false;
+window.approveNewItems = async (fid) => {
+  if(_newItemBusy) return; _newItemBusy = true;
+  try{
+    const ref = fbRef('weekly/'+WK+'/submissions/'+fid);
+    const live = (await ref.get()).val();
+    if(!live || !Array.isArray(live.items)){ toast("Submission મળી નથી","err"); return; }
+    const items = live.items.map(it => { if(it && it.pendingReview){ const c = {...it}; delete c.pendingReview; return c; } return it; });
+    await ref.update({ items });
+    if(SUBS[fid]) SUBS[fid].items = items;
+    logAudit && logAudit('approve-new-items', 'weekly/'+WK+'/submissions/'+fid, {});
+    toast("✓ નવી વસ્તુ મંજૂર — કેટલોગમાં દેખાશે","ok");
+    setTabBodyHtml();   // also regenerates catalogSnapshot → customers pick it up
+  }catch(e){ console.error(e); toast("મંજૂરી નિષ્ફળ: "+(e.message||""),"err"); }
+  finally{ _newItemBusy = false; }
+};
+window.removeNewItem = async (fid, itemName) => {
+  if(!(await asyncConfirm(`"${itemName}" કાઢી નાખવી છે? ખેડૂતને ફરી મોકલવી પડશે.`, 'હા, કાઢી નાખો', 'રદ', true))) return;
+  if(_newItemBusy) return; _newItemBusy = true;
+  try{
+    const ref = fbRef('weekly/'+WK+'/submissions/'+fid);
+    const live = (await ref.get()).val();
+    if(!live || !Array.isArray(live.items)){ toast("Submission મળી નથી","err"); return; }
+    const items = live.items.filter(it => !(it && it.pendingReview && it.name === itemName));
+    await ref.update({ items });
+    if(SUBS[fid]) SUBS[fid].items = items;
+    logAudit && logAudit('remove-new-item', 'weekly/'+WK+'/submissions/'+fid, {item: itemName});
+    toast("કાઢી નાખી","ok");
+    setTabBodyHtml();
+  }catch(e){ console.error(e); toast("Error: "+(e.message||""),"err"); }
+  finally{ _newItemBusy = false; }
+};
+
 let REVIEW_FILTER = 'pending';
 function renderReview(){
   const subKeys = Object.keys(SUBS);
@@ -1783,6 +1862,8 @@ function renderReview(){
       ${tile('flagged','⚠️','તપાસ', flaggedItems.length, '#fdeaea', 'var(--red)', 'var(--red)', 'ભાવ મેળ ખાતો નથી')}
       ${tile('notyet','⊘','Not yet', notYetIds.length, '#fff', 'var(--border)', 'var(--text)', 'હજી મોકલી નથી')}
     </div>
+
+    ${renderNewItemsSection()}
 
     ${REVIEW_FILTER==='flagged' ? '' : haatFilterRow(REVIEW_HAATS, 'toggleReviewHaat', hCounts)}
 
