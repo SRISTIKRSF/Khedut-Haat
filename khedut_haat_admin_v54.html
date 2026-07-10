@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V63</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V64</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -917,7 +917,7 @@ async function loadAll(){
    bar above, just laid out vertically in a hamburger-triggered drawer. Desktop is
    untouched; a media query swaps which of the two navs is visible. ════════ */
 const TAB_LABELS = {dashboard:'📊 ડેશબોર્ડ', review:'✅ સમીક્ષા', summary:'📊 સારાંશ', farmers:'🌾 ખેડૂત', haats:'📍 હાટ', products:'📦 પ્રોડક્ટ', design:'🎨 ડિઝાઇન', reports:'📊 રિપોર્ટ', guide:'📖 માર્ગદર્શન'};
-function renderDrawerNav(pendingTab){
+function renderDrawerNav(farmerCt){
   const groups = [
     {label:'આ અઠવાડિયું', items:[
       {tab:'dashboard', ic:'📊', nm:'ડેશબોર્ડ'},
@@ -925,7 +925,7 @@ function renderDrawerNav(pendingTab){
       {tab:'summary', ic:'📊', nm:'સારાંશ'}
     ]},
     {label:'માસ્ટર', items:[
-      {tab:'farmers', ic:'🌾', nm:'ખેડૂત', ct: pendingTab>0?pendingTab:null},
+      {tab:'farmers', ic:'🌾', nm:'ખેડૂત', ct: farmerCt>0?farmerCt:null},
       {tab:'haats', ic:'📍', nm:'હાટ'},
       {tab:'products', ic:'📦', nm:'પ્રોડક્ટ'},
       {tab:'design', ic:'🎨', nm:'ડિઝાઇન'}
@@ -958,7 +958,9 @@ window.toggleDrawer = (force) => {
 
 /* ════════ Render shell ════════ */
 function render(){
-  const {submittedCount, publishedCount, totalFarmers, pendingCount: pendingTab} = dashStats();
+  // V64: the ખેડૂત tab badge shows TOTAL farmers eligible for the open haats (user request),
+  // not the pending-submission count it used to show.
+  const {submittedCount, publishedCount, totalFarmers} = dashStats();
 
   $('#wrap').innerHTML = `
     <div class="topbar">
@@ -1003,7 +1005,7 @@ function render(){
       </div>
       <div class="tab-group tg-master">
         <span class="tab-group-label tgl-master" aria-hidden="true">માસ્ટર</span>
-        <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')" role="tab" aria-selected="${TAB==='farmers'}" aria-controls="tabBody">🌾 ખેડૂત <span class="badge">${pendingTab}</span></button>
+        <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')" role="tab" aria-selected="${TAB==='farmers'}" aria-controls="tabBody">🌾 ખેડૂત <span class="badge">${totalFarmers}</span></button>
         <button class="tab ${TAB==='haats'?'active':''}" onclick="setTab('haats')" role="tab" aria-selected="${TAB==='haats'}" aria-controls="tabBody">📍 હાટ</button>
         <button class="tab ${TAB==='products'?'active':''}" onclick="setTab('products')" role="tab" aria-selected="${TAB==='products'}" aria-controls="tabBody">📦 પ્રોડક્ટ</button>
         <button class="tab ${TAB==='design'?'active':''}" onclick="setTab('design')" role="tab" aria-selected="${TAB==='design'}" aria-controls="tabBody">🎨 ડિઝાઇન</button>
@@ -1022,7 +1024,7 @@ function render(){
     <div class="side-drawer-scrim" id="drawerScrim" onclick="toggleDrawer(false)"></div>
     <aside class="side-drawer" id="sideDrawer">
       <div class="side-drawer-brand"><span class="em">🌱</span><span class="nm">સૃષ્ટિ ખેડૂત હાટ</span></div>
-      <nav class="side-drawer-nav" id="drawerNav">${renderDrawerNav(pendingTab)}</nav>
+      <nav class="side-drawer-nav" id="drawerNav">${renderDrawerNav(totalFarmers)}</nav>
     </aside>
 
     <div class="body tab-fade" id="tabBody">${renderTab()}</div>
@@ -1086,7 +1088,7 @@ window.setTab = t => {
     // desktop since the drawer is never open there.
     const drawerNav = document.getElementById('drawerNav');
     if(drawerNav){
-      drawerNav.innerHTML = renderDrawerNav(dashStats().pendingCount);
+      drawerNav.innerHTML = renderDrawerNav(dashStats().totalFarmers);
     }
     const curLabel = document.getElementById('mobNavCurrent');
     if(curLabel) curLabel.textContent = TAB_LABELS[t] || '';
