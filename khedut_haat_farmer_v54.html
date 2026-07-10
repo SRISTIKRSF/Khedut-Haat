@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V61</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V62</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -428,6 +428,16 @@ function subFid(){
 let ROUTINE_ITEMS=new Map();  // item names from last week's submission — shown at top, unchecked by default
 let HAATS_ALL={};             // haats map { code -> {code, nameGu, open, weekDateLabel, ...} }
 let OPEN_HAATS=[];            // haat codes from this farmer's attended list that are currently OPEN
+// V62: which open haats the farmer will ACTUALLY attend this round. Defaults to all open;
+// restored from the existing submission's farmerHaatCodes on re-edit. Drives the per-haat
+// input rows, the submitted farmerHaatCodes (which is what the customer catalogue uses for
+// venue visibility), and therefore which haat catalogues show this farmer's produce.
+let SELECTED_HAATS=new Set();
+const selHaats = () => OPEN_HAATS.filter(c => SELECTED_HAATS.has(c));   // stable order
+window.toggleAttendHaat = (code) => {
+  if(SELECTED_HAATS.has(code)) SELECTED_HAATS.delete(code); else SELECTED_HAATS.add(code);
+  renderForm();   // inputs are ENTRIES-backed (oninput keeps state current), so re-render is lossless
+};
 let PRODUCT_ORDER={};         // categoryKey -> [productName, ...] (set by admin)
 let _orderPriority=new Map();
 function rebuildOrderPriority(){
@@ -794,6 +804,7 @@ async function loadSubmission(){
   ROUTINE_ITEMS = new Map();
   LAST_WK_SUBMISSION = null;
   CUR_STATUS = '';
+  SELECTED_HAATS = new Set(OPEN_HAATS);   // V62: default = attending every open haat
 
   // Load current week's submission first — if it exists, it becomes both ENTRIES (with prices) AND ROUTINE_ITEMS (shown at top)
   const curSub = await fbRef('weekly/'+WK+'/submissions/'+subFid()).get();
@@ -802,6 +813,9 @@ async function loadSubmission(){
     SUBMITTED_AT = v.submittedAt || null;
     NOTE_TO_FARMER = v.noteToFarmer || "";
     CUR_STATUS = v.status || '';
+    // V62: restore the farmer's earlier attendance choice for this round
+    const prevCodes = (Array.isArray(v.farmerHaatCodes) ? v.farmerHaatCodes : []).filter(c => OPEN_HAATS.includes(c));
+    if(prevCodes.length) SELECTED_HAATS = new Set(prevCodes);
     (v.items||[]).forEach(it => {
       if(!it || !it.name) return;
       if(it.custom) return; // v2: catalogue-only — skip custom items from old submissions
@@ -921,7 +935,30 @@ function renderForm(){
       </div>
     </div>
     <div class="deadline">⏰ <b>છેલ્લો સમય:</b> ${esc(deadlineText())}</div>
-    ${OPEN_HAATS.length ? `
+    ${OPEN_HAATS.length > 1 ? `
+      <div style="background:#e8f5e9;border-left:4px solid #2d6a4f;padding:10px 14px;margin:10px 0 6px;border-radius:8px">
+        <div style="font-size:11.5px;font-weight:700;color:#1b4332;letter-spacing:.5px;text-transform:uppercase;margin-bottom:7px">📍 આ વખતે કયા હાટ જવાના? — ટીક કરો</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${OPEN_HAATS.map(c => {
+            const h = HAATS_ALL[c] || {};
+            const nm = esc(h.nameGu || h.name || c);
+            const dt = h.weekDateLabel ? ` · ${esc(h.weekDateLabel)}` : '';
+            const on = SELECTED_HAATS.has(c);
+            return `<button onclick="toggleAttendHaat('${esc(c)}')" style="display:flex;align-items:center;gap:9px;min-height:44px;border-radius:10px;padding:8px 12px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;text-align:left;width:100%;
+              ${on ? 'background:#2d6a4f;color:#fff;border:2px solid #2d6a4f' : 'background:#fff;color:#6b7280;border:2px dashed #b9b2a4'}">
+              <span style="font-size:17px;flex-shrink:0">${on ? '✅' : '⬜'}</span>
+              <span style="flex:1;min-width:0">${nm}<span style="font-weight:500;font-size:12px;opacity:.85">${dt}</span></span>
+              ${on ? '' : '<span style="font-size:10.5px;font-weight:600;flex-shrink:0">નથી જવાનું</span>'}
+            </button>`;
+          }).join('')}
+        </div>
+        ${!selHaats().length
+          ? `<div style="margin-top:8px;font-size:12px;color:#c1121f;font-weight:700">⚠️ ઓછામાં ઓછો 1 હાટ પસંદ કરો — નહીંતર મોકલી નહીં શકાય</div>`
+          : (selHaats().length < OPEN_HAATS.length
+            ? `<div style="margin-top:8px;font-size:11.5px;color:#7a5a00;line-height:1.45">💡 ટીક વગરના હાટના ગ્રાહકોને તમારી પેદાશ <b>નહીં દેખાય</b></div>`
+            : '')}
+      </div>
+    ` : OPEN_HAATS.length ? `
       <div style="background:#e8f5e9;border-left:4px solid #2d6a4f;padding:10px 14px;margin:10px 0 6px;border-radius:8px">
         <div style="font-size:11.5px;font-weight:700;color:#1b4332;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">📍 આ submission નીચેના હાટ માટે છે</div>
         <div style="font-size:14px;color:#1b4332;font-weight:600;line-height:1.6">
@@ -1112,8 +1149,8 @@ function itemRow(p, isRoutine){
     if(showRemaining){
       const rbh = e.remainingByHaat || {};
       let rTotal = 0, anyR = false;
-      OPEN_HAATS.forEach(code => { const rv = rbh[code]; if(rv!=null && rv!=="" && !isNaN(+rv)){ rTotal += +rv; anyR = true; } });
-      const updRows = OPEN_HAATS.map(code => {
+      selHaats().forEach(code => { const rv = rbh[code]; if(rv!=null && rv!=="" && !isNaN(+rv)){ rTotal += +rv; anyR = true; } });
+      const updRows = selHaats().map(code => {
         const haatName = HAATS_ALL[code]?.nameGu || HAATS_ALL[code]?.name || code;
         const qv = qbh[code] != null ? qbh[code] : '';
         const pvRaw = (pbh[code] != null && +pbh[code] > 0) ? pbh[code] : e.price;
@@ -1148,7 +1185,7 @@ function itemRow(p, isRoutine){
         </div>
       `;
     }
-    const haatRows = OPEN_HAATS.map(code => {
+    const haatRows = selHaats().map(code => {
       const haatName = HAATS_ALL[code]?.nameGu || HAATS_ALL[code]?.name || code;
       const val = qbh[code] != null ? qbh[code] : '';
       const has = (+val)>0 ? 'has-val' : '';
@@ -1490,7 +1527,7 @@ window.submitAll = async () => {
     // Multi-haat: if base price blank but per-haat overrides exist, use the highest as the
     // backward-compat fallback price so the item isn't dropped.
     if(isMulti && !(price>0) && e.priceByHaat){
-      const ovs = OPEN_HAATS.map(c => +(e.priceByHaat[c]||0)).filter(x => x>0);
+      const ovs = selHaats().map(c => +(e.priceByHaat[c]||0)).filter(x => x>0);
       if(ovs.length) price = Math.max(...ovs);
     }
     if(!(price>0)) return;
@@ -1501,7 +1538,9 @@ window.submitAll = async () => {
       const pbh = {};
       const pbhSrc = e.priceByHaat || {};
       let total = 0;
-      OPEN_HAATS.forEach(code => {
+      // V62: only the TICKED haats — an unticked haat contributes no qty and no price entry,
+      // so its catalogue (via farmerHaatCodes below) simply won't list this farmer.
+      selHaats().forEach(code => {
         const v = +(e.qtyByHaat[code] || 0);
         // record the effective per-haat price for EVERY haat the farmer submits to,
         // even with 0 qty (so an approved price stays locked even before qty is filled).
@@ -1524,7 +1563,7 @@ window.submitAll = async () => {
       // session, a legacy combined value passes through untouched — never zeroed, never split.
       const rbhSrc = e.remainingByHaat || {};
       const rbh = {}; let rTotal = 0, anyR = false;
-      OPEN_HAATS.forEach(code => {
+      selHaats().forEach(code => {
         const rv = rbhSrc[code];
         if(rv != null && rv !== "" && !isNaN(+rv)){ rbh[code] = +rv; rTotal += +rv; anyR = true; }
       });
@@ -1535,6 +1574,7 @@ window.submitAll = async () => {
     if(e.custom) it.custom = true;
     items.push(it);
   });
+  if(isMulti && !selHaats().length) return toast("ઓછામાં ઓછો 1 હાટ પસંદ કરો (ઉપર ✅ ટીક કરો)","err");
   if(!items.length) return toast("ઓછામાં ઓછી 1 વસ્તુનો ભાવ ભરો","err");
   if(navigator.onLine === false) return toast("ઇન્ટરનેટ નથી — કનેક્શન તપાસી ફરી મોકલો","err");
   const noQty = items.filter(it => it.qty == null).length;
@@ -1545,10 +1585,17 @@ window.submitAll = async () => {
     const curSnap = await fbRef('weekly/'+WK+'/submissions/'+subFid()).get();
     const cur = curSnap.val() || {};
     const isQtyPhase = (cur.status === 'approved');   // Part B: price already approved+locked → quantity-only update
+    // V62: attended haats — drives customer-catalogue venue visibility via farmerHaatCodes.
+    const attendedCodes = isMulti ? selHaats() : OPEN_HAATS.slice();
+    const attendedNames = attendedCodes.length
+      ? attendedCodes.map(c => HAATS_ALL[c]?.nameGu || HAATS_ALL[c]?.name || c).join(', ')
+      : (FARMER.haat || "");
     if(isQtyPhase){
-      // Part B: write ONLY quantity (+ qtyUpdatedAt). Price + status + approval fields untouched. No re-review.
+      // Part B: write ONLY quantity (+ qtyUpdatedAt). Price + status + approval fields untouched.
+      // V62: attendance (farmerHaatCodes/farmerHaat) IS updatable post-approval — a farmer
+      // deciding morning-of to skip a haat must disappear from that haat's catalogue.
       await Promise.race([
-        fbRef('weekly/'+WK+'/submissions/'+subFid()).update({ items, qtyUpdatedAt: firebase.database.ServerValue.TIMESTAMP }),
+        fbRef('weekly/'+WK+'/submissions/'+subFid()).update({ items, farmerHaatCodes: attendedCodes, farmerHaat: attendedNames, qtyUpdatedAt: firebase.database.ServerValue.TIMESTAMP }),
         new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), 20000))
       ]);
       logAudit('qty-update', 'weekly/'+WK+'/submissions/'+subFid(), { items: items.length });
@@ -1559,18 +1606,17 @@ window.submitAll = async () => {
          ${summaryShareBtn(items)}<br>
          <button class="btn-primary" onclick="loadSubmission()" style="max-width:200px;margin-top:8px">↻ ફરી જુઓ</button>`);
     } else {
-      // Price phase (new / pending / sent-back): full submit → goes to review
-      const submissionHaatNames = OPEN_HAATS.length
-        ? OPEN_HAATS.map(c => HAATS_ALL[c]?.nameGu || HAATS_ALL[c]?.name || c).join(', ')
-        : (FARMER.haat || "");
+      // Price phase (new / pending / sent-back): full submit → goes to review.
+      // V62: farmerHaat/farmerHaatCodes = the TICKED haats only — this is the field the
+      // customer catalogue uses for venue visibility, so unticked haats won't list this farmer.
       const payload = {
         farmerId: subFid(),
         farmerName: FARMER.name||"",
         farmerPhone: String(FARMER.phone||"").replace(/[^0-9]/g,""),
         farmerVillage: FARMER.village||"",
         farmerDistrict: FARMER.district||"",
-        farmerHaat: submissionHaatNames,
-        farmerHaatCodes: OPEN_HAATS.slice(),
+        farmerHaat: attendedNames,
+        farmerHaatCodes: attendedCodes,
         weekNum: WK,
         items,
         status: 'pending',
