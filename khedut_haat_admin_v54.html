@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V62</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V63</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -4862,7 +4862,8 @@ function reportInsightsHtml(){
 let REPORT_ATT_HAAT = 'all';   // attendance view's haat filter
 window.setReportAttHaat = v => { REPORT_ATT_HAAT = v; setTabBodyHtml(); };
 
-function attendanceData(){
+function attendanceData(haatOverride){
+  const haatFilter = haatOverride !== undefined ? haatOverride : REPORT_ATT_HAAT;
   const weeks = REPORTS_DATA.weeks.slice().sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)); // oldest → newest
   const presentByWeek = weeks.map(w => {
     const set = new Set();
@@ -4874,7 +4875,7 @@ function attendanceData(){
     return set;
   });
   let roster = FARMERS;
-  if(REPORT_ATT_HAAT !== 'all') roster = roster.filter(f => Array.isArray(f.haatCodes) && f.haatCodes.includes(REPORT_ATT_HAAT));
+  if(haatFilter !== 'all') roster = roster.filter(f => Array.isArray(f.haatCodes) && f.haatCodes.includes(haatFilter));
   const rows = [], never = [];
   roster.forEach(f => {
     const phKey = String(f.phone||'').replace(/\D/g,'');
@@ -4900,64 +4901,113 @@ function attendanceData(){
   return { weeks, rows, never };
 }
 
-function reportAttendanceHtml(){
+/* V63: attendance rebuilt per operator feedback — two sub-views:
+   'haat' = per-haat scoreboard (mockup B) with CLICKABLE 🟢🟡🔴 buckets that expand to names;
+   'grid' = full farmer × haat-date matrix, green cell = came, red = didn't (gray = before joining). */
+let REPORT_ATT_MODE = 'haat';          // 'haat' | 'grid'
+let ATT_OPEN = new Set();              // "haatCode|cls" buckets currently expanded
+window.setReportAttMode = m => { REPORT_ATT_MODE = m; setTabBodyHtml(); };
+window.toggleAttBucket = key => { if(ATT_OPEN.has(key)) ATT_OPEN.delete(key); else ATT_OPEN.add(key); setTabBodyHtml(); };
+
+const ATT_CLS = {
+  reg: {chip:'🟢 નિયમિત', bg:'#d8f3dc', fg:'#1b4332', bar:'#52b788'},
+  mid: {chip:'🟡 મધ્યમ',  bg:'#fff8d6', fg:'#7a5a00', bar:'#f7c800'},
+  irr: {chip:'🔴 અનિયમિત', bg:'#ffe3e0', fg:'#9d0208', bar:'#f08080'},
+};
+function attWaBtn(f){ const ph = String(f.phone||'').replace(/\D/g,'').slice(-10); return ph ? `<a href="https://wa.me/91${ph}" target="_blank" rel="noopener" title="WhatsApp પર પૂછો" style="text-decoration:none">📱</a>` : ''; }
+
+// Sub-view 1: per-haat scoreboard, buckets clickable — always ALL haats (the card per haat IS the filter)
+function attHaatScoreboardHtml(){
+  const {rows, never} = attendanceData('all');
+  const cards = Object.values(HAATS).sort((a,b)=>(a.seqOrder||999)-(b.seqOrder||999)).map(h => {
+    const mine = rows.filter(r => Array.isArray(r.f.haatCodes) && r.f.haatCodes.includes(h.code));
+    const myNever = never.filter(f => Array.isArray(f.haatCodes) && f.haatCodes.includes(h.code));
+    if(!mine.length && !myNever.length) return '';
+    const buckets = {reg: mine.filter(r=>r.cls==='reg'), mid: mine.filter(r=>r.cls==='mid'), irr: mine.filter(r=>r.cls==='irr')};
+    const denom = mine.length || 1;
+    const seg = k => buckets[k].length ? `<span style="width:${Math.round(buckets[k].length/denom*100)}%;background:${ATT_CLS[k].bar}"></span>` : '';
+    const bucketChip = k => {
+      const key = h.code + '|' + k, open = ATT_OPEN.has(key);
+      return `<button onclick="toggleAttBucket('${esc(h.code)}|${k}')" style="border:1.5px solid ${open?ATT_CLS[k].fg:'transparent'};background:${ATT_CLS[k].bg};color:${ATT_CLS[k].fg};border-radius:16px;padding:4px 11px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">${ATT_CLS[k].chip} ${buckets[k].length} ${open?'▲':'▼'}</button>`;
+    };
+    const bucketList = k => {
+      if(!ATT_OPEN.has(h.code + '|' + k) || !buckets[k].length) return '';
+      const sorted = [...buckets[k]].sort((a,b)=>b.missStreak-a.missStreak||a.pct-b.pct);
+      return `<div style="border-top:1px dashed var(--border);padding:8px 2px 2px;margin-top:8px">
+        ${sorted.map(r=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;flex-wrap:wrap">
+          <b>${esc(r.f.name||r.f.id)}</b> ${attWaBtn(r.f)}
+          <span style="font-size:11px;color:var(--muted)">${r.attended}/${r.eligible} (${r.pct}%)${r.missStreak>0?` · <b style="color:${r.missStreak>=3?'#c1121f':'#b45309'}">${r.missStreak} થી ગેરહાજર</b>`:''} · છેલ્લે: ${esc(r.lastLabel)}</span>
+        </div>`).join('')}
+      </div>`;
+    };
+    const neverChipKey = h.code + '|never', neverOpen = ATT_OPEN.has(neverChipKey);
+    return `
+      <div class="card" style="padding:12px 15px;margin-bottom:10px">
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+          <b style="font-size:14px">${h.open?'🟢':'⚪'} ${esc(h.nameGu||h.name||h.code)}</b>
+          <span style="font-size:11.5px;color:var(--muted)">${mine.length} ખેડૂત${myNever.length?` + ${myNever.length} ક્યારેય નહીં`:''}</span>
+        </div>
+        <div style="height:9px;border-radius:5px;background:#f0ece0;overflow:hidden;display:flex;margin:8px 0">${seg('reg')}${seg('mid')}${seg('irr')}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${bucketChip('reg')}${bucketChip('mid')}${bucketChip('irr')}
+          ${myNever.length?`<button onclick="toggleAttBucket('${esc(h.code)}|never')" style="border:1.5px solid ${neverOpen?'#555':'transparent'};background:#e8e6e0;color:#555;border-radius:16px;padding:4px 11px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">⚫ ક્યારેય નહીં ${myNever.length} ${neverOpen?'▲':'▼'}</button>`:''}
+        </div>
+        ${bucketList('reg')}${bucketList('mid')}${bucketList('irr')}
+        ${neverOpen && myNever.length ? `<div style="border-top:1px dashed var(--border);padding:8px 2px 2px;margin-top:8px">${myNever.map(f=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px"><b>${esc(f.name||f.id)}</b> ${attWaBtn(f)} <span style="font-size:11px;color:var(--muted)">એક પણ યાદી નથી મોકલી</span></div>`).join('')}</div>` : ''}
+      </div>`;
+  }).join('');
+  return `<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">🟢🟡🔴 પર ક્લિક કરો → એ જૂથના ખેડૂત નામ સાથે ખુલશે (WhatsApp બટન સાથે)</div>${cards}`;
+}
+
+// Sub-view 2: full farmer × haat-date grid — green = આવ્યા, red = નહીં, gray = જોડાયા પહેલા
+function attGridHtml(){
   const {weeks, rows, never} = attendanceData();
-  const CLS = {
-    reg: {chip:'🟢 નિયમિત', bg:'#d8f3dc', fg:'#1b4332'},
-    mid: {chip:'🟡 મધ્યમ',  bg:'#fff8d6', fg:'#7a5a00'},
-    irr: {chip:'🔴 અનિયમિત', bg:'#ffe3e0', fg:'#9d0208'},
-  };
-  const counts = {reg:0, mid:0, irr:0};
-  rows.forEach(r => counts[r.cls]++);
+  const all = [...rows.map(r=>({f:r.f, marks:r.marks, firstIdx:r.firstIdx, attended:r.attended, eligible:r.eligible})),
+               ...never.map(f=>({f, marks: weeks.map(()=>0), firstIdx: 0, attended: 0, eligible: weeks.length}))]
+    .sort((a,b)=>(a.f.name||'').localeCompare(b.f.name||'','gu'));
+  const cell = (r,i) => i < r.firstIdx
+    ? `<td style="background:#f0ece0;padding:0"><div style="width:34px;height:26px"></div></td>`
+    : r.marks[i]
+      ? `<td style="background:#52b788;padding:0" title="આવ્યા"><div style="width:34px;height:26px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:12px">✓</div></td>`
+      : `<td style="background:#f08080;padding:0" title="નથી આવ્યા"><div style="width:34px;height:26px"></div></td>`;
+  return `
+    <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">
+      <span style="display:inline-block;width:12px;height:12px;background:#52b788;border-radius:3px;vertical-align:-1px"></span> આવ્યા &nbsp;
+      <span style="display:inline-block;width:12px;height:12px;background:#f08080;border-radius:3px;vertical-align:-1px"></span> નથી આવ્યા &nbsp;
+      <span style="display:inline-block;width:12px;height:12px;background:#f0ece0;border-radius:3px;vertical-align:-1px"></span> જોડાયા પહેલા
+    </div>
+    <div style="overflow-x:auto">
+      <table style="border-collapse:separate;border-spacing:2px;font-size:12.5px">
+        <thead><tr style="font-size:10.5px;color:#777">
+          <th style="text-align:left;padding:4px 8px;position:sticky;left:0;background:var(--card);z-index:2">ખેડૂત</th>
+          ${weeks.map(w=>`<th style="padding:4px 2px;white-space:nowrap;font-weight:600;writing-mode:vertical-rl;transform:rotate(180deg);max-height:80px" title="${esc(w.label)}">${esc(String(w.label).replace(/[- ]?20\d\d$/,''))}</th>`).join('')}
+          <th style="padding:4px 6px">કુલ</th>
+        </tr></thead>
+        <tbody>
+          ${all.map(r=>`<tr>
+            <td style="padding:3px 8px;white-space:nowrap;position:sticky;left:0;background:var(--card);font-weight:600;z-index:1">${esc(r.f.name||r.f.id)} ${attWaBtn(r.f)}</td>
+            ${weeks.map((w,i)=>cell(r,i)).join('')}
+            <td style="padding:3px 6px;text-align:center;white-space:nowrap;font-size:11.5px"><b>${r.attended}</b>/${r.eligible}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function reportAttendanceHtml(){
   const haatOpt = `<option value="all" ${REPORT_ATT_HAAT==='all'?'selected':''}>બધા હાટ</option>` +
     Object.values(HAATS).sort((a,b)=>(a.seqOrder||999)-(b.seqOrder||999))
       .map(h => `<option value="${esc(h.code)}" ${REPORT_ATT_HAAT===h.code?'selected':''}>${esc(h.nameGu||h.name||h.code)}${h.open?' 🟢':''}</option>`).join('');
-  const chip = (k) => `<span style="background:${CLS[k].bg};color:${CLS[k].fg};border-radius:20px;padding:3px 11px;font-size:12px;font-weight:700">${CLS[k].chip} ${counts[k]}</span>`;
-  const waBtn = f => { const ph = String(f.phone||'').replace(/\D/g,'').slice(-10); return ph ? `<a href="https://wa.me/91${ph}" target="_blank" rel="noopener" title="WhatsApp પર પૂછો" style="text-decoration:none">📱</a>` : ''; };
-  const cell = (r,i) => i < r.firstIdx
-    ? `<td style="text-align:center;color:#ddd;padding:5px 7px"> </td>`
-    : r.marks[i]
-      ? `<td style="text-align:center;background:#d8f3dc;color:#1b4332;font-weight:700;padding:5px 7px">✓</td>`
-      : `<td style="text-align:center;background:#fff0ef;color:#c1121f;padding:5px 7px">·</td>`;
-  const body = rows.map(r => `
-    <tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:7px 9px;white-space:nowrap;position:sticky;left:0;background:#fff;font-weight:600">${esc(r.f.name||r.f.id)} ${waBtn(r.f)}</td>
-      <td style="padding:7px 9px;white-space:nowrap;font-size:11.5px;color:var(--muted)">${esc(r.f.haat||'')}</td>
-      <td style="padding:7px 9px;text-align:center;white-space:nowrap"><b>${r.attended}</b>/${r.eligible} <span style="color:var(--muted)">(${r.pct}%)</span></td>
-      <td style="padding:7px 9px;text-align:center;white-space:nowrap"><span style="background:${CLS[r.cls].bg};color:${CLS[r.cls].fg};border-radius:12px;padding:2px 9px;font-size:11.5px;font-weight:700">${CLS[r.cls].chip}</span></td>
-      <td style="padding:7px 9px;text-align:center">${r.missStreak > 0 ? `<b style="color:${r.missStreak>=3?'#c1121f':'#b45309'}">${r.missStreak}</b>` : '<span style="color:var(--green2)">0</span>'}</td>
-      <td style="padding:7px 9px;white-space:nowrap;font-size:11.5px;color:var(--muted)">${esc(r.lastLabel)}</td>
-      ${weeks.map((w,i)=>cell(r,i)).join('')}
-    </tr>`).join('');
-  const neverHtml = never.length ? `
-    <div style="margin-top:14px;padding:11px 13px;background:#f7f5ef;border:1px solid var(--border);border-radius:10px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:6px">⚫ ક્યારેય નથી મોકલી (${never.length})</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:12px">
-        ${never.map(f=>`<span style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:3px 10px;white-space:nowrap">${esc(f.name||f.id)} ${waBtn(f)}</span>`).join('')}
-      </div>
-    </div>` : '';
   return `
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-      <select class="frm-in" style="width:auto;font-size:13px" onchange="setReportAttHaat(this.value)">${haatOpt}</select>
-      ${chip('reg')} ${chip('mid')} ${chip('irr')}
-      ${never.length?`<span style="background:#e8e6e0;color:#555;border-radius:20px;padding:3px 11px;font-size:12px;font-weight:700">⚫ ક્યારેય નહીં ${never.length}</span>`:''}
+      <div style="display:flex;gap:4px;background:var(--bg);border-radius:8px;padding:3px">
+        <button class="btn-sm ${REPORT_ATT_MODE==='haat'?'primary':''}" onclick="setReportAttMode('haat')" style="font-size:12.5px">🏪 હાટ-વાર</button>
+        <button class="btn-sm ${REPORT_ATT_MODE==='grid'?'primary':''}" onclick="setReportAttMode('grid')" style="font-size:12.5px">📅 કોષ્ટક (તારીખ-વાર)</button>
+      </div>
+      ${REPORT_ATT_MODE==='grid' ? `<select class="frm-in" style="width:auto;font-size:13px" onchange="setReportAttHaat(this.value)">${haatOpt}</select>` : ''}
     </div>
-    <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">ક્રમ: જે ખેડૂત પહેલા આવતા હતા પણ સૌથી લાંબા સમયથી બંધ છે તે ઉપર · હાજરી = એ હાટ માટે યાદી મોકલી (કોઈ પણ સ્થિતિ) · ગણતરી પહેલી submission થી શરૂ</div>
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:${560 + weeks.length*38}px">
-        <thead><tr style="background:#f4f1e8;font-size:11px;color:#777">
-          <th style="text-align:left;padding:6px 9px;position:sticky;left:0;background:#f4f1e8">ખેડૂત</th>
-          <th style="text-align:left;padding:6px 9px">હાટ</th>
-          <th style="padding:6px 9px">હાજરી</th>
-          <th style="padding:6px 9px">સ્થિતિ</th>
-          <th style="padding:6px 9px" title="છેલ્લા કેટલા હાટ સળંગ ગેરહાજર">સળંગ ગેર.</th>
-          <th style="text-align:left;padding:6px 9px">છેલ્લે આવ્યા</th>
-          ${weeks.map(w=>`<th style="padding:6px 5px;white-space:nowrap;font-weight:600" title="${esc(w.label)}">${esc(String(w.label).replace(/-20\d\d$/,''))}</th>`).join('')}
-        </tr></thead>
-        <tbody>${body}</tbody>
-      </table>
-    </div>
-    ${neverHtml}`;
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">હાજરી = એ હાટ માટે યાદી મોકલી (કોઈ પણ સ્થિતિ) · ગણતરી પહેલી submission થી શરૂ</div>
+    ${REPORT_ATT_MODE==='haat' ? attHaatScoreboardHtml() : attGridHtml()}`;
 }
 
 window.exportAttendanceExcel = async () => {
@@ -4990,11 +5040,110 @@ window.exportAttendanceExcel = async () => {
   }catch(e){ console.error(e); toast("Excel નિષ્ફળ: "+(e.message||e),"err"); }
 };
 
+/* V63: per-venue sales report — "શું વેચાયું ક્યાં?" Made possible by farmer V61's
+   qtyRemainingByHaat. Per-venue sold is shown only where it's genuinely knowable:
+   per-haat બાકી data, or single-venue items with a combined બાકી. Multi-venue items with
+   only a legacy combined બાકી keep sold = અજ્ઞાત (never guessed/split). */
+let REPORT_VENUE_OPEN = new Set();
+window.toggleVenueCard = code => { if(REPORT_VENUE_OPEN.has(code)) REPORT_VENUE_OPEN.delete(code); else REPORT_VENUE_OPEN.add(code); setTabBodyHtml(); };
+
+function venueSalesData(){
+  const weeks = REPORT_WEEK === 'all' ? REPORTS_DATA.weeks : REPORTS_DATA.weeks.filter(w => w.key === REPORT_WEEK);
+  const venues = {};
+  weeks.forEach(w => Object.entries(w.subs || {}).forEach(([fid, sub]) => {
+    if(!sub || (sub.status && sub.status !== 'approved')) return;
+    (sub.items || []).forEach(it => {
+      if(!it || !it.productId || !PRODUCTS_DB[it.productId]) return;
+      const cf = qtyConvFactor(it);
+      const basePrice = +it.price || 0;
+      const pbh = it.priceByHaat || {};
+      const rbh = (it.qtyRemainingByHaat && typeof it.qtyRemainingByHaat === 'object') ? it.qtyRemainingByHaat : null;
+      const perVenue = {};
+      if(it.qtyByHaat && typeof it.qtyByHaat === 'object' && Object.keys(it.qtyByHaat).length){
+        Object.entries(it.qtyByHaat).forEach(([code,q]) => { q = +q||0; if(q>0) perVenue[code] = q; });
+      } else {
+        const codes = Array.isArray(sub.farmerHaatCodes) ? sub.farmerHaatCodes : [];
+        const q = +it.qty || 0;
+        if(q > 0) perVenue[codes.length === 1 ? codes[0] : '__unknown'] = q;
+      }
+      const nVenues = Object.keys(perVenue).length;
+      Object.entries(perVenue).forEach(([code, qRaw]) => {
+        const brought = qRaw * cf;
+        const price = (pbh[code] != null && +pbh[code] > 0) ? +pbh[code] : basePrice;
+        let remaining = null;
+        if(rbh && rbh[code] != null) remaining = (+rbh[code]||0) * cf;
+        else if(it.qtyRemaining != null && it.qtyRemaining !== '' && nVenues === 1) remaining = (+it.qtyRemaining||0) * cf;
+        const sold = remaining != null ? Math.max(0, brought - remaining) : null;
+        const estSale = price * (sold != null ? sold : brought);
+        const v = venues[code] = venues[code] || {brought:0, soldKnown:0, remainingKnown:0, hasSoldData:false, estSale:0, farmers:new Set(), products:{}};
+        v.brought += brought; v.estSale += estSale; v.farmers.add(fid);
+        if(sold != null){ v.soldKnown += sold; v.remainingKnown += remaining; v.hasSoldData = true; }
+        const pn = it.name || '?';
+        const P = v.products[pn] = v.products[pn] || {brought:0, sold:0, remaining:0, soldKnown:false, estSale:0, unit: it.unit||'kg', farmers:new Set()};
+        P.brought += brought; P.estSale += estSale; P.farmers.add(fid);
+        if(sold != null){ P.sold += sold; P.remaining += remaining; P.soldKnown = true; }
+      });
+    });
+  }));
+  return venues;
+}
+
+function reportVenueHtml(){
+  const venues = venueSalesData();
+  const codes = Object.keys(venues).sort((a,b) => venues[b].estSale - venues[a].estSale);
+  if(!codes.length) return '<div style="padding:30px;text-align:center;color:#888">પસંદ કરેલા સમયગાળામાં approved data નથી.</div>';
+  const hname = c => c === '__unknown' ? '❓ હાટ સ્પષ્ટ નથી (જૂનો data)' : ((HAATS[c] && (HAATS[c].nameGu||HAATS[c].name)) || c);
+  const r1 = n => Math.round(n*10)/10;
+  return codes.map(code => {
+    const v = venues[code];
+    const open = REPORT_VENUE_OPEN.has(code);
+    const prods = Object.entries(v.products).sort((a,b) => b[1].estSale - a[1].estSale);
+    const chip = (lbl,val,color) => `<span style="background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:5px 10px;font-size:11.5px;white-space:nowrap"><span style="color:var(--muted)">${lbl}</span> <b${color?` style="color:${color}"`:''}>${val}</b></span>`;
+    return `
+      <div class="card" style="margin-bottom:10px;overflow:hidden">
+        <div onclick="toggleVenueCard('${esc(code)}')" style="padding:12px 15px;cursor:pointer">
+          <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+            <b style="font-size:14px">${esc(hname(code))}</b>
+            <span style="font-size:11.5px;color:var(--muted)">${v.farmers.size} ખેડૂત · ${prods.length} પ્રોડક્ટ</span>
+            <span style="margin-left:auto;color:#999;font-size:11px">${open?'▲':'▼'}</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            ${chip('લાવ્યા', qfmt(v.brought)+' kg')}
+            ${v.hasSoldData ? chip('વેચાયું', qfmt(v.soldKnown)+' kg', 'var(--green2)') + chip('બાકી', qfmt(v.remainingKnown)+' kg', '#b45309') : chip('વેચાયું', 'અજ્ઞાત — બાકી નથી ભરાયું')}
+            ${chip('અંદાજિત વેચાણ', rupee(v.estSale), 'var(--green2)')}
+          </div>
+        </div>
+        ${open ? `
+        <div style="border-top:1px solid var(--border);padding:6px 15px 12px;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px">
+            <thead><tr style="font-size:10.5px;color:#777;border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:6px 4px">પ્રોડક્ટ</th><th style="padding:6px 4px">ખેડૂત</th>
+              <th style="text-align:right;padding:6px 4px">લાવ્યા</th><th style="text-align:right;padding:6px 4px">બાકી</th>
+              <th style="text-align:right;padding:6px 4px">વેચાયું</th><th style="text-align:right;padding:6px 4px">અંદાજ ₹</th>
+            </tr></thead>
+            <tbody>
+              ${prods.map(([pn,P]) => `<tr style="border-bottom:1px solid #f2ede2">
+                <td style="padding:6px 4px;font-weight:600">${esc(pn)}</td>
+                <td style="padding:6px 4px;text-align:center;color:var(--muted)">${P.farmers.size}</td>
+                <td style="padding:6px 4px;text-align:right">${r1(P.brought)}</td>
+                <td style="padding:6px 4px;text-align:right;color:#b45309">${P.soldKnown ? r1(P.remaining) : '—'}</td>
+                <td style="padding:6px 4px;text-align:right;color:var(--green2);font-weight:700">${P.soldKnown ? r1(P.sold) : '—'}</td>
+                <td style="padding:6px 4px;text-align:right;font-weight:700">${rupee(P.estSale)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+          <div style="font-size:10.5px;color:var(--muted);margin-top:6px">— = બાકી નથી ભરાયું એટલે વેચાયું અજ્ઞાત · અંદાજ ₹ = વેચાયું (કે લાવ્યા) × એ હાટનો ભાવ</div>
+        </div>` : ''}
+      </div>`;
+  }).join('');
+}
+
 function reportBodyHtml(){
   if(REPORT_VIEW === 'crop')       return reportCropHtml();
   if(REPORT_VIEW === 'month')      return reportMonthHtml();
   if(REPORT_VIEW === 'insights')   return reportInsightsHtml();
   if(REPORT_VIEW === 'attendance') return reportAttendanceHtml();
+  if(REPORT_VIEW === 'venue')      return reportVenueHtml();
   return reportFarmerHtml();
 }
 function reportTitle(){
@@ -5002,6 +5151,7 @@ function reportTitle(){
   if(REPORT_VIEW === 'month') return 'મહિના વાર અંદાજિત વેચાણ — ખેડૂત વાર';
   if(REPORT_VIEW === 'insights') return 'Insights — બધા અઠવાડિયા';
   if(REPORT_VIEW === 'attendance') return 'ખેડૂત હાજરી રિપોર્ટ — બધા હાટ';
+  if(REPORT_VIEW === 'venue') return 'હાટ-વાર વેચાણ રિપોર્ટ · ' + reportPeriodLabel();
   return 'ખેડૂત × પ્રોડક્ટ રિપોર્ટ · ' + reportPeriodLabel();
 }
 
@@ -5026,6 +5176,7 @@ function renderReports(){
           <button class="btn-sm ${REPORT_VIEW==='farmer'?'primary':''}" onclick="setReportView('farmer')" style="font-size:12.5px">🌾 ખેડૂત×પ્રોડક્ટ</button>
           <button class="btn-sm ${REPORT_VIEW==='crop'?'primary':''}" onclick="setReportView('crop')" style="font-size:12.5px">🥕 પાક</button>
           <button class="btn-sm ${REPORT_VIEW==='month'?'primary':''}" onclick="setReportView('month')" style="font-size:12.5px">📅 મહિના વાર</button>
+          <button class="btn-sm ${REPORT_VIEW==='venue'?'primary':''}" onclick="setReportView('venue')" style="font-size:12.5px">🏪 હાટ-વાર વેચાણ</button>
           <button class="btn-sm ${REPORT_VIEW==='attendance'?'primary':''}" onclick="setReportView('attendance')" style="font-size:12.5px">📅 હાજરી</button>
           <button class="btn-sm ${REPORT_VIEW==='insights'?'primary':''}" onclick="setReportView('insights')" style="font-size:12.5px">📈 Insights</button>
         </div>
