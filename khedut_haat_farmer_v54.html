@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V63</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V64</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -810,7 +810,9 @@ async function loadSubmission(){
   LAST_WK_SUBMISSION = null;
   CUR_STATUS = '';
   APPROVED_ITEM_NAMES = new Set();        // V63: rebuilt from the loaded submission below
-  SELECTED_HAATS = new Set(OPEN_HAATS);   // V62: default = attending every open haat
+  // V64: default = NOTHING ticked (user decision) — the farmer must actively choose which
+  // haats he's attending. An existing submission's choice is restored below.
+  SELECTED_HAATS = new Set();
 
   // Load current week's submission first — if it exists, it becomes both ENTRIES (with prices) AND ROUTINE_ITEMS (shown at top)
   const curSub = await fbRef('weekly/'+WK+'/submissions/'+subFid()).get();
