@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V60</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V61</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -805,7 +805,7 @@ async function loadSubmission(){
     (v.items||[]).forEach(it => {
       if(!it || !it.name) return;
       if(it.custom) return; // v2: catalogue-only — skip custom items from old submissions
-      ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", remaining: it.qtyRemaining||"", qtyByHaat: it.qtyByHaat || {}, priceByHaat: it.priceByHaat || {}, unit:it.unit, cat:it.cat, emoji:it.emoji, custom:false});
+      ENTRIES.set(it.name, {price:it.price||"", qty:it.qty||"", remaining: it.qtyRemaining||"", remainingByHaat: it.qtyRemainingByHaat || {}, qtyByHaat: it.qtyByHaat || {}, priceByHaat: it.priceByHaat || {}, unit:it.unit, cat:it.cat, emoji:it.emoji, custom:false});
       ROUTINE_ITEMS.set(it.name, {
         lastPrice: it.price||"",
         unit: it.unit, cat: it.cat, emoji: it.emoji, custom: !!it.custom, photo: it.photo||''
@@ -1104,6 +1104,50 @@ function itemRow(p, isRoutine){
     const jsName = esc(p.n).replace(/'/g,"\\'");
     let total = 0;
     Object.values(qbh).forEach(v => { if(+v>0) total += +v; });
+
+    // V61: multi-haat post-approval — per-haat બાકી (mockup ③, approved 2026-07-10).
+    // Each haat row gets its own બાકી box; the app sums them (farmers were doing the
+    // cross-haat arithmetic in their head for one combined box). Locked price moves to a
+    // small line under the haat name so જથ્થો+બાકી fit side by side on a 375px phone.
+    if(showRemaining){
+      const rbh = e.remainingByHaat || {};
+      let rTotal = 0, anyR = false;
+      OPEN_HAATS.forEach(code => { const rv = rbh[code]; if(rv!=null && rv!=="" && !isNaN(+rv)){ rTotal += +rv; anyR = true; } });
+      const updRows = OPEN_HAATS.map(code => {
+        const haatName = HAATS_ALL[code]?.nameGu || HAATS_ALL[code]?.name || code;
+        const qv = qbh[code] != null ? qbh[code] : '';
+        const pvRaw = (pbh[code] != null && +pbh[code] > 0) ? pbh[code] : e.price;
+        const rv = rbh[code] != null ? rbh[code] : '';
+        return `
+          <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+            <span style="font-size:11.5px;color:#444;flex:1;min-width:0;font-weight:600;line-height:1.25">${esc(haatName)}<br><small style="color:#8a8578;font-weight:600">₹${esc(pvRaw)}/${esc(p.u)} 🔒</small></span>
+            <div class="input-wrap ${(+qv)>0?'has-val':''}" style="flex:0 0 86px">
+              <input type="number" inputmode="numeric" min="0" data-qty="1" data-code="${esc(code)}" placeholder="0" value="${esc(qv)}" oninput="onQtyForHaat('${jsName}','${esc(code)}',this.value)">
+              <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
+            </div>
+            <div class="input-wrap baaki ${(+rv)>0?'has-val':''}" style="flex:0 0 86px">
+              <input type="number" inputmode="numeric" min="0" data-rem="1" data-code="${esc(code)}" placeholder="0" value="${esc(rv)}" oninput="onRemainingForHaat('${jsName}','${esc(code)}',this.value)">
+              <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
+            </div>
+          </div>`;
+      }).join('');
+      return `
+        <div class="item multi-haat upd ${active?'active':''}" data-name="${esc(p.n)}" data-alias="${esc(p.a||'')}" id="row_${safeId}" style="flex-direction:column;align-items:stretch;gap:6px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <div class="item-emo">${emoOrPhoto(p)}</div>
+            <div class="item-body" style="flex:1;min-width:0">${nameHtml}</div>
+          </div>
+          <div style="background:var(--bg);border-radius:8px;padding:7px 10px;border:1px dashed var(--border)">
+            <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.3px"><span style="flex:1">હાટ · ભાવ 🔒</span><span style="flex:0 0 86px;text-align:center">જથ્થો</span><span style="flex:0 0 86px;text-align:center;color:#7a5a00">બાકી</span></div>
+            ${updRows}
+            <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:5px;border-top:1px dotted var(--border);font-size:11.5px">
+              <span style="color:var(--muted)">કુલ લાવ્યા <b id="tot_${safeId}" style="color:var(--green2)">${total ? total + ' ' + esc(qtyUnitOf(p.u)) : '—'}</b></span>
+              <span style="color:var(--muted)">કુલ બાકી <b id="rtot_${safeId}" style="color:#7a5a00">${anyR ? (Math.round(rTotal*100)/100) + ' ' + esc(qtyUnitOf(p.u)) : (e.remaining ? esc(e.remaining)+' '+esc(qtyUnitOf(p.u))+' (જૂનો કુલ)' : '—')}</b></span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
     const haatRows = OPEN_HAATS.map(code => {
       const haatName = HAATS_ALL[code]?.nameGu || HAATS_ALL[code]?.name || code;
       const val = qbh[code] != null ? qbh[code] : '';
@@ -1141,13 +1185,6 @@ function itemRow(p, isRoutine){
             <span style="color:var(--muted)">કુલ</span>
             <span id="tot_${safeId}" style="font-weight:700;color:var(--green2)">${total ? total + ' ' + esc(qtyUnitOf(p.u)) : '—'}</span>
           </div>
-          ${showRemaining ? `<div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding-top:5px;border-top:1px dotted var(--border)">
-            <span style="font-size:11px;color:#5a5a5a;flex:1;font-weight:600">બાકી જથ્થો</span>
-            <div class="input-wrap ${(+e.remaining)>0?'has-val':''}" style="flex:0 0 110px">
-              <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.remaining||'')}" oninput="onRemaining('${esc(p.n).replace(/'/g,"\\'")}',this.value)">
-              <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
-            </div>
-          </div>` : ''}
         </div>
       </div>
     `;
@@ -1225,6 +1262,13 @@ window.onRemaining = (name, val) => {   // Part B (B6): બાકી જથ્�
   ENTRIES.set(name, e);
   refreshRow(name);   // V60: flips the બાકી box amber→green as soon as it's filled
 };
+window.onRemainingForHaat = (name, haatCode, val) => {   // V61: per-haat બાકી (multi-haat farmers)
+  const e = ENTRIES.get(name) || pristine(name);
+  if(!e.remainingByHaat) e.remainingByHaat = {};
+  e.remainingByHaat[haatCode] = val;
+  ENTRIES.set(name, e);
+  refreshRow(name);
+};
 window.onQtyForHaat = (name, haatCode, val) => {
   const e = ENTRIES.get(name) || pristine(name);
   if(!e.qtyByHaat) e.qtyByHaat = {};
@@ -1260,7 +1304,7 @@ window.togglePHP = (name, cb) => {   // opt-in per-haat pricing (checkbox per pr
 };
 function pristine(name){
   const p = PRODUCT_LIB.find(x=>x.n===name);
-  return {price:"", qty:"", qtyByHaat:{}, priceByHaat:{}, unit:p?p.u:"kg", cat:p?p.c:"અન્ય", emoji:p?p.e:"🌿"};
+  return {price:"", qty:"", qtyByHaat:{}, priceByHaat:{}, remainingByHaat:{}, unit:p?p.u:"kg", cat:p?p.c:"અન્ય", emoji:p?p.e:"🌿"};
 }
 function refreshRow(name){
   const safeId = 'it_'+btoa(unescape(encodeURIComponent(name))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
@@ -1286,11 +1330,19 @@ function refreshRow(name){
       const w = inp.closest('.input-wrap'); if(w) w.classList.toggle('has-val', (+(pbh[inp.dataset.code]||0))>0);
     });
     const tot = document.getElementById('tot_'+safeId);
-    if(tot){
-      const p = PRODUCT_LIB.find(x => x.n === name);
-      const unit = qtyUnitOf(p ? p.u : (e.unit || 'kg'));
-      tot.textContent = total ? total + ' ' + unit : '—';
-    }
+    const pLib = PRODUCT_LIB.find(x => x.n === name);
+    const unit = qtyUnitOf(pLib ? pLib.u : (e.unit || 'kg'));
+    if(tot) tot.textContent = total ? total + ' ' + unit : '—';
+    // V61: per-haat બાકી boxes (update phase) — toggle fill state + live-sum the total line.
+    const rbh = e.remainingByHaat || {};
+    let rTotal = 0, anyR = false;
+    row.querySelectorAll('input[data-rem]').forEach(inp => {
+      const raw = rbh[inp.dataset.code];
+      if(raw != null && raw !== "" && !isNaN(+raw)){ rTotal += +raw; anyR = true; }
+      const w = inp.closest('.input-wrap'); if(w) w.classList.toggle('has-val', (+(raw||0)) > 0);
+    });
+    const rt = document.getElementById('rtot_'+safeId);
+    if(rt && anyR) rt.textContent = (Math.round(rTotal*100)/100) + ' ' + unit;
   } else if(row.classList.contains('upd')){
     // V60 update-phase stacked layout: no price wrap — wraps are [કુલ, બાકી].
     if(wraps[0]) wraps[0].classList.toggle('has-val', (+e.qty)>0);
@@ -1465,7 +1517,20 @@ window.submitAll = async () => {
     } else if(e.qty != null && e.qty !== "" && +e.qty>0){
       it.qty = +e.qty;
     }
-    if(e.remaining != null && e.remaining !== "" && !isNaN(+e.remaining)) it.qtyRemaining = +e.remaining;   // Part B (B6)
+    if(isMulti){
+      // V61: per-haat બાકી. qtyRemaining stays the DERIVED SUM of the per-haat values, so every
+      // existing consumer (admin review, reports' sold-calc, farmer confirmation table) keeps
+      // reading the same field unchanged. If the farmer didn't touch any per-haat box this
+      // session, a legacy combined value passes through untouched — never zeroed, never split.
+      const rbhSrc = e.remainingByHaat || {};
+      const rbh = {}; let rTotal = 0, anyR = false;
+      OPEN_HAATS.forEach(code => {
+        const rv = rbhSrc[code];
+        if(rv != null && rv !== "" && !isNaN(+rv)){ rbh[code] = +rv; rTotal += +rv; anyR = true; }
+      });
+      if(anyR){ it.qtyRemainingByHaat = rbh; it.qtyRemaining = Math.round(rTotal*100)/100; }
+      else if(e.remaining != null && e.remaining !== "" && !isNaN(+e.remaining)) it.qtyRemaining = +e.remaining;
+    } else if(e.remaining != null && e.remaining !== "" && !isNaN(+e.remaining)) it.qtyRemaining = +e.remaining;   // Part B (B6)
     if(e.emoji) it.emoji = e.emoji;
     if(e.custom) it.custom = true;
     items.push(it);
