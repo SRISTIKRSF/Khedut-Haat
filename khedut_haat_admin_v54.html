@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V65</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V66</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -6810,6 +6810,7 @@ function openHaatForm(code){
       ${code?`<div style="font-size:11.5px;color:var(--muted)">કોડ: <code>${esc(code)}</code> · ઓપન/બંધ + અઠવાડિક તારીખ 📅 popup માં</div>`:'<div style="font-size:11.5px;color:var(--muted)">નવો હાટ ડિફોલ્ટ <b>બંધ</b> રહેશે — પછી ઓપન કરો.</div>'}
     </div>
     <div style="display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--border)">
+      ${code?`<button class="btn-sm" onclick="deleteHaat('${esc(code)}')" style="background:var(--red-pale);color:var(--red);border-color:#f5c4c4">🗑️ Delete</button>`:''}
       <button class="btn-sm" onclick="closeModal()" style="flex:1">રદ</button>
       <button class="btn-sm primary" onclick="saveHaatForm('${code?esc(code):''}')" style="flex:1">✓ સાચવો</button>
     </div>
@@ -6844,6 +6845,32 @@ window.saveHaatForm = async (code) => {
     refreshHaatOpenCountInTopbar();
     setTabBodyHtml();
   }catch(e){ console.error(e); toast("Save નિષ્ફળ: "+(e.message||e),"err"); }
+  finally{ _busy = false; }
+};
+
+window.deleteHaat = async (code) => {
+  const h = HAATS[code];
+  if(!h) return toast("હાટ મળ્યો નથી","err");
+  const nm = h.nameGu || h.name || code;
+  const assignedFarmers = FARMERS.filter(f => Array.isArray(f.haatCodes) && f.haatCodes.includes(code));
+  const inCurrentWeek = Object.values(SUBS||{}).filter(s => s && Array.isArray(s.farmerHaatCodes) && s.farmerHaatCodes.includes(code));
+  let warn = '';
+  if(inCurrentWeek.length) warn = `\n\n⚠️ આ અઠવાડિયે ${inCurrentWeek.length} ખેડૂતે આ હાટ માટે યાદી મોકલી છે — delete કરવાથી એ યાદીઓ પરથી હાટનું નામ નહીં હટે, પણ કેટલોગમાં એ હાટ હવે નહીં દેખાય.`;
+  else if(assignedFarmers.length) warn = `\n\n${assignedFarmers.length} ખેડૂત આ હાટ સાથે જોડાયેલા છે (આ અઠવાડિયે યાદી નથી મોકલી) — તેમની ફાળવણીમાંથી આપોઆપ અસર નહીં થાય (harmless — filtered out already).`;
+  if(!(await asyncConfirm(`"${nm}" હાટ કાયમ માટે delete કરવો છે?${warn}`, 'હા, delete કરો', 'રદ', true))) return;
+  if(_busy) return; _busy = true;
+  try{
+    const updates = {};
+    updates['haats/'+code] = null;
+    updates['haatsDeleted/'+code] = {name:nm, deletedAt:Date.now(), deletedBy:(adminIdentity()?.username||'unknown')};
+    await fbRef('').update(updates);
+    delete HAATS[code];
+    logAudit('haat-delete','haats/'+code,{name:nm});
+    toast(`🗑️ "${nm}" delete થયો`,"ok");
+    closeModal();
+    refreshHaatOpenCountInTopbar();
+    setTabBodyHtml();
+  }catch(e){ console.error(e); toast("Delete નિષ્ફળ: "+(e.message||e),"err"); }
   finally{ _busy = false; }
 };
 
