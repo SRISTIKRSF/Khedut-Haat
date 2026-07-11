@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V66</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V67</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -6860,10 +6860,14 @@ window.deleteHaat = async (code) => {
   if(!(await asyncConfirm(`"${nm}" હાટ કાયમ માટે delete કરવો છે?${warn}`, 'હા, delete કરો', 'રદ', true))) return;
   if(_busy) return; _busy = true;
   try{
-    const updates = {};
-    updates['haats/'+code] = null;
-    updates['haatsDeleted/'+code] = {name:nm, deletedAt:Date.now(), deletedBy:(adminIdentity()?.username||'unknown')};
-    await fbRef('').update(updates);
+    // V67 fix: the deployed RTDB rules (confirmed live, unlike productsDeleted for products)
+    // have NO whitelist entry for a haatsDeleted node. A multi-path .update() is atomic — the
+    // permission-denied write to that unlisted path was rejecting the WHOLE update, including
+    // the otherwise-permitted haats/{code}:null delete. Haats have no auto-resurrection path
+    // (unlike products' loadAllProductsAcrossWeeks history-sync), so a tombstone isn't
+    // load-bearing here — logAudit() below already records who/what/when to the whitelisted
+    // auditLog node, which is all the paper trail this actually needs.
+    await fbRef('haats/'+code).remove();
     delete HAATS[code];
     logAudit('haat-delete','haats/'+code,{name:nm});
     toast(`🗑️ "${nm}" delete થયો`,"ok");
