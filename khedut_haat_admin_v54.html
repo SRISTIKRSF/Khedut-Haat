@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V68</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V7.1</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -859,11 +859,28 @@ function scheduleSnapshotWrite(){
   }, 2000);
 }
 
+// V7.1: gzip the snapshot before upload — measured live, the 292KB raw JSON was taking ~3.7s
+// to download+parse on the customer page (the dominant share of first-load time). Gujarati-
+// heavy JSON compresses well; browsers decompress Content-Encoding:gzip transparently on
+// fetch(), so the customer side needs zero changes. Falls back to today's uncompressed upload
+// if CompressionStream isn't available (older browser) — never blocks the snapshot from going up.
+async function gzipJsonBlob(str){
+  if(typeof CompressionStream === 'undefined') return null;
+  const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+  return await new Response(stream).blob();
+}
+
 async function uploadSnapshotToStorage(snap){
   if(!firebase.storage) return;   // SDK failed to load — no-op, RTDB path already covers customers
-  const blob = new Blob([JSON.stringify(snap)], {type:'application/json'});
+  const str = JSON.stringify(snap);
   const ref = firebase.storage().ref('catalog/snapshot.json');
-  await ref.put(blob, {contentType:'application/json', cacheControl:'public, max-age=3600'});
+  const gz = await gzipJsonBlob(str).catch(()=>null);
+  if(gz){
+    await ref.put(gz, {contentType:'application/json', contentEncoding:'gzip', cacheControl:'public, max-age=3600'});
+  }else{
+    const blob = new Blob([str], {type:'application/json'});
+    await ref.put(blob, {contentType:'application/json', cacheControl:'public, max-age=3600'});
+  }
 }
 
 async function loadAll(){
