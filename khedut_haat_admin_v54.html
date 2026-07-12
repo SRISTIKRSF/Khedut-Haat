@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V67</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V68</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -273,6 +273,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<!-- V68: loads from Google's gstatic CDN, NOT this project's own Hosting bucket -- zero impact
+     on Firebase Hosting bandwidth. Used only to WRITE the customer catalogue to Storage;
+     customers fetch it via a plain public URL, no SDK needed on their end. -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
@@ -839,12 +843,27 @@ function scheduleSnapshotWrite(){
       const snap = buildCatalogSnapshot();
       if(!snap) return;
       const str = JSON.stringify(snap);
-      if(str === _lastSnapStr) return;              // nothing changed → no write
+      if(str === _lastSnapStr) return;              // nothing changed → no write (no wasted upload either)
       snap.updatedAt = Date.now();
+      // RTDB write FIRST and on its own — this is the proven, already-live path. Only mark
+      // _lastSnapStr done once THIS succeeds, so a failure here retries next debounce tick
+      // exactly like today (V60 behavior, byte-for-byte unchanged).
       await fbRef('catalogSnapshot').set(snap);
       _lastSnapStr = str;
+      // V68: Storage upload SECOND, own try/catch, cannot affect the RTDB write above in
+      // either direction (already committed by the time this runs, and its failure doesn't
+      // roll anything back). Gated on the SAME change-check — an unchanged catalogue never
+      // re-uploads. This is additive only: it does not replace or reduce the RTDB write.
+      uploadSnapshotToStorage(snap).catch(e => console.warn('storage snapshot upload skipped:', e && e.message));
     }catch(e){ console.warn('catalogSnapshot write skipped:', e && e.message); }
   }, 2000);
+}
+
+async function uploadSnapshotToStorage(snap){
+  if(!firebase.storage) return;   // SDK failed to load — no-op, RTDB path already covers customers
+  const blob = new Blob([JSON.stringify(snap)], {type:'application/json'});
+  const ref = firebase.storage().ref('catalog/snapshot.json');
+  await ref.put(blob, {contentType:'application/json', cacheControl:'public, max-age=3600'});
 }
 
 async function loadAll(){
