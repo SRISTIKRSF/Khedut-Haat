@@ -1069,6 +1069,13 @@ function render(){
   `;
   twe();
   updateTabsScrollFade();
+  // V7.1 fix: approveSubmission/confirmReject/deleteSubmission/saveEditAndApprove all refresh
+  // via render() (this function), NOT setTabBodyHtml() — so the V60 comment's claim that "every
+  // mutating handler re-renders through setTabBodyHtml()" was false for these four, and the
+  // customer-facing catalogSnapshot could go stale after an approve/reject/delete until some
+  // unrelated action happened to call setTabBodyHtml() afterward. Same debounced + content-
+  // compared call as there, so pure navigation (tab switch, login) costs nothing extra.
+  scheduleSnapshotWrite();
 }
 // V54 (mobile smoothness): the grouped tab bar hides ~780px of tabs off-screen on a
 // phone with zero visual hint. Fade the scrollable edges — solid where you've reached
