@@ -567,19 +567,21 @@ window.doLogin = async () => {
   const pwd      = ($('#adminPwd')?.value||'').trim();
   if(!username) return renderLogin("યુઝરનેમ ભરો");
   if(!pwd)      return renderLogin("પાસવર્ડ ભરો");
-  let rec;
-  try{
-    const snap = await fbRef('admins/'+username).get();
-    if(!snap.exists()) return renderLogin("આ યુઝરનેમ નથી");
-    rec = snap.val();
-  }catch(e){
-    return renderLogin("લોગ-ઇન ભૂલ: " + (e.message||""));
-  }
-  // Phase 2: verify password via Firebase Auth (was: compare rec.pwd in the clear).
+  // V7.1 security: sign in via Firebase Auth FIRST, THEN read admins/{username}. The old order
+  // read admins/{username} BEFORE auth, which forced that node to stay world-readable — leaking
+  // its legacy plaintext `pwd` field to anyone. Auth-first lets the RTDB rules lock the admins
+  // read to `auth != null`. Side effect (intentional): a non-existent username now returns the
+  // same "પાસવર્ડ ખોટો" as a bad password, so admin usernames can no longer be enumerated.
   try{
     await AUTH.signInWithEmailAndPassword(username + AUTH_DOMAIN, PWD_PREFIX + pwd);
   }catch(e){
     return renderLogin("પાસવર્ડ ખોટો");
+  }
+  let rec = {};
+  try{
+    rec = (await fbRef('admins/'+username).get()).val() || {};
+  }catch(e){
+    return renderLogin("લોગ-ઇન ભૂલ: " + (e.message||""));
   }
   try{
     sessionStorage.setItem(AUTH_KEY, JSON.stringify({
