@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V60</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V61</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <link rel="icon" type="image/jpeg" href="sristi-logo.jpg">
 <link rel="manifest" href="manifest-customer.json">
@@ -385,6 +385,41 @@ async function tryFetchSnapshot(){
   }catch(e){ return null; }
 }
 
+const STORAGE_BUCKET = 'prakrutik-kheti-c0a89.firebasestorage.app';
+
+// V61: Storage-first fetch. RTDB downloads are billed far higher per-GB than Storage/Hosting-
+// tier bandwidth, and public Storage objects can be shared across many different visitors by
+// the network's own caching -- an RTDB read can't do that, every reader pays full price. The
+// probe below is the SAME ~13-byte RTDB read already used for cache revalidation; here it
+// doubles as a cache-busting version stamp: unchanged content -> same URL -> a shared cached
+// response serves many visitors; admin publishes a change -> new URL -> guaranteed-fresh, never
+// a stale window. Any failure (network, shape, missing fields) returns null so the caller falls
+// through to tryFetchSnapshot() (RTDB) exactly as before this change existed.
+async function tryFetchStorageSnapshot(){
+  try{
+    const probe = (await fbRef('catalogSnapshot/updatedAt').get()).val();
+    if(!probe) return null;
+    const url = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/catalog%2Fsnapshot.json?alt=media&v=${probe}`;
+    const r = await fetch(url);
+    if(!r.ok) return null;
+    const v = await r.json();
+    if(!v || !v.updatedAt || !v.wk || !v.subs || !v.products) return null;
+    return {
+      wk: v.wk,
+      meta:      v.meta      || {weekNum:v.wk},
+      subs:      v.subs      || {},
+      farmers:   v.farmers   || {},
+      products:  v.products  || {},
+      siteCfg:   v.siteCfg   || null,
+      haats:     v.haats     || {},
+      cats:      v.cats      || {},
+      catOrder:  v.catOrder  || [],
+      catLabels: v.catLabels || {},
+      _snapUpdatedAt: v.updatedAt,
+    };
+  }catch(e){ return null; }
+}
+
 async function fetchCatalogData(){
   const cur = await fbRef('weekly/current').get();
   const wk = cur.exists() ? cur.val() : 1;
@@ -414,10 +449,11 @@ async function fetchCatalogData(){
 }
 
 // Resolve the freshest catalogue data at the lowest possible download cost:
-// 1. snapshot-backed cache + unchanged updatedAt probe  → ~100 bytes
-// 2. fallback cache within its 5-min TTL                → 0 bytes
-// 3. fetch catalogSnapshot                              → ~200KB
-// 4. full pre-snapshot fetch                            → ~300KB (also the safety net)
+// 1. snapshot-backed cache + unchanged updatedAt probe  → ~100 bytes  (UNCHANGED by V61)
+// 2. fallback cache within its 5-min TTL                → 0 bytes    (UNCHANGED by V61)
+// 3. fetch from Storage (billed far cheaper than RTDB)  → ~200KB     (V61, new primary)
+// 4. fetch catalogSnapshot from RTDB                    → ~200KB     (fallback if Storage fails)
+// 5. full pre-snapshot fetch                            → ~300KB     (final safety net, unchanged)
 async function resolveCatalogData(){
   const cached = readCatalogCacheRaw();
   if(cached){
@@ -431,7 +467,8 @@ async function resolveCatalogData(){
       return cached.data;
     }
   }
-  let data = await tryFetchSnapshot();
+  let data = await tryFetchStorageSnapshot();
+  if(!data) data = await tryFetchSnapshot();
   if(!data) data = await fetchCatalogData();
   writeCatalogCache(data);
   return data;
