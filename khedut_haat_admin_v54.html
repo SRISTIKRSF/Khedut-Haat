@@ -567,28 +567,33 @@ window.doLogin = async () => {
   const pwd      = ($('#adminPwd')?.value||'').trim();
   if(!username) return renderLogin("યુઝરનેમ ભરો");
   if(!pwd)      return renderLogin("પાસવર્ડ ભરો");
-  // V7.1 security: sign in via Firebase Auth FIRST, THEN read admins/{username}. The old order
-  // read admins/{username} BEFORE auth, which forced that node to stay world-readable — leaking
-  // its legacy plaintext `pwd` field to anyone. Auth-first lets the RTDB rules lock the admins
-  // read to `auth != null`. Side effect (intentional): a non-existent username now returns the
-  // same "પાસવર્ડ ખોટો" as a bad password, so admin usernames can no longer be enumerated.
+  // V7.1 security: the admin record's `pwd` (legacy plaintext) must never be world-readable, but
+  // we still want the distinct "username doesn't exist" vs "wrong password" messages. Solution:
+  // the RTDB rules expose ONLY the non-secret `name` + `forceChange` children of admins/{username}
+  // publicly; `pwd` stays readable solely by that same signed-in admin. So we existence-check via
+  // the public `name` field, then verify the password via Firebase Auth. Nothing sensitive leaks.
+  let exists = false, adminName = username;
+  try{
+    const s = await fbRef('admins/'+username+'/name').get();
+    if(s.exists()){ exists = true; adminName = s.val() || username; }
+  }catch{}
+  let authErr = null;
   try{
     await AUTH.signInWithEmailAndPassword(username + AUTH_DOMAIN, PWD_PREFIX + pwd);
-  }catch(e){
+  }catch(e){ authErr = e; }
+  if(authErr){
+    // Correct creds always sign in (above); here it failed. Distinguish bad-username from bad-pwd.
+    if(!exists || authErr.code === 'auth/user-not-found') return renderLogin("આ યુઝરનેમ નથી");
     return renderLogin("પાસવર્ડ ખોટો");
   }
-  let rec = {};
-  try{
-    rec = (await fbRef('admins/'+username).get()).val() || {};
-  }catch(e){
-    return renderLogin("લોગ-ઇન ભૂલ: " + (e.message||""));
-  }
+  let forceChange = false;
+  try{ forceChange = (await fbRef('admins/'+username+'/forceChange').get()).val() || false; }catch{}
   try{
     sessionStorage.setItem(AUTH_KEY, JSON.stringify({
-      username, name: rec.name||username, expires: Date.now() + AUTH_TTL_MS
+      username, name: adminName, expires: Date.now() + AUTH_TTL_MS
     }));
   }catch{}
-  if(rec.forceChange || pwd === "2026"){
+  if(forceChange || pwd === "2026"){
     return renderAdminForceChange(username);
   }
   loadAll();
@@ -634,10 +639,11 @@ window.saveAdminPwd = async (username) => {
   try{
     // Phase 2: update the Firebase Auth password (admin just signed in -> allowed), then
     // dual-write admins so a rollback to the OLD app still works during transition.
+    // V7.1: use update() (merge) instead of read-full-node + set() — preserves every existing
+    // field without needing to read the record first, so this works even when the rules lock
+    // the full-node read to the owning admin only.
     if(AUTH.currentUser) await AUTH.currentUser.updatePassword(PWD_PREFIX + p1);
-    const cur = (await fbRef('admins/'+username).get()).val() || {};
-    await fbRef('admins/'+username).set({
-      ...cur,
+    await fbRef('admins/'+username).update({
       pwd: p1,
       forceChange: false,
       updatedAt: firebase.database.ServerValue.TIMESTAMP
