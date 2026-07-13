@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V7.5</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V7.6</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -3486,7 +3486,15 @@ function resizePhoto(file, maxDim, q){
         else if(h>=w && h>maxDim){ w=Math.round(w*maxDim/h); h=maxDim; }
         const c = document.createElement('canvas');
         c.width=w; c.height=h;
-        c.getContext('2d').drawImage(img,0,0,w,h);
+        const ctx = c.getContext('2d');
+        // Fill white BEFORE drawing: JPEG has no alpha channel, and an unfilled canvas is
+        // transparent black — flattening a transparent PNG (any logo exported "on transparent",
+        // which is most of them) straight to JPEG silently turns its empty areas black instead
+        // of white. Every image through this function (logos, banner, login backgrounds) hit
+        // this; only ever visible when the source had enough transparent area to notice.
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img,0,0,w,h);
         res(c.toDataURL('image/jpeg', q));
       };
       img.onerror = rej;
