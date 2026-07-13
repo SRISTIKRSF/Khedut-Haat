@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V7.1</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V7.3</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -277,6 +277,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
      on Firebase Hosting bandwidth. Used only to WRITE the customer catalogue to Storage;
      customers fetch it via a plain public URL, no SDK needed on their end. -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+<!-- V7.3: farmer password reset now calls a Cloud Function (resetFarmerAuthAccount) instead of
+     recreating the Auth account from the browser, which always failed for a farmer who already
+     had an account -- only server-side Admin SDK can delete another user's login. -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
@@ -5991,40 +5995,19 @@ window.resetFarmerPwd = async (fid, name, phoneClean) => {
 
 window.attemptFarmerAuthRecreate = async (name, phoneClean, last4) => {
   try{
-    let _sec; try{ _sec = firebase.initializeApp(FB_CONFIG, 'mkfarmer'); }catch(_){ _sec = firebase.app('mkfarmer'); }
-    await _sec.auth().createUserWithEmailAndPassword(phoneClean + AUTH_DOMAIN, PWD_PREFIX + last4);
-    await _sec.auth().signOut().catch(()=>{});
+    // V7.3: delete-old + create-new now happens server-side (resetFarmerAuthAccount Cloud
+    // Function) since only Admin SDK can delete another user's Auth account -- the browser
+    // could never do this itself, which is why every reset used to need a manual Firebase
+    // Console step. One call replaces that whole dance.
+    const fn = firebase.app().functions('asia-southeast1').httpsCallable('resetFarmerAuthAccount');
+    await fn({phone: phoneClean});
     toast(`🔑 પાસવર્ડ reset થયો — WhatsApp મોકલો`,"ok");
     showResetPwdWhatsAppHelper(name, phoneClean, last4);
   }catch(_e){
-    if(_e && _e.code === 'auth/email-already-in-use'){
-      showDeleteAuthThenRetry(name, phoneClean, last4);
-    }else{
-      console.error('farmer auth recreate', _e);
-      toast("Auth reset નિષ્ફળ: " + (_e.message||""),"err");
-    }
+    console.error('farmer auth recreate', _e);
+    toast("Auth reset નિષ્ફળ: " + (_e.message||""),"err");
   }
 };
-
-function showDeleteAuthThenRetry(name, phoneClean, last4){
-  modal(`
-    <div class="modal-hdr">
-      <div class="modal-title">⚠️ એક વધારાનું પગલું જરૂરી</div>
-      <button class="modal-close" onclick="closeModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div style="font-size:13px;color:#5f5e5a;margin-bottom:9px">${esc(name)} · ${esc(phoneClean)}</div>
-      <div style="background:#fff8d6;border:1px solid #f7c800;border-radius:8px;padding:11px 13px;font-size:12.5px;color:#5a4a00;line-height:1.7;margin-bottom:11px">
-        જૂનું login account હજી છે — પહેલા એને Console માંથી <b>delete</b> કરવું પડશે (Reset નહીં, કારણ કે એ email મોકલે છે જે ક્યાંય પહોંચતો નથી).<br><br>
-        1. Firebase Console → Authentication → Users<br>
-        2. શોધો: <b>${esc(phoneClean)}@khedut-haat.app</b><br>
-        3. ⋮ → <b>Delete account</b><br>
-        4. પછી નીચે "ફરી પ્રયત્ન કરો" દબાવો
-      </div>
-      <button class="btn-sm primary" style="width:100%;padding:11px" onclick="attemptFarmerAuthRecreate('${esc(name).replace(/'/g,"\\'")}','${esc(phoneClean).replace(/'/g,"\\'")}','${esc(last4).replace(/'/g,"\\'")}'); closeModal();">🔄 ફરી પ્રયત્ન કરો</button>
-    </div>
-  `);
-}
 
 function showResetPwdWhatsAppHelper(name, phoneClean, last4){
   const msg =
