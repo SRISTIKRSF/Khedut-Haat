@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V7.3</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V7.4</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -72,18 +72,21 @@ img.emoji{height:1em;width:1em;margin:0 .05em 0 .1em;vertical-align:-.15em;displ
 .search-meta{font-size:11.5px;color:var(--muted);margin-top:7px;display:flex;align-items:center;justify-content:space-between}
 .search-meta b{color:var(--green2);font-weight:700}
 
-/* CATEGORY HEADER */
-.cat-h{display:flex;align-items:center;gap:8px;padding:14px 16px 8px;background:var(--bg);position:sticky;top:74px;z-index:50}
+/* CATEGORY HEADER — solid dark-green sticky band (was a pale strip that blended into the
+   background). Sections used to visually run together on long scrolls; the band stays pinned
+   only while its own section is on screen (position:sticky), so the farmer always knows which
+   category he's in without cards from different sections ever blurring together. */
+.cat-h{display:flex;align-items:center;gap:8px;padding:12px 16px;background:var(--green);position:sticky;top:74px;z-index:50}
 .cat-h-emoji{font-size:18px}
-.cat-h-name{font-family:"Fraunces","Noto Sans Gujarati",serif;font-size:16px;font-weight:700;color:var(--green)}
-.cat-h-count{font-size:10.5px;color:var(--muted);font-weight:500;background:#fff;border-radius:20px;padding:2px 8px;margin-left:auto;border:1px solid var(--border)}
+.cat-h-name{font-family:"Fraunces","Noto Sans Gujarati",serif;font-size:16px;font-weight:700;color:#fff}
+.cat-h-count{font-size:10.5px;color:var(--green);font-weight:700;background:#fff;border-radius:20px;padding:2px 8px;margin-left:auto}
 
 /* ITEM ROW (the structured form) */
 .items{padding:0 12px}
 .cat-section.collapsed .items{display:none}
-.cat-section.collapsed .cat-h{padding-bottom:14px}
-.item{background:#fff;border:1.5px solid var(--border);border-radius:11px;padding:9px 11px;margin-bottom:6px;display:flex;align-items:center;gap:9px;transition:.15s}
-.item.active{border-color:var(--green3);background:#f3fbf5}
+.cat-section.collapsed .cat-h{padding-bottom:12px}
+.item{background:#fff;border:none;border-radius:12px;padding:9px 11px;margin-bottom:8px;display:flex;align-items:center;gap:9px;transition:.15s;box-shadow:0 2px 8px rgba(27,67,50,.10)}
+.item.active{background:#f3fbf5;box-shadow:0 2px 8px rgba(27,67,50,.10),inset 0 0 0 1.5px var(--green3)}
 .item.search-hidden{display:none}
 .ph-price{display:none!important}
 .item.ph-on .ph-price{display:flex!important}
@@ -1002,10 +1005,10 @@ function renderForm(){
     ${LAST_WK_SUBMISSION ? renderLastWeekAccordion() : ''}
     ${submittedTxt}
 
-    <div class="search-bar">
+    <div class="search-bar" id="searchBar">
       <div class="search-wrap">
         <span style="margin-right:7px;color:var(--muted);font-size:16px">🔍</span>
-        <input id="searchIn" placeholder="વસ્તુ શોધો (દા.ત. ભીંડા, કેરી)..." value="${esc(SEARCH_Q)}" oninput="onSearch(this.value)">
+        <input id="searchIn" placeholder="વસ્તુ શોધો (દા.ત. ભીંડા, કેરી)..." value="${esc(SEARCH_Q)}" oninput="onSearch(this.value)" onfocus="scrollSearchToTop()">
       </div>
       <div class="search-meta">
         <span><b>${PRODUCT_LIB.length}</b> વસ્તુ યાદીમાં</span>
@@ -1070,11 +1073,11 @@ function renderItems(){
     const safeKey = btoa(unescape(encodeURIComponent('__routine__'))).replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
     html += `
       <div class="cat-section ${isOpen?'':'collapsed'}" id="cat_${safeKey}">
-        <div class="cat-h" style="background:linear-gradient(90deg,#d8f3dc,#fffbf4);cursor:pointer" onclick="toggleCat('__routine__')">
+        <div class="cat-h" style="background:var(--green3);cursor:pointer" onclick="toggleCat('__routine__')">
           <span class="cat-h-emoji">⭐</span>
           <span class="cat-h-name">મારી પ્રોડક્ટ્સ</span>
           <span class="cat-h-count">${routineList.length}</span>
-          <span class="cat-chev" style="margin-left:6px;color:#7a7a7a;font-size:11px">${isOpen?'▼':'▶'}</span>
+          <span class="cat-chev" style="margin-left:6px;color:#fff;font-size:11px">${isOpen?'▼':'▶'}</span>
         </div>
         <div class="items">${routineList.map(p => itemRow(p, true)).join('')}</div>
       </div>
@@ -1096,7 +1099,7 @@ function renderItems(){
           <span class="cat-h-emoji">${CAT_EMOJI[c]||'🌿'}</span>
           <span class="cat-h-name">${esc(catLabel(c))}</span>
           <span class="cat-h-count">${groups[c].length}</span>
-          <span class="cat-chev" style="margin-left:6px;color:#7a7a7a;font-size:11px">${isOpen?'▼':'▶'}</span>
+          <span class="cat-chev" style="margin-left:6px;color:#fff;font-size:11px">${isOpen?'▼':'▶'}</span>
         </div>
         <div class="items">${groups[c].map(itemRow).join('')}</div>
       </div>
@@ -1405,6 +1408,17 @@ function refreshRow(name){
   const a = document.getElementById('activeCt'); if(a) a.textContent = ct;
   const s = document.getElementById('submitCt'); if(s) s.textContent = ct + " વસ્તુ ભરી";
 }
+
+// Search bar is sticky, but on tap the phone keyboard used to leave it stranded mid-screen
+// (haat cards above, keyboard below) with barely any room to see products. Scrolling it to the
+// top pins it via its existing position:sticky, freeing the rest of the viewport for the list.
+// The delay matters: the browser's own focus-scroll runs right after `onfocus` fires and would
+// otherwise cancel/fight an immediate scrollIntoView call.
+window.scrollSearchToTop = () => {
+  setTimeout(() => {
+    document.getElementById('searchBar')?.scrollIntoView({behavior:'smooth', block:'start'});
+  }, 120);
+};
 
 window.onSearch = (q) => {
   SEARCH_Q = q;
