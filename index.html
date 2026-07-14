@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V7.6</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V7.7</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <!-- V7.1: warm up DNS/TLS for the catalogue fetch chain while the page is still parsing -->
 <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
@@ -1147,11 +1147,15 @@ window.setQ = q => {
 window.resetFilters = () => { Q=''; CAT='all'; VENUE='all'; CITY='all'; render(); };
 window.toggleFarmer = id => { if(OPEN_FARMERS.has(id)) OPEN_FARMERS.delete(id); else OPEN_FARMERS.add(id); render(); };
 
+// V7.7: hardcoded to the branded domain, NOT location.href — a customer who opened the app via
+// the old prakrutik-kheti-c0a89.web.app link (still live, still bookmarked by some) would
+// otherwise forward THAT ugly URL to every friend/group they share with, instead of the clean
+// sristikheduthaat.in link we actually want circulating.
 window.shareWA = () => {
   const msg = encodeURIComponent(
     `🌿 *સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ ${weekRange()}*\n${WK_META.dateLabel?WK_META.dateLabel+'\n':''}\n`+
     `ઝેરમુક્ત શાક • ફળ • ઘી • મધ — સીધું વેરિફાઈડ ખેડૂત પાસેથી.\n\n`+
-    `બધી પેદાશ અને ભાવ:\n`+location.href+`\n\n`+
+    `બધી પેદાશ અને ભાવ:\nhttps://sristikheduthaat.in/\n\n`+
     `મિત્રો, સોસાયટી ગ્રુપમાં ફોરવર્ડ કરજો. 🙏`
   );
   window.open(`https://wa.me/?text=${msg}`, '_blank');

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V7.6</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V7.7</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -6488,7 +6488,11 @@ function buildCustomerMessage(){
   const haatLines = openHaats.length
     ? openHaats.map(h => `📍 ${h.nameGu || h.name}${h.weekDateLabel ? ' — '+h.weekDateLabel : ''}${h.time ? ' • '+h.time : ''}`)
     : ['(કોઈ હાટ હાલ ઓપન નથી — 📍 હાટ બટન થી ઓપન કરો)'];
-  const catalogUrl = location.origin.replace('localhost:8746','prakrutik-kheti-c0a89.web.app');
+  // V7.7: hardcoded to the branded domain, NOT location.origin. Whoever generates this message
+  // may have the old prakrutik-kheti-c0a89.web.app link bookmarked (it predates the custom
+  // domain and still works) -- deriving the link from wherever THIS page happens to be open
+  // meant every customer broadcast could carry the ugly Firebase URL instead of the real one.
+  const catalogUrl = 'https://sristikheduthaat.in';
   return [
     '🌿 *સૃષ્ટિ પ્રાકૃતિક ખેડૂત હાટ*',
     '',
@@ -6555,7 +6559,11 @@ window.shareCustomerMessageWA = () => {
 
 function buildFarmerMessage(){
   const openHaats = Object.values(HAATS).filter(h => h.open);
-  const submitUrl = location.origin.replace('localhost:8746','prakrutik-kheti-c0a89.web.app').replace(/\/sristi_haat_admin_v1\.html$/,'') + '/submit';
+  // V7.7: same fix as buildCustomerMessage's catalogUrl above — hardcoded, not derived from
+  // wherever the admin page happens to be open. (The old .replace(/\/sristi_haat_admin_v1\.html$/)
+  // here was dead code too — location.origin never contains a path, so it could never match; a
+  // leftover from a much earlier filename, before the khedut_haat_admin_v54.html rename.)
+  const submitUrl = 'https://sristikheduthaat.in/submit';
   // Same per-haat-deadline-with-fallback logic as renderFarmerRow(): each open haat may carry
   // its OWN deadline; only show one shared footer line when they all agree, else put each
   // haat's deadline on its own line so a Sunday haat and a Thursday haat never share a wrong date.
