@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V7.8</title>
+<title>મારી પેદાશ — સૃષ્ટિ ખેડૂત હાટ · V8.0</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -341,7 +341,9 @@ function submissionSummaryHtml(items){
 }
 function submissionSummaryText(items){
   let t = `🌿 સૃષ્ટિ ખેડૂત હાટ ${weekRange()} — મારી યાદી\n${FARMER.name||''}\n\n`;
-  (items||[]).forEach(it => { const q = itemQtyStr(it); t += `• ${it.name} — ₹${it.price}/${it.unit||''}${q?(' · '+q):''}\n`; });
+  // V8: include બાકી in the WhatsApp text too — the on-screen table already shows it, but the
+  // shared message dropped it, so a farmer's saved record was missing the leftover quantity.
+  (items||[]).forEach(it => { const q = itemQtyStr(it); const b = itemRemainingStr(it); t += `• ${it.name} — ₹${it.price}/${it.unit||''}${q?(' · '+q):''}${b?(' · બાકી '+b):''}\n`; });
   return t.trim();
 }
 function summaryShareBtn(items){
@@ -1180,7 +1182,7 @@ function itemRow(p, isRoutine){
               <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
             </div>
             <div class="input-wrap baaki ${(+rv)>0?'has-val':''}" style="flex:0 0 86px">
-              <input type="number" inputmode="numeric" min="0" data-rem="1" data-code="${esc(code)}" placeholder="0" value="${esc(rv)}" oninput="onRemainingForHaat('${jsName}','${esc(code)}',this.value)">
+              <input type="number" inputmode="numeric" min="0" data-rem="1" data-code="${esc(code)}" placeholder="0" value="${esc(rv)}" oninput="onRemainingForHaat('${jsName}','${esc(code)}',this.value,this)">
               <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
             </div>
           </div>`;
@@ -1268,7 +1270,7 @@ function itemRow(p, isRoutine){
           <div class="input-col">
             <div class="input-col-lbl">બાકી જથ્થો (વેચાયા વગર)</div>
             <div class="input-wrap baaki ${rHas}">
-              <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.remaining||'')}" oninput="onRemaining('${jsN}',this.value)">
+              <input type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(e.remaining||'')}" oninput="onRemaining('${jsN}',this.value,this)">
               <span class="sfx qty-sfx">${esc(qtyUnitOf(p.u))}</span>
             </div>
           </div>
@@ -1310,16 +1312,34 @@ window.onQty = (name, val) => {
   ENTRIES.set(name, e);
   refreshRow(name);
 };
-window.onRemaining = (name, val) => {   // Part B (B6): બાકી જથ્થો (unsold)
+// V7.9: બાકી (unsold) can't exceed લાવ્યા, and can't be entered before લાવ્યા. This is the fix
+// for the impossible entries the reports used to swallow (બાકી > brought → sold went negative,
+// and બાકી-without-brought showed a false ₹0). Clamp live so bad data never reaches Firebase;
+// submitAll() has a matching final gate for the lower-જથ્થો-after-filling-બાકી edge.
+window.onRemaining = (name, val, el) => {   // Part B (B6): બાકી જથ્થો (unsold)
   const e = ENTRIES.get(name) || pristine(name);
-  e.remaining = val;
+  const brought = +e.qty || 0;
+  let v = val;
+  if(val !== '' && !isNaN(+val) && +val > 0){
+    if(brought <= 0){ v = ''; toast('પહેલા લાવેલો જથ્થો ભરો, પછી બાકી','err'); }
+    else if(+val > brought){ v = String(brought); toast(`બાકી લાવ્યા (${brought}) કરતાં વધારે ન હોય`,'err'); }
+  }
+  if(el && el.value !== v) el.value = v;
+  e.remaining = v;
   ENTRIES.set(name, e);
   refreshRow(name);   // V60: flips the બાકી box amber→green as soon as it's filled
 };
-window.onRemainingForHaat = (name, haatCode, val) => {   // V61: per-haat બાકી (multi-haat farmers)
+window.onRemainingForHaat = (name, haatCode, val, el) => {   // V61: per-haat બાકી (multi-haat farmers)
   const e = ENTRIES.get(name) || pristine(name);
   if(!e.remainingByHaat) e.remainingByHaat = {};
-  e.remainingByHaat[haatCode] = val;
+  const brought = +((e.qtyByHaat||{})[haatCode]) || 0;   // V7.9: cap against THIS haat's જથ્થો
+  let v = val;
+  if(val !== '' && !isNaN(+val) && +val > 0){
+    if(brought <= 0){ v = ''; toast('પહેલા આ હાટનો જથ્થો ભરો, પછી બાકી','err'); }
+    else if(+val > brought){ v = String(brought); toast(`બાકી જથ્થા (${brought}) કરતાં વધારે ન હોય`,'err'); }
+  }
+  if(el && el.value !== v) el.value = v;
+  e.remainingByHaat[haatCode] = v;
   ENTRIES.set(name, e);
   refreshRow(name);
 };
@@ -1608,6 +1628,21 @@ window.submitAll = async () => {
   });
   if(isMulti && !selHaats().length) return toast("ઓછામાં ઓછો 1 હાટ પસંદ કરો (ઉપર ✅ ટીક કરો)","err");
   if(!items.length) return toast("ઓછામાં ઓછી 1 વસ્તુનો ભાવ ભરો","err");
+  // V7.9: final gate — no item may have બાકી > લાવ્યા. Live inputs clamp this, but a farmer who
+  // LOWERED જથ્થો after filling બાકી would slip past those, so re-check the built items here.
+  const baakiBad = [];
+  items.forEach(it => {
+    if(it.qtyRemainingByHaat && typeof it.qtyRemainingByHaat === 'object'){
+      const qbh = it.qtyByHaat || {};
+      Object.entries(it.qtyRemainingByHaat).forEach(([code,rem]) => { if(+rem > (+qbh[code]||0) + 0.001) baakiBad.push(it.name); });
+    } else if(it.qtyRemaining != null && +it.qtyRemaining > (+it.qty||0) + 0.001){
+      baakiBad.push(it.name);
+    }
+  });
+  if(baakiBad.length){
+    const u = [...new Set(baakiBad)];
+    return toast(`બાકી, લાવ્યા કરતાં વધારે છે — તપાસો: ${u.slice(0,3).join(', ')}${u.length>3?' વગેરે':''}`,"err");
+  }
   if(navigator.onLine === false) return toast("ઇન્ટરનેટ નથી — કનેક્શન તપાસી ફરી મોકલો","err");
   const noQty = items.filter(it => it.qty == null).length;
   if(noQty > 0) toast(noQty + " વસ્તુ માં જથ્થો ભર્યો નથી — વાંધો નહીં, મોકલાય છે", "");
