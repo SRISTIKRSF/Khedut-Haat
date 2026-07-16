@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V7.7</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V7.8</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -3925,15 +3925,16 @@ function renderGuideAdmin(){
       <div class="card-sub">ફક્ત વાંચવા માટે (read-only) — અહીં કોઈ data બદલાતું નથી. ઉપર અઠવાડિયું પસંદ કરી શકો અને 🖨 PDF / Print કાઢી શકો.</div>
 
       ${guideStep(1, '🌾 ખેડૂત × પ્રોડક્ટ', `
-        દરેક ખેડૂત ની એક જ row — તેનું <b>નામ + અંદાજિત વેચાણ</b>.
+        દરેક ખેડૂત ની એક જ row — તેનું <b>નામ + વેચાણ</b> (વેચાયું × ભાવ).
         <ul style="margin:8px 0 0 22px;line-height:1.8">
-          <li>row પર <b>ક્લિક કરો</b> ➜ તેની પ્રોડક્ટ વાર વિગત ખૂલે: લાવ્યા / વેચાયું / બાકી / ભાવ / અંદાજિત વેચાણ</li>
+          <li>row પર <b>ક્લિક કરો</b> ➜ તેની પ્રોડક્ટ વાર વિગત ખૂલે: લાવ્યા / વેચાયું / બાકી / ભાવ / વેચાણ</li>
+          <li><b>—</b> એટલે farmer એ હજી <b>'બાકી જથ્થો' ભર્યો નથી</b>, એટલે વેચાયું અજ્ઞાત (અંદાજ મૂકતા નથી). <b>₹0</b> એટલે ખરેખર કંઈ વેચ્યું નહીં.</li>
           <li>ફરી ક્લિક ➜ બંધ. એક ખેડૂત = એક row (ફોન નંબર પ્રમાણે, એટલે duplicate નામ ભેગા થાય)</li>
         </ul>
       `)}
 
       ${guideStep(2, '🥕 પાક', `
-        દરેક પ્રોડક્ટ ની એક row — <b>કુલ જથ્થો + અંદાજિત વેચાણ</b>, admin catalogue ના જ ક્રમ માં ગોઠવાયેલ.
+        દરેક પ્રોડક્ટ ની એક row — <b>કુલ જથ્થો + વેચાણ</b>, admin catalogue ના જ ક્રમ માં ગોઠવાયેલ.
         <ul style="margin:8px 0 0 22px;line-height:1.8">
           <li>પ્રોડક્ટ પર <b>ક્લિક કરો</b> ➜ તે પાક કયા ખેડૂત લાવ્યા તેની વિગત (ખેડૂત વાર) નીચે ખૂલે</li>
           <li>ફક્ત catalogue માં હોય તેવા પાક જ દેખાય</li>
@@ -3941,7 +3942,7 @@ function renderGuideAdmin(){
       `)}
 
       ${guideStep(3, '📅 મહિના વાર', `
-        દરેક ખેડૂત ની એક row — મહિના પ્રમાણે <b>અંદાજિત વેચાણ (₹)</b>. કયા મહિને કોણ કેટલું લાવ્યું તે એક નજરમાં.
+        દરેક ખેડૂત ની એક row — મહિના પ્રમાણે <b>વેચાણ (₹)</b>. કયા મહિને કોણ કેટલું વેચ્યું તે એક નજરમાં.
       `)}
 
       ${guideStep(4, '📈 Insights', `
@@ -4724,7 +4725,9 @@ function reportRowsFromSubs(subs){
       // estimated sale = જથ્થો × that market's price, summed across markets (exact per-haat); when 'sold'
       // is known (remaining filled) scale proportionally, else use the brought-based estimate.
       const gross = (pDen>0 ? pNum*cf : brought*basePrice);
-      const estSale = (sold != null && brought > 0) ? gross * (sold/brought) : gross;
+      // V7.8: ACTUAL sales only. sold unknown (બાકી blank) → null → every report shows a dash.
+      // sold known (incl. 0) → real ₹. gross*(sold/brought) == sold × weighted-avg price.
+      const estSale = (sold == null) ? null : (brought > 0 ? gross * (sold/brought) : 0);
       const cf2 = canonicalFarmer(sub.farmerPhone, fid, sub.farmerName);
       rows.push({ fid, farmerKey: cf2.key, farmerName: cf2.name, farmerPhone: sub.farmerPhone || '', product: it.name || '?', cat: it.cat || 'અન્ય', unit: it.unit || 'kg', brought, remaining, sold, price, estSale });
     });
@@ -4741,13 +4744,18 @@ function reportActiveRows(){
 const rupee = v => '₹' + Math.round(+v || 0).toLocaleString('en-IN');
 const qfmt  = (v,u) => (Math.round((+v||0)*10)/10) + (u ? ' ' + u : '');
 const soldFmt = (v) => v != null ? qfmt(v) : '—';
+// V7.8: earning (વેચાણ) is null whenever 'sold' is unknown (farmer never filled બાકી). Show a
+// dash, never a guess. rupeeOrDash renders one value; sumKnown adds a list, returning null only
+// when EVERY entry was unknown (so an all-blank group shows — for its total, not ₹0).
+const rupeeOrDash = v => (v == null) ? '—' : rupee(v);
+const sumKnown = arr => { let s = 0, any = false; for(const v of arr){ if(v != null){ s += v; any = true; } } return any ? s : null; };
 // Shared fixed column layout so the farmer + crop tables (same 6 columns) line up uniformly everywhere.
 const REPORT_COLS = '<colgroup><col style="width:28%"><col style="width:15%"><col style="width:14%"><col style="width:12%"><col style="width:11%"><col style="width:20%"></colgroup>';
 const REPORT_TBL  = 'width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed';
 const REPORT_HEADS = (first) => `<thead><tr style="background:#fafaf5;color:#666;font-size:11px">
   <th style="text-align:left;padding:5px 8px">${first}</th><th style="text-align:right;padding:5px 8px">લાવ્યા</th>
   <th style="text-align:right;padding:5px 8px">વેચાયું</th><th style="text-align:right;padding:5px 8px">બાકી</th>
-  <th style="text-align:right;padding:5px 8px">ભાવ</th><th style="text-align:right;padding:5px 8px">અંદાજિત વેચાણ</th></tr></thead>`;
+  <th style="text-align:right;padding:5px 8px">ભાવ</th><th style="text-align:right;padding:5px 8px">વેચાણ</th></tr></thead>`;
 
 function reportPeriodLabel(){
   if(REPORT_WEEK === 'all') return 'બધા અઠવાડિયા';
@@ -4762,9 +4770,8 @@ function reportFarmerHtml(){
   const byFarmer = {};
   rows.forEach(r => { const key = r.farmerKey; (byFarmer[key] = byFarmer[key] || { name:r.farmerName, phone:r.farmerPhone, items:[] }).items.push(r); });
   const farmers = Object.values(byFarmer).sort((a,b) => a.name.localeCompare(b.name,'gu'));
-  let gTot = 0;
   const blocks = farmers.map((f, i) => {
-    const sub = f.items.reduce((n,r) => n + r.estSale, 0); gTot += sub;
+    const sub = sumKnown(f.items.map(r => r.estSale));   // null if this farmer's whole week is blank-બાકી
     const its = f.items.map(r => `
       <tr>
         <td style="padding:5px 8px;border-bottom:1px solid #eee">${esc(r.product)}</td>
@@ -4772,25 +4779,26 @@ function reportFarmerHtml(){
         <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${soldFmt(r.sold)}</td>
         <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${r.remaining!=null?qfmt(r.remaining):'—'}</td>
         <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">₹${r.price}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${rupee(r.estSale)}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${rupeeOrDash(r.estSale)}</td>
       </tr>`).join('');
     return `
       <div style="margin-bottom:8px;break-inside:avoid">
         <div onclick="toggleFarmerDetail('fd${i}')" style="font-weight:700;font-size:14px;padding:7px 10px;background:#eef5ef;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
           <span>🌾 ${esc(f.name)} ${f.phone?`<span style="font-weight:400;color:#666;font-size:12px">· ${esc(f.phone)}</span>`:''}</span>
-          <span style="font-weight:600;font-size:13px;color:#2d6a4f;white-space:nowrap;margin-left:8px">${rupee(sub)} <span id="fd${i}arr" style="font-size:10px;color:#999">▶</span></span>
+          <span style="font-weight:600;font-size:13px;color:#2d6a4f;white-space:nowrap;margin-left:8px">${rupeeOrDash(sub)} <span id="fd${i}arr" style="font-size:10px;color:#999">▶</span></span>
         </div>
         <div id="fd${i}" style="display:none">
           <table style="${REPORT_TBL}">
             ${REPORT_COLS}
             ${REPORT_HEADS('પ્રોડક્ટ')}
             <tbody>${its}</tbody>
-            <tfoot><tr style="font-weight:700;background:#f6f6f0"><td colspan="5" style="padding:6px 8px;text-align:right">કુલ</td><td style="padding:6px 8px;text-align:right">${rupee(sub)}</td></tr></tfoot>
+            <tfoot><tr style="font-weight:700;background:#f6f6f0"><td colspan="5" style="padding:6px 8px;text-align:right">કુલ</td><td style="padding:6px 8px;text-align:right">${rupeeOrDash(sub)}</td></tr></tfoot>
           </table>
         </div>
       </div>`;
   }).join('');
-  return `${blocks}<div style="text-align:right;font-weight:800;font-size:15px;padding:10px 8px;border-top:2px solid #1b4332;margin-top:8px">કુલ અંદાજિત વેચાણ: ${rupee(gTot)}</div>`;
+  const gTot = sumKnown(rows.map(r => r.estSale));
+  return `${blocks}<div style="text-align:right;font-weight:800;font-size:15px;padding:10px 8px;border-top:2px solid #1b4332;margin-top:8px">કુલ વેચાણ: ${rupeeOrDash(gTot)}</div>`;
 }
 window.toggleFarmerDetail = id => {
   const el = document.getElementById(id), arr = document.getElementById(id+'arr');
@@ -4805,7 +4813,7 @@ function reportCropHtml(){
   if(!rows.length) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
   // summary: group by product (catalogue-only — already filtered by reportRowsFromSubs)
   const byProd = {};
-  rows.forEach(r => { const p = byProd[r.product] = byProd[r.product] || {brought:0,estSale:0,unit:r.unit,cat:r.cat}; p.brought+=r.brought; p.estSale+=r.estSale; });
+  rows.forEach(r => { const p = byProd[r.product] = byProd[r.product] || {brought:0,estSale:0,hasSale:false,unit:r.unit,cat:r.cat}; p.brought+=r.brought; if(r.estSale!=null){ p.estSale+=r.estSale; p.hasSale=true; } });
   const _catKeys = Object.keys(CAT_EMOJI_MAP);
   const _catIdx = c => { const i=_catKeys.indexOf(c); return i>=0?i:_catKeys.length; };
   const products = Object.entries(byProd).sort(([an,ap],[bn,bp]) => {
@@ -4815,13 +4823,13 @@ function reportCropHtml(){
     return (ai>=0?ai:999)-(bi>=0?bi:999);
   }).map(([n])=>n);
   if(REPORT_CROP && !byProd[REPORT_CROP]) REPORT_CROP = '';
-  const gTotSale = products.reduce((n,k)=>n+byProd[k].estSale, 0);
+  const gTotSale = sumKnown(products.map(k => byProd[k].hasSale ? byProd[k].estSale : null));
   const sumRows = products.map(name => {
     const p = byProd[name], sel = name === REPORT_CROP;
     return `<tr onclick="setReportCrop(${JSON.stringify(sel ? '' : name)})" style="cursor:pointer;${sel?'background:#eef5ef;':''}">
       <td style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:${sel?'700':'400'}">${esc(name)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(p.brought,p.unit)}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${rupee(p.estSale)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${rupeeOrDash(p.hasSale ? p.estSale : null)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;color:#2d6a4f;font-size:11px">${sel?'▼':'▶'}</td>
     </tr>`;
   }).join('');
@@ -4831,14 +4839,14 @@ function reportCropHtml(){
       <thead><tr style="background:#fafaf5;color:#666;font-size:11px">
         <th style="text-align:left;padding:5px 8px">પ્રોડક્ટ (ક્લિક = ખેડૂત વિગત)</th>
         <th style="text-align:right;padding:5px 8px">કુલ લાવ્યા</th>
-        <th style="text-align:right;padding:5px 8px">અંદાજિત વેચાણ</th>
+        <th style="text-align:right;padding:5px 8px">વેચાણ</th>
         <th></th>
       </tr></thead>
       <tbody>${sumRows}</tbody>
       <tfoot><tr style="font-weight:700;background:#f6f6f0">
         <td style="padding:6px 8px">કુલ (${products.length} પ્રોડક્ટ)</td>
         <td></td>
-        <td style="padding:6px 8px;text-align:right">${rupee(gTotSale)}</td>
+        <td style="padding:6px 8px;text-align:right">${rupeeOrDash(gTotSale)}</td>
         <td></td>
       </tr></tfoot>
     </table>`;
@@ -4847,7 +4855,8 @@ function reportCropHtml(){
   const cr = rows.filter(r => r.product === REPORT_CROP).sort((a,b) => b.brought - a.brought);
   const broughts = cr.map(r => r.brought).filter(x => x>0).sort((a,b)=>a-b);
   const med = broughts.length ? broughts[Math.floor(broughts.length/2)] : 0;
-  const tot = cr.reduce((a,r)=>({b:a.b+r.brought, s:a.s+(r.sold||0), e:a.e+r.estSale}), {b:0,s:0,e:0});
+  const tot = cr.reduce((a,r)=>({b:a.b+r.brought, s:a.s+(r.sold||0)}), {b:0,s:0});
+  const totE = sumKnown(cr.map(r => r.estSale));
   const anySold = cr.some(r => r.sold != null);
   const body = cr.map(r => {
     const flag = med>0 && r.brought > 2*med;
@@ -4857,7 +4866,7 @@ function reportCropHtml(){
       <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${soldFmt(r.sold)}</td>
       <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${r.remaining!=null?qfmt(r.remaining):'—'}</td>
       <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">₹${r.price}</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${rupee(r.estSale)}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${rupeeOrDash(r.estSale)}</td>
     </tr>`;
   }).join('');
   const detailHtml = `
@@ -4871,7 +4880,7 @@ function reportCropHtml(){
           <td style="padding:7px 8px">કુલ (${cr.length})</td>
           <td style="padding:7px 8px;text-align:right">${qfmt(tot.b)}</td>
           <td style="padding:7px 8px;text-align:right">${anySold?qfmt(tot.s):'—'}</td>
-          <td></td><td></td><td style="padding:7px 8px;text-align:right">${rupee(tot.e)}</td>
+          <td></td><td></td><td style="padding:7px 8px;text-align:right">${rupeeOrDash(totE)}</td>
         </tr></tfoot>
       </table>
       ${med>0?`<div style="font-size:11.5px;color:#888;margin-top:8px">⚠️ = આ ખેડૂત આ પાક typical (median ${qfmt(med)}) કરતાં 2× થી વધારે લાવે છે.</div>`:''}
@@ -4889,28 +4898,28 @@ function reportMonthHtml(){
     monthsSet.add(mk);
     reportRowsFromSubs(w.subs).forEach(r => {
       const f = data[r.farmerKey] = data[r.farmerKey] || { name: r.farmerName, months: {} };
-      const c = f.months[mk] = f.months[mk] || { sold: 0, rev: 0 };
-      c.sold += (r.sold || 0); c.rev += r.estSale;
+      const c = f.months[mk] = f.months[mk] || { sold: 0, rev: 0, hasRev: false };
+      c.sold += (r.sold || 0); if(r.estSale != null){ c.rev += r.estSale; c.hasRev = true; }
     });
   });
   const months = [...monthsSet].sort();
   const farmers = Object.entries(data).sort((a,b) => a[1].name.localeCompare(b[1].name,'gu'));
   if(!farmers.length) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
   const isRev = true;
-  const fmt = c => !c ? '<span style="color:#ccc">—</span>' : (isRev ? rupee(c.rev) : qfmt(c.sold));
-  const colTot = {}; months.forEach(m => colTot[m] = { sold: 0, rev: 0 });
-  const gTot = { sold: 0, rev: 0 };
+  const fmt = c => !c ? '<span style="color:#ccc">—</span>' : (isRev ? rupeeOrDash(c.hasRev ? c.rev : null) : qfmt(c.sold));
+  const colTot = {}; months.forEach(m => colTot[m] = { sold: 0, rev: 0, hasRev: false });
+  const gTot = { sold: 0, rev: 0, hasRev: false };
   const rowsHtml = farmers.map(([fid,f]) => {
-    const rs = { sold: 0, rev: 0 };
+    const rs = { sold: 0, rev: 0, hasRev: false };
     const cells = months.map(m => {
       const c = f.months[m];
-      if(c){ rs.sold += c.sold; rs.rev += c.rev; colTot[m].sold += c.sold; colTot[m].rev += c.rev; }
+      if(c){ rs.sold += c.sold; colTot[m].sold += c.sold; if(c.hasRev){ rs.rev += c.rev; rs.hasRev = true; colTot[m].rev += c.rev; colTot[m].hasRev = true; } }
       return `<td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${fmt(c)}</td>`;
     }).join('');
-    gTot.sold += rs.sold; gTot.rev += rs.rev;
-    return `<tr><td style="padding:5px 8px;border-bottom:1px solid #eee">🌾 ${esc(f.name)}</td>${cells}<td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700">${isRev?rupee(rs.rev):qfmt(rs.sold)}</td></tr>`;
+    gTot.sold += rs.sold; if(rs.hasRev){ gTot.rev += rs.rev; gTot.hasRev = true; }
+    return `<tr><td style="padding:5px 8px;border-bottom:1px solid #eee">🌾 ${esc(f.name)}</td>${cells}<td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700">${isRev?rupeeOrDash(rs.hasRev?rs.rev:null):qfmt(rs.sold)}</td></tr>`;
   }).join('');
-  const foot = months.map(m => `<td style="padding:6px 8px;text-align:right">${isRev?rupee(colTot[m].rev):qfmt(colTot[m].sold)}</td>`).join('');
+  const foot = months.map(m => `<td style="padding:6px 8px;text-align:right">${isRev?rupeeOrDash(colTot[m].hasRev?colTot[m].rev:null):qfmt(colTot[m].sold)}</td>`).join('');
   return `
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">
       <thead><tr style="background:#fafaf5;color:#666;font-size:11px">
@@ -4919,9 +4928,9 @@ function reportMonthHtml(){
         <th style="text-align:right;padding:6px 8px">કુલ</th>
       </tr></thead>
       <tbody>${rowsHtml}</tbody>
-      <tfoot><tr style="font-weight:700;background:#f6f6f0"><td style="padding:6px 8px">કુલ</td>${foot}<td style="padding:6px 8px;text-align:right">${isRev?rupee(gTot.rev):qfmt(gTot.sold)}</td></tr></tfoot>
+      <tfoot><tr style="font-weight:700;background:#f6f6f0"><td style="padding:6px 8px">કુલ</td>${foot}<td style="padding:6px 8px;text-align:right">${isRev?rupeeOrDash(gTot.hasRev?gTot.rev:null):qfmt(gTot.sold)}</td></tr></tfoot>
     </table>
-    <div style="font-size:11.5px;color:#888;margin-top:8px">${isRev?'અંદાજિત વેચાણ (₹) = વેચાયું × ભાવ':'વેચાયેલો જથ્થો (kg)'} — મહિના પ્રમાણે, ખેડૂત વાર.</div>`;
+    <div style="font-size:11.5px;color:#888;margin-top:8px">${isRev?'વેચાણ (₹) = વેચાયું × ભાવ · બાકી ન ભરી હોય તો —':'વેચાયેલો જથ્થો (kg)'} — મહિના પ્રમાણે, ખેડૂત વાર.</div>`;
 }
 
 // ---- Phase 3: insights dashboard (read-only) ----
@@ -4938,16 +4947,16 @@ function reportInsightsHtml(){
   if(!REPORTS_DATA || !REPORTS_DATA.weeks.length) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
   const allRows = REPORTS_DATA.weeks.flatMap(w => reportRowsFromSubs(w.subs));
 
-  // 1. Top farmers by revenue (grouped by stable farmerKey; canonical DB name)
-  const fRev = {}; allRows.forEach(r => { const k = r.farmerKey; (fRev[k] = fRev[k] || {name:r.farmerName, v:0}).v += r.estSale; });
-  const totRev = Object.values(fRev).reduce((a,b)=>a+b.v,0) || 1;
-  const topFarmers = Object.values(fRev).sort((a,b)=>b.v-a.v).slice(0,10)
-    .map(o => [esc(o.name), rupee(o.v), Math.round(o.v/totRev*100)+'%']);
+  // 1. Top farmers by revenue (grouped by stable farmerKey; canonical DB name) — known sales only
+  const fRev = {}; allRows.forEach(r => { const k = r.farmerKey; const o = fRev[k] = fRev[k] || {name:r.farmerName, v:0, has:false}; if(r.estSale!=null){ o.v+=r.estSale; o.has=true; } });
+  const totRev = sumKnown(Object.values(fRev).map(o=>o.has?o.v:null)) || 1;
+  const topFarmers = Object.values(fRev).sort((a,b)=>(b.has?b.v:-1)-(a.has?a.v:-1)).slice(0,10)
+    .map(o => [esc(o.name), rupeeOrDash(o.has?o.v:null), o.has?Math.round(o.v/totRev*100)+'%':'—']);
 
-  // 2. Top products (volume + revenue)
-  const prod = {}; allRows.forEach(r => { const p = prod[r.product] = prod[r.product] || {vol:0,rev:0,unit:r.unit}; p.vol+=r.brought; p.rev+=r.estSale; });
-  const topProd = Object.entries(prod).sort((a,b)=>b[1].rev-a[1].rev).slice(0,12)
-    .map(([n,p]) => [esc(n), qfmt(p.vol,p.unit), rupee(p.rev)]);
+  // 2. Top products (volume + revenue) — revenue is known sales only
+  const prod = {}; allRows.forEach(r => { const p = prod[r.product] = prod[r.product] || {vol:0,rev:0,unit:r.unit,has:false}; p.vol+=r.brought; if(r.estSale!=null){ p.rev+=r.estSale; p.has=true; } });
+  const topProd = Object.entries(prod).sort((a,b)=>(b[1].has?b[1].rev:-1)-(a[1].has?a[1].rev:-1)).slice(0,12)
+    .map(([n,p]) => [esc(n), qfmt(p.vol,p.unit), rupeeOrDash(p.has?p.rev:null)]);
 
   // 3. Price spread per crop (>1 price seen)
   const pr = {}; allRows.forEach(r => { if(r.price>0){ const p=pr[r.product]=pr[r.product]||{min:Infinity,max:0,sum:0,n:0}; p.min=Math.min(p.min,r.price);p.max=Math.max(p.max,r.price);p.sum+=r.price;p.n++; } });
@@ -4985,18 +4994,18 @@ function reportInsightsHtml(){
   // 7. Week-over-week trend (chronological)
   const trend = REPORTS_DATA.weeks.slice().sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)).map(w => {
     const rows = reportRowsFromSubs(w.subs);
-    return [esc(w.label), new Set(rows.map(r=>r.fid)).size, new Set(rows.map(r=>r.product)).size, qfmt(rows.reduce((n,r)=>n+r.brought,0))+'kg', rupee(rows.reduce((n,r)=>n+r.estSale,0))];
+    return [esc(w.label), new Set(rows.map(r=>r.fid)).size, new Set(rows.map(r=>r.product)).size, qfmt(rows.reduce((n,r)=>n+r.brought,0))+'kg', rupeeOrDash(sumKnown(rows.map(r=>r.estSale)))];
   });
 
   return `
-    ${insSection('🏆 ટોપ ખેડૂત (અંદાજિત વેચાણ)', ['ખેડૂત','વેચાણ','હિસ્સો'], topFarmers)}
-    ${insSection('📦 ટોપ પ્રોડક્ટ (જથ્થો + વેચાણ)', ['પ્રોડક્ટ','કુલ લાવ્યા','અંદાજિત વેચાણ'], topProd)}
+    ${insSection('🏆 ટોપ ખેડૂત (વેચાણ)', ['ખેડૂત','વેચાણ','હિસ્સો'], topFarmers)}
+    ${insSection('📦 ટોપ પ્રોડક્ટ (જથ્થો + વેચાણ)', ['પ્રોડક્ટ','કુલ લાવ્યા','વેચાણ'], topProd)}
     ${insSection('💸 ભાવ spread (પાક વાર)', ['પાક','ઓછામાં','વધારે','સરેરાશ','ફરક'], spread, 'એક જ ભાવ — spread નથી')}
     ${insSection('🗑️ સૌથી વધુ બાકી/બગાડ (% બાકી)', ['પાક','% બાકી','બાકી / લાવ્યા'], topWaste, "કોઈએ 'બાકી' ભર્યું નથી")}
-    ${insSection('📍 હાટ પરફોર્મન્સ', ['હાટ','કુલ લાવ્યા','અંદાજિત મૂલ્ય'], haatRows)}
+    ${insSection('📍 હાટ પરફોર્મન્સ (લાવેલ મૂલ્ય)', ['હાટ','કુલ લાવ્યા','લાવેલ મૂલ્ય'], haatRows)}
     ${insSection('🔁 ખેડૂત consistency (કેટલા અઠવાડિયા)', ['ખેડૂત','અઠવાડિયા','%'], consist)}
     ${insSection('📈 અઠવાડિયા વાર trend', ['અઠવાડિયું','ખેડૂત','પ્રોડક્ટ','જથ્થો','વેચાણ'], trend)}
-    <div style="font-size:11px;color:#999;margin-top:4px;line-height:1.5">બધું approved data પર · read-only · % બાકી ફક્ત 'બાકી જથ્થો' ભરેલા entries માટે · હાટ મૂલ્ય = જથ્થો × ભાવ.</div>`;
+    <div style="font-size:11px;color:#999;margin-top:4px;line-height:1.5">બધું approved data પર · read-only · વેચાણ = વેચાયું × ભાવ (બાકી ભરેલ હોય તો જ, નહીં તો —) · % બાકી ફક્ત 'બાકી જથ્થો' ભરેલા entries માટે · હાટ પરફોર્મન્સ = લાવેલ જથ્થો × ભાવ (વેચાણ નહીં — હાટ-વાર વેચાયું track થતું નથી).</div>`;
 }
 
 /* ════════ V62: હાજરી (attendance/regularity) report ════════
@@ -5220,13 +5229,15 @@ function venueSalesData(){
         if(rbh && rbh[code] != null) remaining = (+rbh[code]||0) * cf;
         else if(it.qtyRemaining != null && it.qtyRemaining !== '' && nVenues === 1) remaining = (+it.qtyRemaining||0) * cf;
         const sold = remaining != null ? Math.max(0, brought - remaining) : null;
-        const estSale = price * (sold != null ? sold : brought);
+        // V7.8: actual only — null when બાકી blank. v.hasSoldData / P.soldKnown already flag
+        // whether any known sale exists, so display uses those to decide ₹ vs. dash.
+        const estSale = sold != null ? price * sold : null;
         const v = venues[code] = venues[code] || {brought:0, soldKnown:0, remainingKnown:0, hasSoldData:false, estSale:0, farmers:new Set(), products:{}};
-        v.brought += brought; v.estSale += estSale; v.farmers.add(fid);
+        v.brought += brought; if(estSale != null) v.estSale += estSale; v.farmers.add(fid);
         if(sold != null){ v.soldKnown += sold; v.remainingKnown += remaining; v.hasSoldData = true; }
         const pn = it.name || '?';
         const P = v.products[pn] = v.products[pn] || {brought:0, sold:0, remaining:0, soldKnown:false, estSale:0, unit: it.unit||'kg', farmers:new Set()};
-        P.brought += brought; P.estSale += estSale; P.farmers.add(fid);
+        P.brought += brought; if(estSale != null) P.estSale += estSale; P.farmers.add(fid);
         if(sold != null){ P.sold += sold; P.remaining += remaining; P.soldKnown = true; }
       });
     });
@@ -5256,7 +5267,7 @@ function reportVenueHtml(){
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
             ${chip('લાવ્યા', qfmt(v.brought)+' kg')}
             ${v.hasSoldData ? chip('વેચાયું', qfmt(v.soldKnown)+' kg', 'var(--green2)') + chip('બાકી', qfmt(v.remainingKnown)+' kg', '#b45309') : chip('વેચાયું', 'અજ્ઞાત — બાકી નથી ભરાયું')}
-            ${chip('અંદાજિત વેચાણ', rupee(v.estSale), 'var(--green2)')}
+            ${chip('વેચાણ', rupeeOrDash(v.hasSoldData ? v.estSale : null), 'var(--green2)')}
           </div>
         </div>
         ${open ? `
@@ -5265,7 +5276,7 @@ function reportVenueHtml(){
             <thead><tr style="font-size:10.5px;color:#777;border-bottom:1px solid var(--border)">
               <th style="text-align:left;padding:6px 4px">પ્રોડક્ટ</th><th style="padding:6px 4px">ખેડૂત</th>
               <th style="text-align:right;padding:6px 4px">લાવ્યા</th><th style="text-align:right;padding:6px 4px">બાકી</th>
-              <th style="text-align:right;padding:6px 4px">વેચાયું</th><th style="text-align:right;padding:6px 4px">અંદાજ ₹</th>
+              <th style="text-align:right;padding:6px 4px">વેચાયું</th><th style="text-align:right;padding:6px 4px">વેચાણ ₹</th>
             </tr></thead>
             <tbody>
               ${prods.map(([pn,P]) => `<tr style="border-bottom:1px solid #f2ede2">
@@ -5274,11 +5285,11 @@ function reportVenueHtml(){
                 <td style="padding:6px 4px;text-align:right">${r1(P.brought)}</td>
                 <td style="padding:6px 4px;text-align:right;color:#b45309">${P.soldKnown ? r1(P.remaining) : '—'}</td>
                 <td style="padding:6px 4px;text-align:right;color:var(--green2);font-weight:700">${P.soldKnown ? r1(P.sold) : '—'}</td>
-                <td style="padding:6px 4px;text-align:right;font-weight:700">${rupee(P.estSale)}</td>
+                <td style="padding:6px 4px;text-align:right;font-weight:700">${rupeeOrDash(P.soldKnown ? P.estSale : null)}</td>
               </tr>`).join('')}
             </tbody>
           </table>
-          <div style="font-size:10.5px;color:var(--muted);margin-top:6px">— = બાકી નથી ભરાયું એટલે વેચાયું અજ્ઞાત · અંદાજ ₹ = વેચાયું (કે લાવ્યા) × એ હાટનો ભાવ</div>
+          <div style="font-size:10.5px;color:var(--muted);margin-top:6px">— = બાકી નથી ભરાયું એટલે વેચાણ અજ્ઞાત · વેચાણ ₹ = વેચાયું × એ હાટનો ભાવ</div>
         </div>` : ''}
       </div>`;
   }).join('');
@@ -5294,7 +5305,7 @@ function reportBodyHtml(){
 }
 function reportTitle(){
   if(REPORT_VIEW === 'crop')  return 'પાક રિપોર્ટ' + (REPORT_CROP?' — '+REPORT_CROP:'') + ' · ' + reportPeriodLabel();
-  if(REPORT_VIEW === 'month') return 'મહિના વાર અંદાજિત વેચાણ — ખેડૂત વાર';
+  if(REPORT_VIEW === 'month') return 'મહિના વાર વેચાણ — ખેડૂત વાર';
   if(REPORT_VIEW === 'insights') return 'Insights — બધા અઠવાડિયા';
   if(REPORT_VIEW === 'attendance') return 'ખેડૂત હાજરી રિપોર્ટ — બધા હાટ';
   if(REPORT_VIEW === 'venue') return 'હાટ-વાર વેચાણ રિપોર્ટ · ' + reportPeriodLabel();
@@ -5309,7 +5320,7 @@ function renderReports(){
   const weeks = REPORTS_DATA.weeks;
   if(!weeks.length) return `<div class="card"><div class="state" style="padding:40px;text-align:center"><div class="state-icon">📊</div><div class="state-title">હજી કોઈ approved data નથી</div></div></div>`;
   const rows = (REPORT_VIEW==='month' || REPORT_VIEW==='insights') ? weeks.flatMap(w=>reportRowsFromSubs(w.subs)) : reportActiveRows();
-  const tB = rows.reduce((n,r)=>n+r.brought,0), tS = rows.reduce((n,r)=>n+(r.sold||0),0), tE = rows.reduce((n,r)=>n+r.estSale,0);
+  const tB = rows.reduce((n,r)=>n+r.brought,0), tS = rows.reduce((n,r)=>n+(r.sold||0),0), tE = sumKnown(rows.map(r=>r.estSale));
   const nF = new Set(rows.map(r=>r.farmerKey)).size, nP = new Set(rows.map(r=>r.product)).size;
   const crops = [...new Set(rows.map(r => r.product))].sort((a,b)=>a.localeCompare(b,'gu'));
   const weekOpt = `<option value="all" ${REPORT_WEEK==='all'?'selected':''}>બધા અઠવાડિયા</option>` + weeks.map(w=>`<option value="${esc(w.key)}" ${REPORT_WEEK===w.key?'selected':''}>${esc(w.label)} (${Object.keys(w.subs).length})</option>`).join('');
@@ -5328,15 +5339,15 @@ function renderReports(){
         </div>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn-sm" onclick="${REPORT_VIEW==='attendance'?'exportAttendanceExcel()':'exportReportExcel()'}" title="${REPORT_VIEW==='attendance'?'હાજરી matrix Excel — ખેડૂત વાર, હાટ વાર ✓/✗':'ખેડૂત-વાર Excel — ભાવ, લાવ્યા, વેચાયું, બાકી, અંદાજિત વેચાણ'}">📊 Excel</button>
+        <button class="btn-sm" onclick="${REPORT_VIEW==='attendance'?'exportAttendanceExcel()':'exportReportExcel()'}" title="${REPORT_VIEW==='attendance'?'હાજરી matrix Excel — ખેડૂત વાર, હાટ વાર ✓/✗':'ખેડૂત-વાર Excel — ભાવ, લાવ્યા, વેચાયું, બાકી, વેચાણ'}">📊 Excel</button>
         <button class="btn-sm primary" onclick="printReport()" title="Print અથવા Save as PDF">🖨 PDF / Print</button>
       </div>
     </div>
     ${REPORT_VIEW==='attendance' ? '' : `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      ${stat('ખેડૂત', nF)}${stat('પ્રોડક્ટ', nP)}${stat('કુલ લાવ્યા', qfmt(tB)+' kg')}${stat('વેચાયું', qfmt(tS)+' kg')}${stat('અંદાજિત વેચાણ', rupee(tE))}
+      ${stat('ખેડૂત', nF)}${stat('પ્રોડક્ટ', nP)}${stat('કુલ લાવ્યા', qfmt(tB)+' kg')}${stat('વેચાયું', qfmt(tS)+' kg')}${stat('વેચાણ', rupeeOrDash(tE))}
     </div>`}
     <div class="card" style="padding:14px 16px">${reportBodyHtml()}</div>
-    <div style="font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5">📊 Phase 1 — read-only. અંદાજિત વેચાણ = વેચાયું × ભાવ ('બાકી' ન ભર્યું હોય તો વેચાયું = લાવ્યા). આવનારા: month-wise, capacity red-flags, વધુ insights.</div>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5">📊 read-only. વેચાણ = વેચાયું × ભાવ · 'બાકી' ન ભરી હોય તો — (અંદાજ નહીં). ખેડૂત વધુ 'બાકી' ભરે તેમ dash ઘટે.</div>
   `;
 }
 window.setReportWeek = v => { REPORT_WEEK = v; setTabBodyHtml(); };
@@ -5376,7 +5387,7 @@ window.exportReportExcel = async () => {
       'ભાવ': r.price, 'લાવ્યા': Math.round(r.brought*10)/10,
       'વેચાયું': r.sold!=null ? Math.round(r.sold*10)/10 : '',
       'બાકી': r.remaining!=null ? Math.round(r.remaining*10)/10 : '',
-      'અંદાજિત વેચાણ': Math.round(r.estSale)
+      'વેચાણ': r.estSale!=null ? Math.round(r.estSale) : ''
     }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetRows), 'FarmerReport');
@@ -6419,8 +6430,8 @@ window.exportExcel = async () => {
           const rem = (it.qtyRemaining!=null && it.qtyRemaining!=='') ? (+it.qtyRemaining||0) * cf : '';
           const sold = rem!=='' ? Math.max(0, brought-rem) : '';
           const price = +it.price||0;
-          const est = (sold!==''?sold:brought) * price;
-          subRows.push({ 'અઠવાડિયું': wnum, 'તારીખ': date, 'ખેડૂત': sub.farmerName||fid, 'ફોન': sub.farmerPhone||'', 'હાટ': sub.farmerHaat||'', 'સ્થિતિ': sub.status||'', 'પ્રોડક્ટ': it.name||'', 'કેટેગરી': it.cat||'', 'એકમ': it.unit||'', 'ભાવ': price, 'લાવ્યા': brought, 'બાકી': rem, 'વેચાયું': sold, 'અંદાજિત વેચાણ': est });
+          const est = sold!=='' ? sold*price : '';   // V7.8: blank when બાકી not filled (no guess)
+          subRows.push({ 'અઠવાડિયું': wnum, 'તારીખ': date, 'ખેડૂત': sub.farmerName||fid, 'ફોન': sub.farmerPhone||'', 'હાટ': sub.farmerHaat||'', 'સ્થિતિ': sub.status||'', 'પ્રોડક્ટ': it.name||'', 'કેટેગરી': it.cat||'', 'એકમ': it.unit||'', 'ભાવ': price, 'લાવ્યા': brought, 'બાકી': rem, 'વેચાયું': sold, 'વેચાણ': est });
         });
       });
     });
