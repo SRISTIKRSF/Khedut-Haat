@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V8.0</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V8.1</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <!-- V7.1: warm up DNS/TLS for the catalogue fetch chain while the page is still parsing -->
 <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
@@ -923,6 +923,27 @@ function itemCard(it){
   `;
 }
 
+// V8.1: the product sheet and "all locations" panel used to just append/remove DOM on the SAME
+// history entry — so a phone's back button, having no in-page history to step into, closed the
+// whole tab/PWA instead of the overlay. Fix: push one history entry when either overlay opens;
+// the back button now fires popstate and we close the overlay from there. Every OTHER way of
+// closing (✕ / tap-outside / Esc) routes through closeModalViaUser() too, which calls
+// history.back() to consume that same pushed entry — so a second back press still correctly
+// leaves the site, never a phantom extra step in either direction. Single active modal assumed
+// (true for both overlays today — neither can open while the other is showing).
+let _modalCloseFn = null;
+function pushModalState(rawCloseFn){
+  _modalCloseFn = rawCloseFn;
+  history.pushState({ sristiModal: true }, '', location.href);
+}
+function closeModalViaUser(){
+  if(history.state && history.state.sristiModal) history.back();       // triggers popstate below
+  else if(_modalCloseFn){ _modalCloseFn(); _modalCloseFn = null; }      // defensive fallback
+}
+window.addEventListener('popstate', () => {
+  if(_modalCloseFn){ _modalCloseFn(); _modalCloseFn = null; }
+});
+
 window.openProductSheet = (productKey) => {
   const it = ALL_ITEMS.find(x => x._k === productKey);
   if(!it) return;
@@ -1024,12 +1045,14 @@ window.openProductSheet = (productKey) => {
   if(_sheetEsc) document.removeEventListener('keydown', _sheetEsc);
   _sheetEsc = function(e){ if(e.key === 'Escape') closeProductSheet(); };
   document.addEventListener('keydown', _sheetEsc);
+  pushModalState(closeProductSheetRaw);   // V8.1: back button closes the sheet, not the app
 };
-window.closeProductSheet = () => {
+function closeProductSheetRaw(){
   document.getElementById('productSheetOverlay')?.remove();
   document.body.style.overflow = '';
   if(_sheetEsc){ document.removeEventListener('keydown', _sheetEsc); _sheetEsc = null; }
-};
+}
+window.closeProductSheet = () => { closeModalViaUser(); };
 
 function renderFarmers(){
   const list = filteredFarmers();
@@ -1168,7 +1191,7 @@ window.showAllLocs = () => {
     <div style="background:#fff;width:100%;max-width:420px;border-radius:18px;overflow:hidden;max-height:80vh;display:flex;flex-direction:column">
       <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
         <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700">બધા હાટ સ્થળ</div>
-        <button onclick="this.closest('div[style*=fixed]').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button>
+        <button onclick="closeAllLocs()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button>
       </div>
       <div style="padding:12px;overflow-y:auto">
         ${allVenuesSorted().map(v=>`
@@ -1181,8 +1204,10 @@ window.showAllLocs = () => {
     </div>
   `;
   document.body.appendChild(overlay);
-  overlay.onclick = e => { if(e.target===overlay) overlay.remove(); };
+  overlay.onclick = e => { if(e.target===overlay) closeAllLocs(); };
+  pushModalState(() => overlay.remove());   // V8.1: back button closes this panel, not the app
 };
+window.closeAllLocs = () => { closeModalViaUser(); };
 
 init();
 </script>
