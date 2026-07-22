@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V8.1</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V8.2</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <!-- V7.1: warm up DNS/TLS for the catalogue fetch chain while the page is still parsing -->
 <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
@@ -929,20 +929,38 @@ function itemCard(it){
 // the back button now fires popstate and we close the overlay from there. Every OTHER way of
 // closing (✕ / tap-outside / Esc) routes through closeModalViaUser() too, which calls
 // history.back() to consume that same pushed entry — so a second back press still correctly
-// leaves the site, never a phantom extra step in either direction. Single active modal assumed
-// (true for both overlays today — neither can open while the other is showing).
-let _modalCloseFn = null;
+// leaves the site, never a phantom extra step in either direction. Modals can nest (e.g. the
+// farmer phone-number popup opening on top of the product sheet), so close functions are a
+// stack, not a single slot — each back press (or ✕) pops and closes only the top modal.
+let _modalStack = [];
 function pushModalState(rawCloseFn){
-  _modalCloseFn = rawCloseFn;
+  _modalStack.push(rawCloseFn);
   history.pushState({ sristiModal: true }, '', location.href);
 }
 function closeModalViaUser(){
-  if(history.state && history.state.sristiModal) history.back();       // triggers popstate below
-  else if(_modalCloseFn){ _modalCloseFn(); _modalCloseFn = null; }      // defensive fallback
+  if(history.state && history.state.sristiModal) history.back();  // triggers popstate below
+  else { const fn = _modalStack.pop(); if(fn) fn(); }              // defensive fallback
 }
 window.addEventListener('popstate', () => {
-  if(_modalCloseFn){ _modalCloseFn(); _modalCloseFn = null; }
+  const fn = _modalStack.pop();
+  if(fn) fn();
 });
+
+window.showFarmerPhone = (name, phoneDigits) => {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:400;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:22px 20px;max-width:300px;width:100%;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.25)">
+      <div style="font-size:12.5px;color:#6b7280;margin-bottom:4px">ખેડૂત નો નંબર</div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px">${esc(name)}</div>
+      <div style="font-size:23px;font-weight:800;color:#1b4332;letter-spacing:.5px;margin-bottom:18px">${phoneDigits ? '+91 '+esc(phoneDigits) : '—'}</div>
+      <div onclick="closeFarmerPhone()" style="background:#1b4332;color:#fff;border-radius:8px;padding:9px;font-size:13px;font-weight:700;cursor:pointer">બંધ કરો</div>
+    </div>`;
+  overlay.onclick = e => { if(e.target === overlay) closeFarmerPhone(); };
+  document.body.appendChild(overlay);
+  pushModalState(() => overlay.remove());
+};
+window.closeFarmerPhone = () => { closeModalViaUser(); };
 
 window.openProductSheet = (productKey) => {
   const it = ALL_ITEMS.find(x => x._k === productKey);
@@ -983,9 +1001,9 @@ window.openProductSheet = (productKey) => {
   const farmerRowsHTML = enriched.map((f, idx) => {
     const isCheap = f.price > 0 && f.price === cheapest && enriched.length > 1;
     const initial = (f.name||'?').charAt(0);
-    const waLink = f.phone
-      ? `https://wa.me/91${esc(String(f.phone).replace(/[^0-9]/g,'').slice(-10))}?text=${encodeURIComponent('નમસ્તે, '+f.name+' — સૃષ્ટિ હાટ માટે '+it.name+' જોઈએ છે. કિંમત ₹'+f.price+'/'+f.unit)}`
-      : '';
+    const phoneDigits = f.phone ? String(f.phone).replace(/[^0-9]/g,'').slice(-10) : '';
+    const nameArg = esc(f.name).replace(/'/g,"\\'");
+    const phoneArg = phoneDigits.replace(/'/g,"\\'");
     return `
       <div style="background:${isCheap?'#f3fbf5':'#fff'};border:${isCheap?'1.5px solid #52b788':'1px solid #e8e0d0'};border-radius:8px;padding:9px 11px;margin-bottom:6px;display:flex;align-items:center;gap:9px;position:relative">
         ${isCheap ? '<div style="position:absolute;top:-7px;left:9px;background:#1b4332;color:#fff;font-size:8.5px;font-weight:700;padding:1px 7px;border-radius:9999px;letter-spacing:.3px">સૌથી સસ્તું</div>' : ''}
@@ -994,7 +1012,7 @@ window.openProductSheet = (productKey) => {
           <div style="font-size:12.5px;font-weight:600">${esc(f.name)}</div>
         </div>
         <div style="font-size:13.5px;color:#e36414;font-weight:700;flex-shrink:0">₹${esc(f.price)}<span style="font-size:9.5px;color:#6b7280;font-weight:500">/${esc(f.unit)}</span></div>
-        ${waLink ? `<a href="${waLink}" target="_blank" rel="noopener" style="background:#25d366;color:#fff;border-radius:6px;padding:6px 9px;font-size:11px;font-weight:700;text-decoration:none;flex-shrink:0">📞</a>` : ''}
+        ${phoneDigits ? `<div onclick="showFarmerPhone('${nameArg}','${phoneArg}')" style="background:#25d366;color:#fff;border-radius:6px;padding:6px 9px;font-size:11px;font-weight:700;flex-shrink:0;cursor:pointer">📞</div>` : ''}
       </div>
     `;
   }).join('');
