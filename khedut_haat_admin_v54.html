@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V8.2</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V8.3</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -1912,7 +1912,7 @@ function renderReview(){
   return `
     <div class="dash">
       ${tile('pending','⏳','Pending', pendingIds.length, 'var(--orange-pale)', 'var(--orange)', 'var(--orange)', 'સમીક્ષા બાકી')}
-      ${tile('approved','✓','Approved', approvedIds.length, 'var(--green-pale)', 'var(--green2)', 'var(--green2)', 'લાઈવ catalog માં')}
+      ${tile('approved','✓','Approved', approvedIds.length, 'var(--green-pale)', 'var(--green2)', 'var(--green2)', 'મંજૂર કરેલા')}
       ${tile('rejected','✗','Rejected', rejectedIds.length, 'var(--red-pale)', 'var(--red)', 'var(--red)', 'નકારેલા')}
       ${tile('flagged','⚠️','તપાસ', flaggedItems.length, '#fdeaea', 'var(--red)', 'var(--red)', 'ભાવ મેળ ખાતો નથી')}
       ${tile('notyet','⊘','Not yet', notYetIds.length, '#fff', 'var(--border)', 'var(--text)', 'હજી મોકલી નથી')}
@@ -1940,7 +1940,7 @@ function renderReviewListByFilter({pendingIds, approvedIds, rejectedIds, notYetI
     if(pendingIds.length === 0){
       return `<div class="card" style="text-align:center;padding:30px 20px">
         <div style="font-size:48px;margin-bottom:8px">🎉</div>
-        <h3>બધી submissions approved!</h3>
+        <h3>બધા સબમીશન મંજૂર થઇ ગયા છે.</h3>
         <div class="card-sub" style="margin:0">સમીક્ષા માટે કંઈ બાકી નથી.</div>
       </div>`;
     }
@@ -4624,6 +4624,12 @@ let REPORT_WEEK = 'all';       // selected week key, or 'all'
 let REPORT_VIEW = 'farmer';    // 'farmer' | 'crop' | 'month'
 let REPORT_CROP = '';
 let REPORT_METRIC = 'revenue'; // month view metric: 'revenue' | 'sold'
+// V8.3: Reports only shows real usage — weeks before this were setup/testing data. Keyed on
+// weekNum, not meta.createdAt — createdAt is when the week node was CREATED (admin sets a week
+// up days ahead of its haat), so it runs earlier than the actual haat date and can't be used as
+// a calendar-date cutoff. weekNum orders haats chronologically instead.
+// (confirmed 2026-07-23: weeks 1, 492-496, test_probe are legacy; 499 (05-07-2026) onward is real).
+const REPORT_CUTOFF_WEEKNUM = 499;
 
 function monthKeyOf(createdAt){
   if(!createdAt) return '0000-00';
@@ -4658,10 +4664,25 @@ async function loadReportsData(){
       }
       if(!Object.keys(subs).length) return;
       const meta = w.meta || {};
-      weeks.push({ key, wk: meta.weekNum || key, label: (meta.dateLabel || ('Week ' + (meta.weekNum || key))), createdAt: +meta.createdAt || 0, subs });
+      if((+meta.weekNum || 0) < REPORT_CUTOFF_WEEKNUM) return;   // V8.3: drop pre-launch setup/testing weeks
+      const createdAt = +meta.createdAt || 0;
+      weeks.push({ key, wk: meta.weekNum || key, label: (meta.dateLabel || ('Week ' + (meta.weekNum || key))), createdAt, subs });
     });
-    weeks.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
-    REPORTS_DATA = { weeks };
+    // V8.3: an admin occasionally re-creates a week for the same calendar date after a
+    // stray/incomplete first attempt (e.g. weeks "500" and "501" both dated 09-07-2026, with
+    // 500 holding one farmer whose data is already in 501). Merge same-dateLabel weeks into one
+    // logical week — union submissions by farmer id, later createdAt wins a shared id — so each
+    // real haat date shows once without silently dropping anyone's data.
+    const byLabel = {};
+    const merged = [];
+    weeks.sort((a,b) => a.createdAt - b.createdAt).forEach(w => {
+      const ex = w.label && byLabel[w.label];
+      if(!ex){ if(w.label) byLabel[w.label] = w; merged.push(w); return; }
+      ex.subs = { ...ex.subs, ...w.subs };
+      ex.createdAt = Math.max(ex.createdAt, w.createdAt);
+    });
+    merged.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+    REPORTS_DATA = { weeks: merged };
   }catch(e){ console.error(e); toast("Reports load નિષ્ફળ","err"); REPORTS_DATA = { weeks: [] }; }
   finally{ REPORTS_LOADING = false; setTabBodyHtml(); }
 }
@@ -4749,6 +4770,29 @@ const soldFmt = (v) => v != null ? qfmt(v) : '—';
 // when EVERY entry was unknown (so an all-blank group shows — for its total, not ₹0).
 const rupeeOrDash = v => (v == null) ? '—' : rupee(v);
 const sumKnown = arr => { let s = 0, any = false; for(const v of arr){ if(v != null){ s += v; any = true; } } return any ? s : null; };
+// V8.3: reportActiveRows() with REPORT_WEEK='all' has one row per (entity, week) — e.g. the same
+// crop submitted by one farmer across several weeks. Collapse rows sharing keyFn(r) into a single
+// row: brought/known-sold/known-remaining/estSale are summed (unknowns stay excluded, matching
+// sumKnown's "dash only if every week was blank" rule), price becomes a brought-weighted average.
+function collapseRows(rows, keyFn){
+  const byKey = {};
+  rows.forEach(r => {
+    const k = keyFn(r);
+    if(!byKey[k]) byKey[k] = { ...r, brought:0, sold:null, remaining:null, estSale:null, _pNum:0, _pDen:0 };
+    const g = byKey[k];
+    g.brought += r.brought;
+    if(r.sold != null) g.sold = (g.sold||0) + r.sold;
+    if(r.remaining != null) g.remaining = (g.remaining||0) + r.remaining;
+    if(r.estSale != null) g.estSale = (g.estSale||0) + r.estSale;
+    g._pNum += (r.price||0) * (r.brought||0);
+    g._pDen += (r.brought||0);
+  });
+  return Object.values(byKey).map(g => {
+    g.price = g._pDen > 0 ? Math.round(g._pNum/g._pDen) : g.price;
+    delete g._pNum; delete g._pDen;
+    return g;
+  });
+}
 // Shared fixed column layout so the farmer + crop tables (same 6 columns) line up uniformly everywhere.
 const REPORT_COLS = '<colgroup><col style="width:28%"><col style="width:15%"><col style="width:14%"><col style="width:12%"><col style="width:11%"><col style="width:20%"></colgroup>';
 const REPORT_TBL  = 'width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed';
@@ -4771,8 +4815,9 @@ function reportFarmerHtml(){
   rows.forEach(r => { const key = r.farmerKey; (byFarmer[key] = byFarmer[key] || { name:r.farmerName, phone:r.farmerPhone, items:[] }).items.push(r); });
   const farmers = Object.values(byFarmer).sort((a,b) => a.name.localeCompare(b.name,'gu'));
   const blocks = farmers.map((f, i) => {
-    const sub = sumKnown(f.items.map(r => r.estSale));   // null if this farmer's whole week is blank-બાકી
-    const its = f.items.map(r => `
+    const items = collapseRows(f.items, r => r.product);   // one row per crop, not per (crop, week)
+    const sub = sumKnown(items.map(r => r.estSale));   // null if this farmer's whole week is blank-બાકી
+    const its = items.map(r => `
       <tr>
         <td style="padding:5px 8px;border-bottom:1px solid #eee">${esc(r.product)}</td>
         <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(r.brought,r.unit)}</td>
@@ -4851,8 +4896,8 @@ function reportCropHtml(){
       </tr></tfoot>
     </table>`;
   if(!REPORT_CROP) return summaryHtml;
-  // farmer detail for selected crop
-  const cr = rows.filter(r => r.product === REPORT_CROP).sort((a,b) => b.brought - a.brought);
+  // farmer detail for selected crop — one row per farmer, not per (farmer, week)
+  const cr = collapseRows(rows.filter(r => r.product === REPORT_CROP), r => r.farmerKey).sort((a,b) => b.brought - a.brought);
   const broughts = cr.map(r => r.brought).filter(x => x>0).sort((a,b)=>a-b);
   const med = broughts.length ? broughts[Math.floor(broughts.length/2)] : 0;
   const tot = cr.reduce((a,r)=>({b:a.b+r.brought, s:a.s+(r.sold||0)}), {b:0,s:0});
@@ -4931,6 +4976,51 @@ function reportMonthHtml(){
       <tfoot><tr style="font-weight:700;background:#f6f6f0"><td style="padding:6px 8px">કુલ</td>${foot}<td style="padding:6px 8px;text-align:right">${isRev?rupeeOrDash(gTot.hasRev?gTot.rev:null):qfmt(gTot.sold)}</td></tr></tfoot>
     </table>
     <div style="font-size:11.5px;color:#888;margin-top:8px">${isRev?'વેચાણ (₹) = વેચાયું × ભાવ · બાકી ન ભરી હોય તો —':'વેચાયેલો જથ્થો (kg)'} — મહિના પ્રમાણે, ખેડૂત વાર.</div>`;
+}
+
+// Per-farmer crop × haat-date matrix — લાવ્યા (brought) only, no sold/બાકી/ભાવ/વેચાણ.
+// Spans ALL weeks (ignores week selector), one table per farmer, columns = every haat date.
+function reportFarmerQtyHtml(){
+  if(!REPORTS_DATA || !REPORTS_DATA.weeks.length) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
+  const dateCols = [...REPORTS_DATA.weeks].sort((a,b) => a.createdAt - b.createdAt);  // oldest → newest
+  const data = {};   // farmerKey -> {name, phone, crops:{product:{unit, byDate:{label:qty}, total}}}
+  dateCols.forEach(w => {
+    reportRowsFromSubs(w.subs).forEach(r => {
+      const f = data[r.farmerKey] = data[r.farmerKey] || { name: r.farmerName, phone: r.farmerPhone, crops: {} };
+      const c = f.crops[r.product] = f.crops[r.product] || { unit: r.unit, byDate: {}, total: 0 };
+      c.byDate[w.label] = (c.byDate[w.label] || 0) + r.brought;
+      c.total += r.brought;
+    });
+  });
+  const farmers = Object.values(data).sort((a,b) => a.name.localeCompare(b.name,'gu'));
+  if(!farmers.length) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
+  const blocks = farmers.map((f, i) => {
+    const crops = Object.entries(f.crops).sort((a,b) => a[0].localeCompare(b[0],'gu'));
+    const rowsHtml = crops.map(([name,c]) => `
+      <tr>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee">${esc(name)}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700">${qfmt(c.total,c.unit)}</td>
+        ${dateCols.map(w => `<td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${c.byDate[w.label]!=null ? qfmt(c.byDate[w.label]) : '—'}</td>`).join('')}
+      </tr>`).join('');
+    return `
+      <div style="margin-bottom:8px;break-inside:avoid">
+        <div onclick="toggleFarmerDetail('fq${i}')" style="font-weight:700;font-size:14px;padding:7px 10px;background:#eef5ef;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+          <span>🌾 ${esc(f.name)} ${f.phone?`<span style="font-weight:400;color:#666;font-size:12px">· ${esc(f.phone)}</span>`:''}</span>
+          <span style="font-weight:600;font-size:13px;color:#2d6a4f;white-space:nowrap;margin-left:8px">${crops.length} પાક <span id="fq${i}arr" style="font-size:10px;color:#999">▶</span></span>
+        </div>
+        <div id="fq${i}" style="display:none;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:${360+dateCols.length*70}px">
+            <thead><tr style="background:#fafaf5;color:#666;font-size:11px">
+              <th style="text-align:left;padding:5px 8px">પ્રોડક્ટ</th>
+              <th style="text-align:right;padding:5px 8px">કુલ</th>
+              ${dateCols.map(w => `<th style="text-align:right;padding:5px 8px;white-space:nowrap">${esc(w.label)}</th>`).join('')}
+            </tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }).join('');
+  return `${blocks}<div style="font-size:11.5px;color:#888;margin-top:8px">ફક્ત લાવ્યા (kg/નંગ) — વેચાયું, બાકી, ભાવ અહીં નથી. — = એ તારીખે આ પાક નહોતો લાવ્યા.</div>`;
 }
 
 // ---- Phase 3: insights dashboard (read-only) ----
@@ -5301,6 +5391,7 @@ function reportBodyHtml(){
   if(REPORT_VIEW === 'insights')   return reportInsightsHtml();
   if(REPORT_VIEW === 'attendance') return reportAttendanceHtml();
   if(REPORT_VIEW === 'venue')      return reportVenueHtml();
+  if(REPORT_VIEW === 'farmerqty')  return reportFarmerQtyHtml();
   return reportFarmerHtml();
 }
 function reportTitle(){
@@ -5309,6 +5400,7 @@ function reportTitle(){
   if(REPORT_VIEW === 'insights') return 'Insights — બધા અઠવાડિયા';
   if(REPORT_VIEW === 'attendance') return 'ખેડૂત હાજરી રિપોર્ટ — બધા હાટ';
   if(REPORT_VIEW === 'venue') return 'હાટ-વાર વેચાણ રિપોર્ટ · ' + reportPeriodLabel();
+  if(REPORT_VIEW === 'farmerqty') return 'ખેડૂત-વાર જથ્થો (લાવ્યા) — તારીખ પ્રમાણે';
   return 'ખેડૂત × પ્રોડક્ટ રિપોર્ટ · ' + reportPeriodLabel();
 }
 
@@ -5319,7 +5411,7 @@ function renderReports(){
   }
   const weeks = REPORTS_DATA.weeks;
   if(!weeks.length) return `<div class="card"><div class="state" style="padding:40px;text-align:center"><div class="state-icon">📊</div><div class="state-title">હજી કોઈ approved data નથી</div></div></div>`;
-  const rows = (REPORT_VIEW==='month' || REPORT_VIEW==='insights') ? weeks.flatMap(w=>reportRowsFromSubs(w.subs)) : reportActiveRows();
+  const rows = (REPORT_VIEW==='month' || REPORT_VIEW==='insights' || REPORT_VIEW==='farmerqty') ? weeks.flatMap(w=>reportRowsFromSubs(w.subs)) : reportActiveRows();
   const tB = rows.reduce((n,r)=>n+r.brought,0), tS = rows.reduce((n,r)=>n+(r.sold||0),0), tE = sumKnown(rows.map(r=>r.estSale));
   const nF = new Set(rows.map(r=>r.farmerKey)).size, nP = new Set(rows.map(r=>r.product)).size;
   const crops = [...new Set(rows.map(r => r.product))].sort((a,b)=>a.localeCompare(b,'gu'));
@@ -5328,10 +5420,11 @@ function renderReports(){
   return `
     <div class="card" style="margin-bottom:12px;padding:13px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        ${(REPORT_VIEW!=='month' && REPORT_VIEW!=='insights' && REPORT_VIEW!=='attendance') ? `<select class="frm-in" style="width:auto;font-size:13px" onchange="setReportWeek(this.value)">${weekOpt}</select>` : ''}
+        ${(REPORT_VIEW!=='month' && REPORT_VIEW!=='insights' && REPORT_VIEW!=='attendance' && REPORT_VIEW!=='farmerqty') ? `<select class="frm-in" style="width:auto;font-size:13px" onchange="setReportWeek(this.value)">${weekOpt}</select>` : ''}
         <div style="display:flex;gap:4px;background:var(--bg);border-radius:8px;padding:3px;flex-wrap:wrap">
           <button class="btn-sm ${REPORT_VIEW==='farmer'?'primary':''}" onclick="setReportView('farmer')" style="font-size:12.5px">🌾 ખેડૂત×પ્રોડક્ટ</button>
           <button class="btn-sm ${REPORT_VIEW==='crop'?'primary':''}" onclick="setReportView('crop')" style="font-size:12.5px">🥕 પાક</button>
+          <button class="btn-sm ${REPORT_VIEW==='farmerqty'?'primary':''}" onclick="setReportView('farmerqty')" style="font-size:12.5px">📦 જથ્થો (તારીખ વાર)</button>
           <button class="btn-sm ${REPORT_VIEW==='month'?'primary':''}" onclick="setReportView('month')" style="font-size:12.5px">📅 મહિના વાર</button>
           <button class="btn-sm ${REPORT_VIEW==='venue'?'primary':''}" onclick="setReportView('venue')" style="font-size:12.5px">🏪 હાટ-વાર વેચાણ</button>
           <button class="btn-sm ${REPORT_VIEW==='attendance'?'primary':''}" onclick="setReportView('attendance')" style="font-size:12.5px">📅 હાજરી</button>
