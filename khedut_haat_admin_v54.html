@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V8.3</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V8.4</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -359,6 +359,13 @@ function logAudit(action, target, extra){
 const $=q=>document.querySelector(q);
 const $$=q=>document.querySelectorAll(q);
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// V8.4 — use this (NOT esc) for any value going inside onclick="fn('...')".
+// esc() alone is NOT enough there: it turns ' into &#39;, the HTML parser decodes that back
+// into a real ' inside the attribute, and the JS string closes early → script injection.
+// (The old `esc(x).replace(/'/g,"\\'")` idiom was dead code for exactly that reason: esc()
+// had already consumed every literal quote, so the replace never matched anything.)
+// Order matters: escape backslashes first, then quotes, and HTML-escape last.
+const jsStr=s=>esc(String(s==null?"":s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"));
 function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{folder:'svg',ext:'.svg'}),0); }
 
 function toast(msg, kind=""){
@@ -4871,7 +4878,7 @@ function reportCropHtml(){
   const gTotSale = sumKnown(products.map(k => byProd[k].hasSale ? byProd[k].estSale : null));
   const sumRows = products.map(name => {
     const p = byProd[name], sel = name === REPORT_CROP;
-    return `<tr onclick="setReportCrop(${JSON.stringify(sel ? '' : name)})" style="cursor:pointer;${sel?'background:#eef5ef;':''}">
+    return `<tr onclick="setReportCrop('${jsStr(sel ? '' : name)}')" style="cursor:pointer;${sel?'background:#eef5ef;':''}">
       <td style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:${sel?'700':'400'}">${esc(name)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${qfmt(p.brought,p.unit)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">${rupeeOrDash(p.hasSale ? p.estSale : null)}</td>
@@ -5642,7 +5649,7 @@ function renderDesign(){
         <div>
           <div class="frm-label" style="margin-bottom:8px">👁️ લાઈવ પ્રિવ્યૂ</div>
           <div id="dpHero" style="position:relative;height:230px;border-radius:12px;overflow:hidden;background:#1b4332;border:1px solid var(--border)">
-            <img id="dpImg" src="${esc(d.banner.url)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${d.banner.fit};filter:brightness(.65) blur(${d.banner.blur}px);${d.banner.url?'':'display:none'}">
+            <img id="dpImg" src="${esc(d.banner.url)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${d.banner.fit === 'contain' ? 'contain' : 'cover'};filter:brightness(.65) blur(${+d.banner.blur || 0}px);${d.banner.url?'':'display:none'}">
             <div id="dpOverlay" style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.1) 0%,rgba(27,67,50,${(d.banner.overlay/100).toFixed(2)}) 100%)"></div>
             <div style="position:absolute;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;z-index:2">
               <div style="width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.55);overflow:hidden">${d.logoLeft.url?`<img src="${esc(cloudinaryThumb(d.logoLeft.url,80))}" style="width:100%;height:100%;object-fit:contain">`:''}</div>
