@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V8.4</title>
+<title>એડમિન — સૃષ્ટિ ખેડૂત હાટ · V8.5</title>
 <link rel="manifest" href="manifest-admin.json">
 <meta name="theme-color" content="#1b4332">
 <link rel="apple-touch-icon" href="icons/icon-customer-192.png">
@@ -4630,6 +4630,7 @@ let REPORTS_LOADING = false;
 let REPORT_WEEK = 'all';       // selected week key, or 'all'
 let REPORT_VIEW = 'farmer';    // 'farmer' | 'crop' | 'month'
 let REPORT_CROP = '';
+let REPORT_VERIFY_HAAT = 'all';   // હાટ ચકાસણી view: 'all' (matrix) or a single haat code (checklist)
 let REPORT_METRIC = 'revenue'; // month view metric: 'revenue' | 'sold'
 // V8.3: Reports only shows real usage — weeks before this were setup/testing data. Keyed on
 // weekNum, not meta.createdAt — createdAt is when the week node was CREATED (admin sets a week
@@ -4984,6 +4985,157 @@ function reportMonthHtml(){
     </table>
     <div style="font-size:11.5px;color:#888;margin-top:8px">${isRev?'વેચાણ (₹) = વેચાયું × ભાવ · બાકી ન ભરી હોય તો —':'વેચાયેલો જથ્થો (kg)'} — મહિના પ્રમાણે, ખેડૂત વાર.</div>`;
 }
+
+/* ════════ હાટ ચકાસણી — physical verification sheet (READ-ONLY) ════════
+   Field use: our person goes to ONE haat and physically checks what each farmer actually
+   brought. Two deliberate differences from every other report here:
+
+   1. QUANTITY IS IN qtyUnit, NOT unit. Elsewhere qty is multiplied by qtyConvFactor() to
+      reach PRICING units (₹90 per 500gm), because those reports are about money. This one is
+      about physical goods: a farmer priced per 500gm may carry "2 kg". Showing "2 × 500gm"
+      would send the verifier looking for 2 packets instead of 2 kg — wrong by 4×.
+      (184 of 721 item rows in week 507 price and carry in different units.)
+   2. Per-haat split, same attribution venueSalesData() uses: qtyByHaat when the farmer filled
+      it, else the whole qty when they attend exactly one haat, else '__unknown'.
+
+   Writes nothing — no verification result is stored (user chose the read-only option). */
+function verifyRowsFromSubs(subs){
+  const rows = [];
+  Object.entries(subs || {}).forEach(([fid, sub]) => {
+    if(!sub || (sub.status && sub.status !== 'approved')) return;
+    const codes = Array.isArray(sub.farmerHaatCodes) ? sub.farmerHaatCodes.filter(Boolean) : [];
+    const cf2 = canonicalFarmer(sub.farmerPhone, fid, sub.farmerName);
+    (sub.items || []).forEach(it => {
+      if(!it || !it.productId || !PRODUCTS_DB[it.productId]) return;
+      if(!(+it.price > 0)) return;                       // price>0 == actually submitted this week
+      const carryUnit = it.qtyUnit || it.unit || 'kg';   // what they physically carry
+      const byHaat = {};
+      if(it.qtyByHaat && typeof it.qtyByHaat === 'object' && Object.keys(it.qtyByHaat).length){
+        Object.entries(it.qtyByHaat).forEach(([code,q]) => { q = +q||0; if(q>0) byHaat[code] = q; });
+      } else {
+        const q = +it.qty || 0;
+        if(q > 0) byHaat[codes.length === 1 ? codes[0] : '__unknown'] = q;
+      }
+      if(!Object.keys(byHaat).length) return;
+      rows.push({ farmerKey: cf2.key, farmerName: cf2.name, farmerPhone: sub.farmerPhone || '',
+                  product: it.name || '?', unit: carryUnit, byHaat });
+    });
+  });
+  return rows;
+}
+
+// The week to verify. Verification is always about ONE haat day, so 'all weeks' is meaningless
+// here — fall back to the most recent week (REPORTS_DATA.weeks is sorted newest-first).
+function verifyWeek(){
+  const ws = (REPORTS_DATA && REPORTS_DATA.weeks) || [];
+  if(!ws.length) return null;
+  return (REPORT_WEEK === 'all') ? ws[0] : (ws.find(w => w.key === REPORT_WEEK) || ws[0]);
+}
+
+function reportVerifyHtml(){
+  const w = verifyWeek();
+  if(!w) return '<div style="padding:30px;text-align:center;color:#888">કોઈ approved data નથી.</div>';
+  const rows = verifyRowsFromSubs(w.subs);
+  if(!rows.length) return '<div style="padding:30px;text-align:center;color:#888">આ અઠવાડિયે કોઈ મંજૂર યાદી નથી.</div>';
+
+  const hname = c => c === '__unknown' ? '❓ હાટ સ્પષ્ટ નથી'
+                   : ((HAATS[c] && (HAATS[c].nameGu || HAATS[c].name)) || c);
+  const codes = [...new Set(rows.flatMap(r => Object.keys(r.byHaat)))]
+    .sort((a,b) => (a==='__unknown') - (b==='__unknown') ||
+                   ((HAATS[a]&&HAATS[a].seqOrder)||999) - ((HAATS[b]&&HAATS[b].seqOrder)||999));
+  if(REPORT_VERIFY_HAAT !== 'all' && !codes.includes(REPORT_VERIFY_HAAT)) REPORT_VERIFY_HAAT = 'all';
+
+  // ---- summary strip: per-haat totals, before any detail ----
+  const totals = codes.map(c => {
+    const rs = rows.filter(r => r.byHaat[c] > 0);
+    const farmers = new Set(rs.map(r => r.farmerKey)).size;
+    return `<div style="flex:1;min-width:118px;background:#fff;border:1px solid var(--border);border-radius:9px;padding:8px 11px">
+      <div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(hname(c))}</div>
+      <div style="font-size:17px;font-weight:800;color:var(--green2)">${farmers} <span style="font-size:11px;font-weight:600;color:var(--muted)">ખેડૂત</span></div>
+      <div style="font-size:10.5px;color:var(--muted)">${rs.length} વસ્તુ</div>
+    </div>`;
+  }).join('');
+
+  const chips = [`<button class="btn-sm ${REPORT_VERIFY_HAAT==='all'?'primary':''}" onclick="setVerifyHaat('all')" style="font-size:12.5px">બધા હાટ</button>`]
+    .concat(codes.map(c => `<button class="btn-sm ${REPORT_VERIFY_HAAT===c?'primary':''}" onclick="setVerifyHaat('${jsStr(c)}')" style="font-size:12.5px">${esc(hname(c))}</button>`))
+    .join('');
+
+  const head = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${totals}</div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;background:var(--bg);border-radius:9px;padding:4px;margin-bottom:12px">${chips}</div>`;
+
+  // ---- ONE HAAT: flat checklist, what should arrive at this haat ----
+  if(REPORT_VERIFY_HAAT !== 'all'){
+    const c = REPORT_VERIFY_HAAT;
+    const byFarmer = {};
+    rows.filter(r => r.byHaat[c] > 0).forEach(r => {
+      (byFarmer[r.farmerKey] = byFarmer[r.farmerKey] || { name:r.farmerName, phone:r.farmerPhone, items:[] })
+        .items.push(r);
+    });
+    const fl = Object.values(byFarmer).sort((a,b) => a.name.localeCompare(b.name,'gu'));
+    const blocks = fl.map(f => `
+      <div style="border-bottom:1px solid #eee;padding:9px 0;break-inside:avoid">
+        <div style="font-weight:700;font-size:13.5px;margin-bottom:5px">
+          🌾 ${esc(f.name)} ${f.phone?`<span style="font-weight:400;color:#666;font-size:11.5px">· ${esc(f.phone)}</span>`:''}
+          <span style="font-weight:400;color:#888;font-size:11.5px">· ${f.items.length} વસ્તુ</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <tbody>
+            ${f.items.sort((a,b)=>a.product.localeCompare(b.product,'gu')).map(r => `
+              <tr>
+                <td style="padding:4px 8px;border-top:1px dashed #eee">${esc(r.product)}</td>
+                <td style="padding:4px 8px;border-top:1px dashed #eee;text-align:right;font-weight:700;white-space:nowrap">${qfmt(r.byHaat[c])} <span style="font-weight:400;color:#888;font-size:11px">${esc(r.unit)}</span></td>
+                <td style="padding:4px 8px;border-top:1px dashed #eee;text-align:right;width:80px;color:#bbb">ખરેખર ____</td>
+                <td style="padding:4px 8px;border-top:1px dashed #eee;text-align:center;width:30px;color:#ccc;font-size:15px">☐</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`).join('');
+    return `${head}
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:8px">📋 <b>${esc(hname(c))}</b> — ${fl.length} ખેડૂત · ${rows.filter(r=>r.byHaat[c]>0).length} વસ્તુ ચકાસવાની. જથ્થો ખેડૂત જે એકમમાં લાવે છે તે જ છે.</div>
+      ${blocks}
+      <div style="font-size:11.5px;color:#888;margin-top:10px">🖨 PDF / Print દબાવીને છાપી શકો — 'ખરેખર' અને ☐ પેન થી ભરવા માટે.</div>`;
+  }
+
+  // ---- ALL HAATS: farmer accordion, crop × haat matrix ----
+  const byFarmer = {};
+  rows.forEach(r => { (byFarmer[r.farmerKey] = byFarmer[r.farmerKey] || { name:r.farmerName, phone:r.farmerPhone, items:[] }).items.push(r); });
+  const fl = Object.values(byFarmer).sort((a,b) => a.name.localeCompare(b.name,'gu'));
+  const blocks = fl.map((f, i) => {
+    const cols = codes.filter(c => f.items.some(r => r.byHaat[c] > 0));
+    const its = f.items.sort((a,b)=>a.product.localeCompare(b.product,'gu'));
+    return `
+      <div style="margin-bottom:8px;break-inside:avoid">
+        <div onclick="toggleFarmerDetail('vf${i}')" style="font-weight:700;font-size:14px;padding:7px 10px;background:#eef5ef;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <span>🌾 ${esc(f.name)} ${f.phone?`<span style="font-weight:400;color:#666;font-size:12px">· ${esc(f.phone)}</span>`:''}</span>
+          <span style="font-weight:600;font-size:12px;color:#2d6a4f;white-space:nowrap">${cols.length} હાટ · ${its.length} વસ્તુ <span id="vf${i}arr" style="font-size:10px;color:#999">▶</span></span>
+        </div>
+        <div id="vf${i}" style="display:none;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:${300+cols.length*95}px">
+            <thead><tr style="background:#fafaf5;color:#666;font-size:11px">
+              <th style="text-align:left;padding:5px 8px">પ્રોડક્ટ</th>
+              ${cols.map(c=>`<th style="text-align:right;padding:5px 8px;white-space:nowrap">${esc(hname(c))}</th>`).join('')}
+              <th style="text-align:right;padding:5px 8px">કુલ</th>
+            </tr></thead>
+            <tbody>
+              ${its.map(r => {
+                const tot = cols.reduce((s,c)=>s+(r.byHaat[c]||0),0);
+                return `<tr>
+                  <td style="padding:5px 8px;border-bottom:1px solid #eee">${esc(r.product)} <span style="color:#999;font-size:11px">${esc(r.unit)}</span></td>
+                  ${cols.map(c=>{const v=r.byHaat[c]||0;
+                    return `<td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;${v?'font-weight:600':'color:#ccc'}">${v?qfmt(v):'—'}</td>`;}).join('')}
+                  <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700">${qfmt(tot)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }).join('');
+  return `${head}${blocks}
+    <div style="font-size:11.5px;color:#888;margin-top:8px">જથ્થો ખેડૂતના પોતાના એકમમાં (kg / નંગ / પેકેટ) — ભાવના એકમમાં નહીં. — = એ હાટ પર આ વસ્તુ નથી લઈ જતા. કોઈ ડેટા સેવ થતો નથી.</div>`;
+}
+window.setVerifyHaat = v => { REPORT_VERIFY_HAAT = v; setTabBodyHtml(); };
 
 // Per-farmer crop × haat-date matrix — લાવ્યા (brought) only, no sold/બાકી/ભાવ/વેચાણ.
 // Spans ALL weeks (ignores week selector), one table per farmer, columns = every haat date.
@@ -5399,6 +5551,7 @@ function reportBodyHtml(){
   if(REPORT_VIEW === 'attendance') return reportAttendanceHtml();
   if(REPORT_VIEW === 'venue')      return reportVenueHtml();
   if(REPORT_VIEW === 'farmerqty')  return reportFarmerQtyHtml();
+  if(REPORT_VIEW === 'verify')     return reportVerifyHtml();
   return reportFarmerHtml();
 }
 function reportTitle(){
@@ -5408,6 +5561,10 @@ function reportTitle(){
   if(REPORT_VIEW === 'attendance') return 'ખેડૂત હાજરી રિપોર્ટ — બધા હાટ';
   if(REPORT_VIEW === 'venue') return 'હાટ-વાર વેચાણ રિપોર્ટ · ' + reportPeriodLabel();
   if(REPORT_VIEW === 'farmerqty') return 'ખેડૂત-વાર જથ્થો (લાવ્યા) — તારીખ પ્રમાણે';
+  if(REPORT_VIEW === 'verify'){
+    const w = verifyWeek();
+    return 'હાટ ચકાસણી — લાવેલો જથ્થો' + (w ? ' · ' + w.label : '');
+  }
   return 'ખેડૂત × પ્રોડક્ટ રિપોર્ટ · ' + reportPeriodLabel();
 }
 
@@ -5432,6 +5589,7 @@ function renderReports(){
           <button class="btn-sm ${REPORT_VIEW==='farmer'?'primary':''}" onclick="setReportView('farmer')" style="font-size:12.5px">🌾 ખેડૂત×પ્રોડક્ટ</button>
           <button class="btn-sm ${REPORT_VIEW==='crop'?'primary':''}" onclick="setReportView('crop')" style="font-size:12.5px">🥕 પાક</button>
           <button class="btn-sm ${REPORT_VIEW==='farmerqty'?'primary':''}" onclick="setReportView('farmerqty')" style="font-size:12.5px">📦 જથ્થો (તારીખ વાર)</button>
+          <button class="btn-sm ${REPORT_VIEW==='verify'?'primary':''}" onclick="setReportView('verify')" style="font-size:12.5px">🔍 હાટ ચકાસણી</button>
           <button class="btn-sm ${REPORT_VIEW==='month'?'primary':''}" onclick="setReportView('month')" style="font-size:12.5px">📅 મહિના વાર</button>
           <button class="btn-sm ${REPORT_VIEW==='venue'?'primary':''}" onclick="setReportView('venue')" style="font-size:12.5px">🏪 હાટ-વાર વેચાણ</button>
           <button class="btn-sm ${REPORT_VIEW==='attendance'?'primary':''}" onclick="setReportView('attendance')" style="font-size:12.5px">📅 હાજરી</button>
@@ -5443,7 +5601,7 @@ function renderReports(){
         <button class="btn-sm primary" onclick="printReport()" title="Print અથવા Save as PDF">🖨 PDF / Print</button>
       </div>
     </div>
-    ${REPORT_VIEW==='attendance' ? '' : `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    ${(REPORT_VIEW==='attendance' || REPORT_VIEW==='verify') ? '' : `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       ${stat('ખેડૂત', nF)}${stat('પ્રોડક્ટ', nP)}${stat('કુલ લાવ્યા', qfmt(tB)+' kg')}${stat('વેચાયું', qfmt(tS)+' kg')}${stat('વેચાણ', rupeeOrDash(tE))}
     </div>`}
     <div class="card" style="padding:14px 16px">${reportBodyHtml()}</div>
