@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V8.5</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V8.6</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <!-- V7.1: warm up DNS/TLS for the catalogue fetch chain while the page is still parsing -->
 <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
@@ -1119,7 +1119,7 @@ function renderFarmers(){
                   <span class="item-cat-tag">${esc(it.cat||'')}</span>
                   ${esc(it.name)}
                 </div>
-                <div class="item-price-tag">₹${esc(fp)} <span style="font-weight:400;color:var(--muted);font-size:11px">/ ${esc(it.unit)}</span>${it.qty?` <span style="color:var(--green2);font-weight:600;font-size:10.5px;margin-left:5px">× ${esc(it.qty)} ${esc(it.unit)}</span>`:''}</div>
+                <div class="item-price-tag">₹${esc(fp)} <span style="font-weight:400;color:var(--muted);font-size:11px">/ ${esc(it.unit)}</span></div>
               </div>
             `;}).join('')}
           </div>
