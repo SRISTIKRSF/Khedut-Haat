@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>સૃષ્ટિ ખેડૂત હાટ · V8.6</title>
+<title>સૃષ્ટિ ખેડૂત હાટ · V8.7</title>
 <meta name="description" content="ઝેરમુક્ત ખેત પેદાશો — સીધી ખેડૂત પાસેથી. 12 સ્થળે. શાક, ફળ, ઘી, મધ, કઠોળ.">
 <!-- V7.1: warm up DNS/TLS for the catalogue fetch chain while the page is still parsing -->
 <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
@@ -248,15 +248,31 @@ function twe(){ if(window.twemoji) setTimeout(()=>twemoji.parse(document.body,{f
 // Keeps --cat-h-top in sync with .controls' real rendered height (see the .cat-header comment
 // above) — re-measures synchronously right after every render() AND on any later resize of
 // .controls itself (orientation change, venue chips re-wrapping), not just on our own re-renders.
+// V8.7 — this used to measure ONCE, synchronously, right after render(). On a phone that single
+// measurement can be taken while .controls is still reflowing (Gujarati webfont swapping in, venue
+// chips re-wrapping after a tab switch), so it lands too SMALL. --cat-h-top then sits above the
+// filter bar's real bottom edge and every .cat-header pins *behind* the filters — invisible, which
+// reads as "the category heading stopped freezing". Desktop never showed it because fonts are
+// already cached there. Fix: same measurement, but re-run whenever the layout could still settle.
 let _controlsRO = null;
 function syncStickyOffsets(){
   const controlsEl = document.getElementById('wrap')?.querySelector('.controls');
   if(!controlsEl) return;
-  const setVar = () => document.documentElement.style.setProperty('--cat-h-top', (48 + controlsEl.getBoundingClientRect().height) + 'px');
+  const setVar = () => {
+    const h = controlsEl.getBoundingClientRect().height;
+    if(h > 0) document.documentElement.style.setProperty('--cat-h-top', (48 + h) + 'px');
+  };
   setVar();
+  requestAnimationFrame(setVar);                 // after this frame's layout settles
+  if(document.fonts && document.fonts.ready) document.fonts.ready.then(setVar).catch(()=>{});
   if(!_controlsRO) _controlsRO = new ResizeObserver(setVar);
   _controlsRO.disconnect();
   _controlsRO.observe(controlsEl);
+  if(!syncStickyOffsets._bound){                 // bind once, not per render
+    syncStickyOffsets._bound = true;
+    addEventListener('orientationchange', () => setTimeout(syncStickyOffsets, 150));
+    addEventListener('resize', () => syncStickyOffsets());
+  }
 }
 
 let WK=null, WK_META={}, SUBMISSIONS={}, FARMERS_MAP={};
@@ -792,7 +808,7 @@ function render(){
 
     <div class="tabs" role="tablist" aria-label="Catalog view">
       <button class="tab ${TAB==='items'?'active':''}" onclick="setTab('items')" role="tab" aria-selected="${TAB==='items'}" aria-controls="catalog-body">🛒 વસ્તુઓ</button>
-      <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')" role="tab" aria-selected="${TAB==='farmers'}" aria-controls="catalog-body">🌾 ખેડૂત</button>
+      <button class="tab ${TAB==='farmers'?'active':''}" onclick="setTab('farmers')" role="tab" aria-selected="${TAB==='farmers'}" aria-controls="catalog-body">🌾 ખેડૂત જૂથ</button>
     </div>
 
     <div class="controls">
@@ -847,23 +863,49 @@ function renderBody(){
   const total = TAB==='items'?itemCount:farmerCountF;
   const totalSrc = TAB==='items'?ALL_ITEMS.length:FARMER_LIST.length;
   return `
+    ${totalSrc===0 ? '' : `
     <div class="results-bar fade-in">
-      ${totalSrc===0
-        ? `<span>દર શુક્રવારે ખેડૂત તેમની યાદી મોકલે છે — શનિવાર સાંજ પછી અહીં દેખાશે.</span>`
-        : `<b style="color:var(--text)">${total}</b> ${TAB==='items'?'વસ્તુ':'ખેડૂત'}
-           ${Q||CAT!=='all'||VENUE!=='all'?`<span style="margin-left:8px;color:var(--green2);cursor:pointer" onclick="resetFilters()">↺ રીસેટ</span>`:''}`
-      }
-    </div>
+      <b style="color:var(--text)">${total}</b> ${TAB==='items'?'વસ્તુ':'ખેડૂત'}
+      ${Q||CAT!=='all'||VENUE!=='all'?`<span style="margin-left:8px;color:var(--green2);cursor:pointer" onclick="resetFilters()">↺ રીસેટ</span>`:''}
+    </div>`}
     ${TAB==='items' ? renderItems() : renderFarmers()}
   `;
+}
+
+// V8.7 — between weeks the catalogue is genuinely empty, and a bare "list coming soon" line left
+// the screen looking broken. A customer arriving right then still has one real question: WHEN and
+// WHERE can I buy? So answer that instead of apologising — next haat timing plus every venue with
+// its schedule and map link. Deliberately shows NO products: nothing has been submitted, and
+// listing "usually available" items would send people out for produce that may not arrive.
+function renderEmptyState(){
+  const when = [WK_META.dateLabel, WK_META.timeLabel].filter(Boolean).join(' · ');
+  const venues = allVenuesSorted();
+  return `
+    <div class="fade-in" style="padding:26px 16px 8px;text-align:center">
+      <div style="font-size:40px;line-height:1;margin-bottom:8px">🌱</div>
+      <div style="font-family:'Fraunces','Noto Sans Gujarati',serif;font-size:19px;font-weight:700;color:var(--green)">આ અઠવાડિયાની યાદી હજી આવી નથી</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:5px;line-height:1.55;max-width:34em;margin-left:auto;margin-right:auto">
+        ખેડૂત દર અઠવાડિયે પોતાની યાદી મોકલે છે — તૈયાર થતાં જ અહીં દેખાશે.${when?`<br><b style="color:var(--green2)">આવતું હાટ: ${esc(when)}</b>`:''}
+      </div>
+    </div>
+    ${venues.length ? `
+    <div class="fade-in" style="padding:6px 14px 20px">
+      <div style="font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.8px;text-transform:uppercase;padding:10px 2px 8px">📍 અમારા હાટ સ્થળ</div>
+      ${venues.map(v => `
+        <div style="display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 13px;margin-bottom:7px">
+          <div style="min-width:0;flex:1">
+            <div style="font-size:13.5px;font-weight:600">${esc(v.name)}</div>
+            ${v.sub?`<div style="font-size:11.5px;color:var(--muted);margin-top:1px">${esc(v.sub)}</div>`:''}
+          </div>
+          ${v.map?`<a href="${safeUrl(v.map)}" target="_blank" rel="noopener" style="font-size:11px;font-weight:700;color:var(--green);background:var(--green3);border-radius:20px;padding:5px 12px;text-decoration:none;white-space:nowrap">નક્શો ↗</a>`:''}
+        </div>`).join('')}
+    </div>` : ''}`;
 }
 
 function renderItems(){
   const items = filteredItems();
   if(!items.length){
-    if(ALL_ITEMS.length===0){
-      return `<div class="empty"><div class="empty-icon">🌱</div><p>યાદી જલ્દી જ આવશે</p></div>`;
-    }
+    if(ALL_ITEMS.length===0) return renderEmptyState();
     return `<div class="empty"><div class="empty-icon">🔍</div><p>કોઈ વસ્તુ મળી નહિ</p></div>`;
   }
   if(Q){
@@ -1088,9 +1130,7 @@ window.closeProductSheet = () => { closeModalViaUser(); };
 function renderFarmers(){
   const list = filteredFarmers();
   if(!list.length){
-    if(FARMER_LIST.length===0){
-      return `<div class="empty"><div class="empty-icon">🌱</div><p>યાદી જલ્દી જ આવશે</p></div>`;
-    }
+    if(FARMER_LIST.length===0) return renderEmptyState();
     return `<div class="empty"><div class="empty-icon">🔍</div><p>કોઈ ખેડૂત મળ્યો નહિ</p></div>`;
   }
   return `<div class="farmers-list fade-in">
